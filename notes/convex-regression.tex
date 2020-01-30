@@ -250,7 +250,7 @@ Below we summarize the components of the gradient \(\bv_{n+1}\) at iteration \(n
 \begin{align*}
     \bv_{\btheta}
     &=
-    \by - \btheta_{n} + \rho [\bW^{\ast} - \bW] \boldsymbol{1} \\
+    \btheta_{n} - \by + \rho [\bW^{\ast} - \bW] \boldsymbol{1} \\
     \bv_{\bxi_{j}}
     &=
     \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
@@ -261,13 +261,13 @@ The proximal gradient updates take the form
     \btheta_{n+1}
     &=
     \btheta_{n}
-    - \gamma_{n} [\by - \btheta_{n} + \rho (\bW^{\ast} - \bW) \boldsymbol{1}], \\
+    - \gamma_{n} [\btheta_{n} - \by + \rho (\bW^{\ast} - \bW) \boldsymbol{1}], \\
     \bxi_{n+1,j}
     &=
     \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
 \end{align*}
 
-\section*{\center Simplifying with the MM Principle}
+% \section*{\center Simplifying with the MM Principle}
 
 %%%%% BIBLIOGRAPHY %%%%%
 \begin{thebibliography}{99}
