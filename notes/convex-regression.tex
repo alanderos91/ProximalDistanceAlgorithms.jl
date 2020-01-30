@@ -1,0 +1,283 @@
+\documentclass{article}
+
+\input{preamble.tex}
+
+\title{First-Order Methods for Convex Multivariate Regression}
+\author{Alfonso Landeros}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+Convex regression is a nonparametric method to estimate a function under shape constraints.
+Given a set of observations \(\{\bx_{i}, y_{i}\}_{i=1}^{n}\) with \(\bx_{i} \in \Real^{d}\) and \(y_{i} \in \Real\), our goal is determine the least squares estimator (LSE) \(\hat{\varphi}_{n}\) by solving
+\begin{equation*}
+    \hat{\varphi}_{n} \in \underset{\psi}{\arg \min}
+    \sum_{i=1}^{n} (y_{i} - \psi(\bx_{i}))^{2}.
+\end{equation*}
+Here the minimum is taken over the set of all convex functions \(\psi : \Real^{d} \rightarrow \Real\).
+The properties of the convex LSE has been described in detail \cite{seijo2011}.
+The equivalent, finite dimensional problem
+\begin{equation*}
+    \underset{\btheta; \bxi_{1}, \ldots, \bxi_{n}}{\mathrm{minimize}}
+    ~\frac{1}{2} \|\by - \btheta\|_{2}^{2}
+    \quad
+    \text{subject to}
+    ~\theta_{j} + \langle{\bx_{i} - \bx_{j},~\bxi_{j}}\rangle \le \theta_{i}
+\end{equation*}
+estimates function values \(\theta_{i} = \varphi_{n}(\bx_{i})\) and subgradients \(\bxi_{i} \in \Real^{d}\) at each data point.
+The discretization \(\hat{\btheta}\) can be extended to a continuous, convex function on \(\Real^{d}\) by the affine interpolation scheme
+\begin{equation*}
+    \hat{\varphi}(\bx)
+    =
+    \max_{j=1,\ldots,n}\{\hat{\theta}_{j}
+    + \langle{\bx - \bx_{j},~\hat{\bxi}_{j}}\rangle\}.
+\end{equation*}
+Further, one can restore smoothness by imposing Lipschitz constraints on each subgradient or applying postprocessing techniques \cite{mazumder2018}.
+
+Computation remains a challenge.
+Generic interior point methods do not scale to large datasets due to the \(n^{2}\) constraints.
+Alternating direction method of multipliers (ADMM) has been proposed as an alternative that adequately exploits problem-specific structure \cite{mazumder2018}.
+Empirical evidence suggests ADMM scales to problems on the order of \(n \approx 5000\) data points and is largely insensitive to the dimension \(d\) of a function's domain.
+However, the convergence properties of 3-block ADMM algorithms are not characterized and so the quality of solutions cannot be readily assessed.
+
+These notes explore proximal gradient algorithms tailored to convex regression.
+We anticipate that the simplicity of updates, acceleration techniques, and well-established convergence theory will prove superior to ADMM in this context.
+
+\section*{\center A Proximal Algorithm}
+
+The convex regression problem is a quadratic program
+\begin{equation*}
+    \underset{\bz}{\mathrm{minimize}}
+    ~f(\bA \bz) \quad
+    \text{subject to}
+    ~\bB \bz \le \boldsymbol{0},
+\end{equation*}
+where \(\bz = (\btheta, \bxi_{1}, \ldots, \bxi_{n})^{t}\) and \(\bA\) and \(\bB\) are compatible matrices to be determined.
+Its solution is approximated by an unconstrained program in which the sublevel set constraint is replaced with the algebraic penalty function \(\|(\bB \bz)_{+}\|_{2}^{2}\).
+Here \(u_{+} = \max\{0, u\}\) is understood as an element-wise operation.
+Explicitly, the unconstrained problem is of the form
+\begin{equation*}
+    \underset{\bz}{\mathrm{minimize}}
+    ~\frac{1}{2} \|\by - \btheta\|^{2}_{2}
+    + \frac{\rho}{2} \|(\bB \bz)_{+}\|_{2}^{2}.
+\end{equation*}
+Thus, the appropriate gradient is of the form
+\begin{equation*}
+    \bv_{n}
+    =
+    \bA^{\ast} \nabla f(\bA \bz) + \rho \bB^{\ast}(\bB \bz)_{+}
+    =
+    \bA^{\ast} \bA \bz + \rho \bB^{\ast} (\bB \bz)_{+},
+\end{equation*}
+and is used in the iterative map
+\begin{equation*}
+    \bz_{n+1} = \bz_{n} - \gamma_{n} \bv_{n}.
+\end{equation*}
+At each iteration, the optimal step size is given by
+\begin{equation*}
+    \gamma_{n}
+    =
+    \frac{\|\bv_{n}\|^{2}}{\|\bA \bv_{n}\|^{2} + \rho \|\bB \bv_{n}\|^{2}}.
+\end{equation*}
+These updates reduce to linear operations and straightforward projection onto a non-negative orthant.
+Notably absent are costly matrix inversions.
+Fast convergence and efficient computation hinge on the structure of \(\bA\) and \(\bB\).
+
+\subsection*{Identifying missing matrices}
+
+Our goal is to describe the original problem in terms of a single vector \(\bz = (\btheta, \bxi_{1}, \ldots, \bxi_{n})^{t}\).
+Dealing with the loss term is straightforward:
+\begin{equation*}
+    \|\by - \btheta\|_{2}^{2}
+    =
+    \|\bA (\tilde{\by} - \bz)\|_{2}^{2},
+\end{equation*}
+with \(\bA = [\bI_{n \times n}~\boldsymbol{0}_{n \times d}~\ldots ~\boldsymbol{0}_{n \times d}]\) and \(\tilde{\by} = (\by, \boldsymbol{0}_{d \times 1}, \ldots, \boldsymbol{0}_{d \times 1})^{t}\).
+Identifying \(\bB\) requires more work.
+First, let \(\bDelta_{ij} = \bx_{i} - \bx_{j}\) and define \(C_{ij} = \langle{\bDelta_{ij}, \bxi_{j}}\rangle\).
+It follows that column \(j\) of \(\bZ\) is given by
+\begin{equation*}
+    \bC_{\cdot, j}
+    =
+    \bDelta_{\cdot,j} \bxi_{j}
+    =
+    \begin{bmatrix}
+        \bDelta_{1j}^{\ast} \\
+        \bDelta_{2j}^{\ast} \\
+        \vdots \\
+        \bDelta_{nj}^{\ast}
+    \end{bmatrix}
+    \bxi_{j}
+    =
+    \begin{bmatrix}
+        \langle\bDelta_{1j}, \bxi_{j}\rangle \\
+        \langle\bDelta_{2j}, \bxi_{j}\rangle \\
+        \vdots \\
+        \langle\bDelta_{nj}, \bxi_{j}\rangle
+    \end{bmatrix}_{n \times 1}.
+\end{equation*}
+The representation \(\bC = \sum_{j=1}^{n} \bC_{\cdot, j} \be_{j}^{\ast}\) then suggests that
+\begin{equation*}
+    \vec(\bC)
+    =
+    \sum_{j=1}^{n} (\be_{j} \otimes \bDelta_{\cdot,j})~\bxi_{j} 
+    =
+    \begin{bmatrix}
+        (\be_{1} \otimes \bDelta_{\cdot,1})
+        & (\be_{2} \otimes \bDelta_{\cdot,2})
+        & \cdots
+        & (\be_{n} \otimes \bDelta_{\cdot,n})
+    \end{bmatrix}
+    \begin{bmatrix}
+        \bxi_{1} \\
+        \bxi_{2} \\
+        \vdots \\
+        \bxi_{n}
+    \end{bmatrix}.
+\end{equation*}
+Now observe that the \(n^{2}\) constraints can be described by the generalized inequality \(\bD \btheta + \vec(\bC) \le \boldsymbol{0}\), where we define \([\bD \btheta]_{(i-1)n+j} = \theta_{j} - \theta_{i}\) as an \(n^{2} \times n\) matrix.
+Finally, combine our results to arrive at the identity
+\begin{equation*}
+    \bD \btheta + \vec(\bC)
+    =
+    \begin{bmatrix}
+        \bD
+        & (\be_{1} \otimes \bDelta_{\cdot,1})
+        & (\be_{2} \otimes \bDelta_{\cdot,2})
+        & \cdots
+        & (\be_{n} \otimes \bDelta_{\cdot,n})
+    \end{bmatrix}
+    \begin{bmatrix}
+        \btheta \\
+        \bxi_{1} \\
+        \bxi_{2} \\
+        \vdots \\
+        \bxi_{n}
+    \end{bmatrix} \\
+    =
+    \bB \bz,
+\end{equation*}
+as promised at the beginning.
+
+\subsection*{Exploiting structure to avoid explicit matrix operations}
+
+Let \(\bz \in \Real^{n(1+d)}\) as before.
+It is easy to check that \(\bA^{\ast} \bA \bz = (\btheta, \boldsymbol{0}, \ldots, \boldsymbol{0})\) as expected.
+Fortunately, the matrix \(\bB \in \Real^{n^{2} \times nd}\) is also highly structured.
+Computing \(\bB \bz\) is already straightforward based on the explicit form of the constraints.
+However, the gradient contains the product \(\bB^{\ast} \bw\).
+An explicit formula for this product would allow one to avoid forming any additional matrices altogether.
+Such a feat saves on memory requirements and potentially accelerates computing \(\bB^{\ast} (\bB \bz)_{+}\).
+
+Let
+\(
+\bH = \begin{bmatrix}
+    \bH_{1} & \bH_{2} & \cdots & \bH_{n}
+\end{bmatrix}
+\)
+with \(\bH_{j} = (\be_{j} \otimes \bDelta_{\cdot, j})\) so that
+\(
+\bB
+=
+\begin{bmatrix}
+    \bD & \bH
+\end{bmatrix}.
+\)
+The blocks of \(\bB^{\ast}\) will then correspond to updates to the variables \(\btheta, \bxi_{1}, \ldots, \bxi_{n}\).
+We start by deriving an explicit formula for \(\bD \bw\)
+\begin{equation*}
+    \begin{split}
+        \langle{\bD \btheta, \bw}\rangle
+        &=
+        \sum_{i,j} (\bD \btheta)_{(i-1)n+j} w_{(i-1)n+j} \\
+        &=
+        \sum_{i,j} (\btheta_{j} - \btheta_{i}) w_{ij} \\
+        &=
+        \langle{\bW^{\ast} \boldsymbol{1}, \btheta}\rangle
+        -
+        \langle{\bW \boldsymbol{1}, \btheta}\rangle \\
+        &=
+        \langle{(\bW^{\ast} - \bW) \boldsymbol{1}, \btheta}\rangle.
+    \end{split}
+\end{equation*}
+Here it is understood that \(\bw = \vec(\bW)\).
+We conclude \(\bD \bw = (\bW^{\ast} - \bW) \boldsymbol{1}\).
+The products \(\bH_{j}^{\ast} \bw\) also have an explicit formula
+\begin{equation*}
+    \bH_{j}^{\ast} \bw
+    =
+    (\be_{j}^{\ast} \otimes \bDelta_{\cdot,j}^{\ast}) \bw
+    =
+    \bDelta_{\cdot,j}^{\ast} \bW \be_{j}
+    =
+    \sum_{i=1}^{n} \bDelta_{ij} w_{ij}
+    =
+    \sum_{i=1}^{n} w_{ij}(\bx_{i} - \bx_{j}).
+\end{equation*}
+The Gram matrix \(\bB^{\ast} \bB \in \Real^{n(1+d) \times n(1+d)}\) consists of the blocks
+\begin{equation*}
+    \begin{bmatrix}
+        \bD^{\ast} \bD
+        & \bD^{\ast} \bH_{1}
+        & \bD^{\ast} \bH_{2}
+        & \cdots
+        & \bD^{\ast} \bH_{n} \\
+        \bH_{1}^{\ast} \bD
+        & \bDelta_{\cdot,1}^{\ast} \bDelta_{\cdot,1}
+        & \boldsymbol{0}_{d \times d}
+        & \cdots
+        & \boldsymbol{0}_{d \times d} \\
+        \bH_{2}^{\ast} \bD
+        & \boldsymbol{0}_{d \times d}
+        & \bDelta_{\cdot,2}^{\ast} \bDelta_{\cdot,2}
+        & \ddots
+        & \vdots \\
+        \vdots
+        & \vdots
+        & \ddots
+        & \ddots
+        & \boldsymbol{0}_{d \times d} \\
+       \bH_{n}^{\ast} \bD
+        & \boldsymbol{0}_{d \times d}
+        & \cdots
+        & \boldsymbol{0}_{d \times d}
+        &\bDelta_{\cdot,n}^{\ast} \bDelta_{\cdot,n}
+    \end{bmatrix}.
+\end{equation*}
+
+Below we summarize the components of the gradient \(\bv_{n+1}\) at iteration \(n+1\):
+\begin{align*}
+    \bv_{\btheta}
+    &=
+    \by - \btheta_{n} + \rho [\bW^{\ast} - \bW] \boldsymbol{1} \\
+    \bv_{\bxi_{j}}
+    &=
+    \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
+\end{align*}
+Here we have \(\bW = (\bB \bz_{n})_{+}\) encoding the value of each constraint after projecting to a non-negative orthant.
+The proximal gradient updates take the form
+\begin{align*}
+    \btheta_{n+1}
+    &=
+    \btheta_{n}
+    - \gamma_{n} [\by - \btheta_{n} + \rho (\bW^{\ast} - \bW) \boldsymbol{1}], \\
+    \bxi_{n+1,j}
+    &=
+    \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
+\end{align*}
+
+\section*{\center Simplifying with the MM Principle}
+
+%%%%% BIBLIOGRAPHY %%%%%
+\begin{thebibliography}{99}
+    \bibitem{seijo2011}
+    Seijo E, Sen B (2011) {Nonparametric least squares estimation of a multivariate convex regression function}. {\it The Annals of Statistics}. 1633-1657
+    
+    \bibitem{langeMM2016}
+    Lange, K (2016) {MM Optimization Algorithms}. {\it SIAM}.
+
+    \bibitem{mazumder2018}
+    Mazumder R, Choudhury A, Iyengar G, Sen B (2018) {A computational framework for multivariate convex regression and its variants}. {\it Journal of the American Statistical Association}. 318-331
+\end{thebibliography}
+\end{document}
