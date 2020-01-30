@@ -23,7 +23,7 @@ function fit_proxgrad(y, X; ρ_init, maxiters = 100)
     # extras
     onevec = ones(n)
     ρ = ρ_init
-    WtW = zeros(n, n)
+    C = zeros(n, n)
     u = zeros(n)
 
     for iteration in 1:maxiters
@@ -34,11 +34,11 @@ function fit_proxgrad(y, X; ρ_init, maxiters = 100)
         end
 
         # form gradient with respect to θ
-        mul!(WtW, W', W)
-        mul!(u, WtW, onevec)
+        C .= W' - W
+        mul!(u, C, onevec)
 
         for i in eachindex(y)
-            ∇θ[i] = y[i] - θ[i] + ρ*u[i]
+            ∇θ[i] = θ[i] - y[i] + ρ*u[i]
         end
 
         # form gradient with respect to ξ
@@ -67,11 +67,11 @@ function fit_proxgrad(y, X; ρ_init, maxiters = 100)
         end
 
         γ = (a + b) / (a + ρ*c)
-        @show a
-        @show b
-        @show c
-        @show γ
-        println()
+        # @show a
+        # @show b
+        # @show c
+        # @show γ
+        # println()
 
         # apply the update
         @. θ = θ - γ*∇θ
@@ -79,11 +79,14 @@ function fit_proxgrad(y, X; ρ_init, maxiters = 100)
             @. ξ[j] = ξ[j] - γ*∇ξ[j]
         end
 
-        if iteration % 50 == 0
-            ρ *= 2.0
+        if iteration % 100 == 0
+            ρ *= 1.1
         end
     end
 
+    println("objective = ", 0.5*norm(θ-y)^2)
+    println("penalty = ", 0.5*sum(x -> x^2, W))
+    println("gradient norm = ", norm(∇θ)^2 + sum(norm(∇ξ[j]) for j in 1:n))
     return θ, ξ, W
 end
 
