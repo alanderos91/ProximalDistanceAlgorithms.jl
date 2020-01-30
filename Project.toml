@@ -1,0 +1,4 @@
+name = "ProximalGradient"
+uuid = "941a68e6-59f4-4a05-b424-3010d949214d"
+authors = ["AlfonsoLanderos <alanderos@ucla.edu>"]
+version = "0.1.0"
