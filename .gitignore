@@ -1,0 +1,9 @@
+# ignore LaTex files
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.synctex.gz
+
+# system files
+.DS_Store
