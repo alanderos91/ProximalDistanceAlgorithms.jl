@@ -44,7 +44,7 @@ However, the convergence properties of 3-block ADMM algorithms are not character
 These notes explore proximal gradient algorithms tailored to convex regression.
 We anticipate that the simplicity of updates, acceleration techniques, and well-established convergence theory will prove superior to ADMM in this context.
 
-\section*{\center A Proximal Algorithm}
+\section*{\center A Penalty Algorithm}
 
 The convex regression problem is a quadratic program
 \begin{equation*}
@@ -74,7 +74,7 @@ and is used in the iterative map
 \begin{equation*}
     \bz_{n+1} = \bz_{n} - \gamma_{n} \bv_{n}.
 \end{equation*}
-At each iteration, the optimal step size is given by
+At each iteration, we can estimate the optimal step size by the recipe
 \begin{equation*}
     \gamma_{n}
     =
@@ -185,7 +185,7 @@ with \(\bH_{j} = (\be_{j} \otimes \bDelta_{\cdot, j})\) so that
 \end{bmatrix}.
 \)
 The blocks of \(\bB^{\ast}\) will then correspond to updates to the variables \(\btheta, \bxi_{1}, \ldots, \bxi_{n}\).
-We start by deriving an explicit formula for \(\bD \bw\)
+We start by deriving an explicit formula for \(\bD^{\ast} \bw\)
 \begin{equation*}
     \begin{split}
         \langle{\bD \btheta, \bw}\rangle
@@ -202,7 +202,7 @@ We start by deriving an explicit formula for \(\bD \bw\)
     \end{split}
 \end{equation*}
 Here it is understood that \(\bw = \vec(\bW)\).
-We conclude \(\bD \bw = (\bW^{\ast} - \bW) \boldsymbol{1}\).
+We conclude \(\bD^{\ast} \bw = (\bW^{\ast} - \bW) \boldsymbol{1}\).
 The products \(\bH_{j}^{\ast} \bw\) also have an explicit formula
 \begin{equation*}
     \bH_{j}^{\ast} \bw
@@ -255,7 +255,7 @@ Below we summarize the components of the gradient \(\bv_{n+1}\) at iteration \(n
     &=
     \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
 \end{align*}
-Here we have \(\bW = (\bB \bz_{n})_{+}\) encoding the value of each constraint after projecting to a non-negative orthant.
+Here we have \(\vec(\bW) = (\bB \bz_{n})_{+}\) encoding the value of each constraint after projecting to a non-negative orthant.
 The proximal gradient updates take the form
 \begin{align*}
     \btheta_{n+1}
@@ -267,7 +267,62 @@ The proximal gradient updates take the form
     \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
 \end{align*}
 
-% \section*{\center Simplifying with the MM Principle}
+\section*{\center Proximal Distance}
+
+The distance penalty \(\dist(\bB \bz, S)\) has the obvious majorization \(\|\bB \bz - P_{S}(\bB \bz)\|^{2}_{2}\) with \(S = \Real^{n^{2}}_{-}\) the non-positive orthant of appropriate dimension.
+This leads to a family of surrogates
+\begin{equation*}
+    g_{\rho}(\bz \mid \bz_{n})
+    =
+    \frac{1}{2} \|\bA (\bz - \tilde{\by})\|_{2}^{2}
+    +
+    \frac{\rho}{2} \|\bB \bz - P_{S}(\bB \bz_{n})\|^{2}_{2},
+\end{equation*}
+which also majorize the penalized loss from before.
+The gradient of the surrogate is given by
+\begin{equation*}
+    \nabla g_{\rho}(\bz \mid \bz_{n})
+    =
+    \bA^{\ast} \bA (\bz - \tilde{\by})
+    +
+    \rho \bB^{\ast}[\bB \bz - P_{S}(\bB \bz_{n})].
+\end{equation*}
+There are two options for constructing an iterative algorithm.
+A viable MM scheme involves solving a linear system
+\begin{equation*}
+    \bz_{n+1}
+    =
+    \rho (\bA^{\ast} \bA + \rho \bB^{\ast} \bB)^{-1}
+    \bB^{\ast} P_{S}(\bB \bz_{n}).
+\end{equation*}
+This update is handled well using the method of conjugate gradients because the required matrix is sparse.
+Alternatively, we can exploit tangency to construct a steepest descent algorithm
+\begin{equation*}
+    \bz_{n+1}
+    =
+    \bz_{n} - \gamma_{n} \nabla g(\bz_{n} \mid \bz_{n}).
+\end{equation*}
+Explicitly, the update to each block follows from the formulas
+\begin{align*}
+    \btheta_{n+1}
+    &=
+    \theta_{n} - \gamma_{n}\left[
+        \btheta_{n} - \by
+        + \rho \left(\bD^{\ast} \bD \btheta_{n}
+        + \bD^{\ast} \bH \bxi_{n} - [\bW^{\ast} -\bW] \boldsymbol{1}
+        \right)
+    \right] \\
+    \bxi_{n+1,j}
+    &=
+    \bxi_{n,j} - \gamma_{n} \rho \left[
+        \bH_{j}^{\ast} \bD \btheta_{n}
+        + \bDelta_{\cdot,j}^{\ast} \bDelta_{\cdot,j} \bxi_{n,j} - \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}
+    \right],
+\end{align*}
+where \(\vec(\bW) = (\bB \bz_{n})_{-}\) accounts for the projection.
+
+% total variation de-noising
+% convex clustering
 
 %%%%% BIBLIOGRAPHY %%%%%
 \begin{thebibliography}{99}
