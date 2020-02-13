@@ -1,6 +1,6 @@
 module ProximalDistanceAlgorithms
 
-using LinearAlgebra, Statistics, SparseArrays
+using LinearAlgebra
 
 include(joinpath("convex_regression", "linear_operators.jl"))
 # function fit_proxgrad(y, X; ρ_init, maxiters = 100)
