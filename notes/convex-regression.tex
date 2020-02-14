@@ -306,17 +306,18 @@ Explicitly, the update to each block follows from the formulas
 \begin{align*}
     \btheta_{n+1}
     &=
-    \theta_{n} - \gamma_{n}\left[
+    \btheta_{n} - \gamma_{n}\left[
         \btheta_{n} - \by
-        + \rho \left(\bD^{\ast} \bD \btheta_{n}
-        + \bD^{\ast} \bH \bxi_{n} - [\bW^{\ast} -\bW] \boldsymbol{1}
+        + \rho \bD^{\ast} \left(\bD \btheta_{n}
+        + \bD^{\ast} \bH \bxi_{n} - P_{S}(\bB \bz_{n})
         \right)
     \right] \\
     \bxi_{n+1,j}
     &=
-    \bxi_{n,j} - \gamma_{n} \rho \left[
-        \bH_{j}^{\ast} \bD \btheta_{n}
-        + \bDelta_{\cdot,j}^{\ast} \bDelta_{\cdot,j} \bxi_{n,j} - \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}
+    \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast}\left[
+        (\bD \btheta_{n})_{\cdot,j}
+        + \bDelta_{\cdot,j} \bxi_{n,j}
+        - \bW_{\cdot,j}
     \right],
 \end{align*}
 where \(\vec(\bW) = (\bB \bz_{n})_{-}\) accounts for the projection.
