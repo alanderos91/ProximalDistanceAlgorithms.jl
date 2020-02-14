@@ -24,3 +24,25 @@ function apply_DtD!(u, θ)
 
    return u
 end
+
+function apply_H!(C, X, ξ)
+   d, n = size(X)
+
+   for j in 1:n, i in 1:n
+      for k in 1:d
+         C[i,j] = ξ[k,j] * (X[k,i] - X[k,j])
+      end
+   end
+
+   return u
+end
+
+function apply_Ht!(U, X, W)
+   d, n = size(X)
+
+   for j in 1:n, i in 1:n, k in 1:d
+      U[(j-1)+k,j] = W[i,j] * (X[k,i] - X[k,j])
+   end
+
+   return u
+end
