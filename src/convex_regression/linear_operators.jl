@@ -1,6 +1,6 @@
 function apply_D!(C, θ)
    for j in eachindex(θ), i in eachindex(θ)
-      C[i,j] = θ[j] - θ[i]
+      @inbounds C[i,j] = θ[j] - θ[i]
    end
 
    return C
@@ -10,8 +10,8 @@ function apply_Dt!(u, C)
    fill!(u, 0)
 
    for j in eachindex(u), i in eachindex(u)
-      u[i] -= C[i,j] # accumulate C*1
-      u[i] += C[j,i] # accumulate C'*1
+      @inbounds u[i] -= C[i,j] # accumulate C*1
+      @inbounds u[i] += C[j,i] # accumulate C'*1
    end
 
    return u
@@ -29,10 +29,8 @@ function apply_H!(C, X, ξ)
    d, n = size(X)
    fill!(C, 0)
    
-   for j in 1:n, i in 1:n
-      for k in 1:d
-         C[i,j] += ξ[k,j] * (X[k,i] - X[k,j])
-      end
+   for j in 1:n, i in 1:n, k in 1:d
+      @inbounds C[i,j] = C[i,j] + ξ[k,j] * (X[k,i] - X[k,j])
    end
 
    return C
@@ -43,7 +41,7 @@ function apply_Ht!(U, X, W)
    fill!(U, 0)
    
    for j in 1:n, i in 1:n, k in 1:d
-      U[k,j] += W[i,j] * (X[k,i] - X[k,j])
+      @inbounds U[k,j] = U[k,j] + W[i,j] * (X[k,i] - X[k,j])
    end
 
    return U

@@ -34,7 +34,7 @@ function cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
     @. θ = θ - γ*∇θ
     @. ξ = ξ - γ*∇ξ
 
-    return γ
+    return γ, a + b
 end
 
 function cvxreg_fit(y, X; ρ_init = 1.0, maxiters = 100)
@@ -57,12 +57,13 @@ function cvxreg_fit(y, X; ρ_init = 1.0, maxiters = 100)
     ρ = ρ_init
 
     for iteration in 1:maxiters
-        γ = cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
-        # if iteration % 200 == 0
-        #     ρ *= 1.05
-        # end
-        # iteration % 500 == 0 && println("γ = $(γ)")
+        γ, grad = cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
+
+        if iteration % 1000 == 0
+            ρ *= 1 + 1e-2
+        end
+        # iteration % 500 == 0 && println("grad = $(grad), ρ = $(ρ)")
     end
     
-    return θ, ξ
+    return θ, ξ, ∇θ, ∇ξ
 end
