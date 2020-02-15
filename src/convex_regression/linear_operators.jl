@@ -28,7 +28,7 @@ end
 function apply_H!(C, X, ξ)
    d, n = size(X)
    fill!(C, 0)
-   
+
    for j in 1:n, i in 1:n, k in 1:d
       @inbounds C[i,j] = C[i,j] + ξ[k,j] * (X[k,i] - X[k,j])
    end
@@ -39,9 +39,26 @@ end
 function apply_Ht!(U, X, W)
    d, n = size(X)
    fill!(U, 0)
-   
+
    for j in 1:n, i in 1:n, k in 1:d
       @inbounds U[k,j] = U[k,j] + W[i,j] * (X[k,i] - X[k,j])
+   end
+
+   return U
+end
+
+function apply_D_plus_H!(U, X, θ, ξ)
+   fill!(U, 0)
+   d, n = size(X)
+
+   for j in 1:n, i in 1:n
+      # accumulate contribution from D*θ
+      U[i,j] = U[i,j] + θ[j] - θ[i]
+
+      # accumulate contribution from H*ξ
+      for k in 1:d
+         U[i,j] = U[i,j] + ξ[k,j] * (X[k,i] - X[k,j])
+      end
    end
 
    return U
