@@ -1,4 +1,4 @@
-function build_cvxreg_problem(y, X)
+function __build_convex_problem(y, X)
     d, n = size(X)
 
     # make problem variables
@@ -18,4 +18,8 @@ function build_cvxreg_problem(y, X)
     end
 
     return θ, ξ, problem
+end
+
+function cvxreg_fit(::BlackBox, y, X; kwargs...)
+    return __build_convex_problem(y, X)
 end

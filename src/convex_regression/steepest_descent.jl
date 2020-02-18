@@ -1,4 +1,4 @@
-function cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
+function cvxreg_steepest_descent!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
     # compute B*z = D*θ + H*ξ
     apply_D_plus_H!(U, X, θ, ξ)
 
@@ -35,7 +35,11 @@ function cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
     return γ, (a+b), loss, objective, penalty
 end
 
-function cvxreg_fit(y, X; ρ_init = 1.0, maxiters = 100)
+function cvxreg_fit(::SteepestDescent, y, X;
+    ρ_init::Real      = 1.0,
+    maxiters::Integer = 100,
+    penalty::Function = __default_schedule,
+    history::T        = __default_logger) where T
     # extract problem information
     d, n = size(X)
 
@@ -54,15 +58,13 @@ function cvxreg_fit(y, X; ρ_init = 1.0, maxiters = 100)
     # extras
     ρ = ρ_init
 
-    println("  iter  |    loss   | objective |  penalty  | step size |  gradient")
     for iteration in 1:maxiters
-        γ, ∇, l, o, p = cvxreg_iteration!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
+        data = cvxreg_steepest_descent!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
 
-        if iteration % 10^3 == 0
-            @printf("%5.1e | %+2.2e | %+2.2e | %+2.2e | %+2.2e | %+2.2e\n",
-                iteration, l, o, p, γ, ∇)
-        end
+        ρ = penalty(ρ, iteration)
+
+        history(data, iteration)
     end
 
-    return θ, ξ, ∇θ, ∇ξ
+    return θ, ξ
 end
