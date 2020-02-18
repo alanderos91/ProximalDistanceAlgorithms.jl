@@ -1,6 +1,6 @@
 module ProximalDistanceAlgorithms
 
-using LinearAlgebra, Statistics
+using LinearAlgebra, Statistics, SparseArrays
 using Convex
 
 # default penalty schedule
@@ -24,6 +24,8 @@ The problem can be passed to a supported black-box solver.
 See the Convex.jl documentation for more details.
 """
 struct BlackBox <: AlgorithmOption end
+
+export ProximalPoint, SteepestDescent, BlackBox
 
 include(joinpath("convex_regression", "linear_operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))

@@ -17,7 +17,7 @@ function __prox_penalty!(c, ρ)
     return c
 end
 
-function __proj_kernel!(θ, ξ, vec_ξ, c, b, Dt, Ht, T)
+function __proj_kernel!(θ, ξ, vec_ξ, c, b, X, Dt, Ht, T)
     # apply linear operators
     __apply_D_plus_H!(b, X, θ, ξ)
     @. c = c - b
@@ -60,7 +60,7 @@ function cvxreg_fit(::ProximalPoint, y, X;
     __apply_D_plus_H!(c, X, θ, ξ)
 
     for iteration in 1:maxiters
-        __proj_kernel!!(θ, ξ, vec_ξ, c, b, Dt, Ht, T)
+        __proj_kernel!(θ, ξ, vec_ξ, c, b, X, Dt, Ht, T)
         __prox_loss!(θ, y)
         __prox_penalty!(c, ρ)
 
