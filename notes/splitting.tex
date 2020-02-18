@@ -1,0 +1,71 @@
+\documentclass{article}
+
+\input{preamble.tex}
+
+\begin{document}
+Consider the unconstrained minimization problem
+\begin{equation*}
+    \mathrm{minimze}~h_{\rho}(\bx)
+    =
+    f(\bz)
+    +
+    \rho~g(\bA \bx),
+\end{equation*}
+arising from a quadratic program with \(g(\by) = \frac{1}{2}\dist(\by, C)^{2}\) encoding a closed, convex set via a distance penalty.
+In view of the splitting property of proximal maps, it is tempting to pass to the alternative program
+\begin{equation*}
+    \mathrm{minmize}~h_{\rho}(\bx, \by) =
+        f(\bx) + \rho~g(\by)
+    \quad \text{subject to}~\by = \bA \bx.
+\end{equation*}
+For example, taking \(f(\bx) = \frac{1}{2} \|\bx - \bb\|^{2}\) the required proximal maps are easy to compute
+\begin{equation*}
+    \begin{split}
+        \prox_{f}(\bx)
+        &=
+        \begin{cases}
+            \bb + \left(1 - \frac{1}{2 \|\bx - \bb\|}\right) (\bx - \bb),
+                & \|\bx - \bb\| \ge \frac{1}{2} \\
+            \bb,
+                & \text{otherwise}
+        \end{cases}, \\
+        \prox_{\rho^{-1} g}(\by)
+        &=
+        \frac{1}{1 + \rho} \by
+            + \frac{\rho}{1 + \rho} P_{C}(\by).
+    \end{split}
+\end{equation*}
+Letting \(V = \{(\bx, \by) : \by = \bA \bx\}\) we see that enforcing the constraint amounts to applying the projection 
+\begin{equation*}
+    P_{V}(\bz) = \bz + \bB (\bB^{\ast}\bB)^{-1}\bB \bz
+    \quad
+    \implies
+    P_{V}(\bx, \by)
+    =
+    \begin{bmatrix}
+        \bx \\
+        \by
+    \end{bmatrix}
+    +
+    \begin{bmatrix}
+        -\bA^{\ast} \\
+        \bI
+    \end{bmatrix}
+    (\bI + \bA \bA^{\ast})^{-1}
+    \begin{bmatrix}
+        -\bA
+        & \bI
+    \end{bmatrix}
+    \begin{bmatrix}
+        \bx \\
+        \by
+    \end{bmatrix},
+\end{equation*}
+which is well-defined whenever \(\bA \bA^{\ast}\) is positive semidefinite.
+This suggests the following iterative algorithm:
+\begin{enumerate}
+    \item \((\bx_{n}^{+}, \by_{n}^{+}) = P_{V}(\bx_{n}, \by_{n})\)
+    \item \(\bx_{n+1} = \prox_{f}(\bx_{n}^{+})\)
+    \item \(\by_{n+1} = \prox_{\rho^{-1}g}(\by_{n}^{+})\)
+\end{enumerate}
+\end{document}

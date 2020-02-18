@@ -322,6 +322,63 @@ Explicitly, the update to each block follows from the formulas
 \end{align*}
 where \(\vec(\bW) = (\bB \bz_{n})_{-}\) accounts for the projection.
 
+\section*{\center Proximal Distance with Douglas-Rachford Splitting}
+Here we combine the proximal distance and Douglas-Rachford splitting techniques.
+The penalized objective is of the form
+\begin{equation*}
+    h_{\rho}(\bz \mid \bz_{n})
+    =
+    f(\bz)
+    +
+    \rho g(\bB \bz).
+\end{equation*}
+Both \(f\) and \(g\) have simple proximal maps
+\begin{equation*}
+    \begin{split}
+        \prox_{f}(\bz)
+        =
+        \prox_{f}(\by)
+        &=
+        \begin{cases}
+            \by + \left(1 - \frac{1}{2 \|\btheta - \by\|}\right) (\btheta - \by),
+                & \|\btheta - \by\| \ge \frac{1}{2} \\
+            \by,
+                & \text{otherwise}
+        \end{cases}, \\
+        \prox_{\rho^{-1} g}(\bb)
+        &=
+        \frac{1}{1 + \rho} \bb
+            + \frac{\rho}{1 + \rho} P_{S}(\bb).
+    \end{split}
+\end{equation*}
+In view of the splitting property of proximal maps, it is tempting to pass to the quadratic program
+\begin{equation*}
+    \mathrm{minmize}~h_{\rho}(\bz, \bb) =
+        f(\bz) + \rho~g(\bb)
+    \quad \text{subject to}~\bb = \bB \bz.
+\end{equation*}
+(Check!) If \(\bB \bB^{\ast}\) is positive semi-definite, then this problem can be solved by iterating the proximal map for \(h_{\rho}\) while maintaining \((\bz_{n}, \bb_{n})\) within the subspace \(V = \{(\bz, \bb) : \bb = \bB \bz\}\).
+This may be achieved by the projection
+\begin{equation*}
+    P_{V}(\bz, \bb)
+    =
+    \begin{bmatrix}
+        \bz \\
+        \bb
+    \end{bmatrix}
+    +
+    \begin{bmatrix}
+        \bB^{\ast} \\
+        -\bI
+    \end{bmatrix}
+    (\bI + \bB \bB^{\ast})^{-1} (\bb - \bB \bz).
+\end{equation*}
+Our iteration scheme is as follows:
+\begin{enumerate}
+    \item \((\bz_{n}^{+}, \bb_{n}^{+}) = P_{V}(\bz_{n}, \bb_{n})\)
+    \item \(\bz_{n+1} = \prox_{f}(\bz_{n}^{+})\)
+    \item \(\bb_{n+1} = \prox_{\rho^{-1}g}(\bb)\)
+\end{enumerate}
 % total variation de-noising
 % convex clustering
 
