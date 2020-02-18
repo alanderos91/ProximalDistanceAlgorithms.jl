@@ -140,13 +140,13 @@ figure
 ```
 
 ```{julia}
+# store convergence history for each instance
+logs = Dict{Tuple{Int,Int},typeof(logger)}()
+
 # benchmark parameters
 σ = 0.2
 maxiters = 5*10^3
 Random.seed!(1776)
-
-# store convergence history for each instance
-logs = Dict{Tuple{Int,Int},typeof(logger)}()
 
 # fields for DataFrame summary
 ncovariates = Int[]
@@ -209,4 +209,35 @@ for ((d,n), history) in logs
 end
 
 cvxreg_df
+```
+
+```{julia}
+using Convex, Gurobi#, MosekTools
+
+# benchmark parameters
+σ = 0.2
+maxiters = 5*10^3
+Random.seed!(1776)
+
+for n in (50, 100, 200), d in (1, 2, 10)
+    # simulate data
+    y, y_truth, X = cvxreg_example(φ, d, n, σ)
+
+    # standardize according to mazumder
+    y_scaled, X_scaled = mazumder_standardization(y, X)
+
+    # solve with Gurobi
+    _, _, problem = cvxreg_fit(BlackBox(), y_scaled, X_scaled)
+    open(joinpath("tables", "cvxreg_gurobi_d=$(d)_n=$(n).dat"), "w") do file
+        run() = solve!(problem, GurobiSolver())
+        redirect_stdout(run, file)
+    end
+
+    # solve with Mosek
+    # _, _, problem = cvxreg_fit(BlackBox(), y_scaled, X_scaled)
+    # open(joinpath("tables", "cvxreg_mosek_d=$(d)_n=$(n).dat"), "w") do file
+    #     run() = solve!(problem, Mosek.Optimizer())
+    #     redirect_stdout(run, file)
+    # end
+end
 ```

@@ -1,0 +1,59 @@
+Academic license - for non-commercial use only
+Gurobi Optimizer version 9.0.1 build v9.0.1rc0 (mac64)
+Optimize a model with 40411 rows, 1013 columns and 160419 nonzeros
+Model fingerprint: 0x9904ccfa
+Model has 4 quadratic constraints
+Coefficient statistics:
+  Matrix range     [1e-05, 2e+00]
+  QMatrix range    [1e+00, 1e+00]
+  Objective range  [1e+00, 1e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [9e-05, 1e+00]
+Presolve removed 2003 rows and 219 columns
+Presolve time: 0.07s
+Presolved: 38408 rows, 794 columns, 152834 nonzeros
+Presolved model has 3 second-order cone constraints
+Ordering time: 2.70s
+Ordering time: 4.46s
+
+Barrier statistics:
+ Dense cols : 200
+ Free vars  : 582
+ AA' NZ     : 3.897e+06
+ Factor NZ  : 1.126e+07 (roughly 100 MBytes of memory)
+ Factor Ops : 3.421e+09 (less than 1 second per iteration)
+ Threads    : 4
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   2.44171633e+00 -1.00200000e+00  2.78e+00 2.00e-01  2.76e-01     6s
+   1  -2.40693564e-01 -9.74785595e-01  2.45e+00 1.75e-01  2.43e-01     6s
+   2   9.47547614e-01 -8.72215391e-01  1.76e+00 1.12e-01  1.62e-01     7s
+   3   1.05500211e+00 -1.53396117e+00  1.59e+00 7.35e-02  1.18e-01     7s
+   4   2.95527000e+00 -5.09305657e+00  1.38e+00 5.15e-02  8.86e-02     7s
+   5   1.92662320e+01 -1.33057635e+01  8.31e-01 1.76e-02  3.83e-02     7s
+   6   5.08062542e+01 -3.28109291e+01  1.81e-01 5.98e-03  1.35e-02     8s
+   7   3.00382104e+01 -4.73091961e+01  6.33e-02 7.43e-04  3.55e-03     8s
+   8   1.70044545e+01 -2.29328773e+01  1.09e-02 8.61e-05  1.18e-03     8s
+   9   1.05825261e+01 -9.31374409e+00  1.79e-03 9.09e-06  5.28e-04     8s
+  10   2.00984012e+00 -3.10785402e+00  3.04e-05 5.36e-06  1.33e-04     9s
+  11   2.14771092e-01 -6.73850820e-01  7.82e-07 2.16e-06  2.31e-05     9s
+  12   7.01494409e-02 -1.70451027e-01  9.64e-08 8.20e-07  6.28e-06     9s
+  13   5.39007659e-02 -4.07946596e-02  1.62e-08 3.11e-07  2.47e-06     9s
+  14   3.49107068e-02 -1.11658343e-02  7.59e-09 1.44e-07  1.20e-06    10s
+  15   2.95194636e-02  2.73486593e-03  4.94e-09 8.00e-08  6.99e-07    10s
+  16   2.49840338e-02  1.21088710e-02  2.85e-09 3.70e-08  3.36e-07    10s
+  17   2.26864212e-02  1.54288678e-02  1.66e-09 2.03e-08  1.90e-07    10s
+  18   2.12191509e-02  1.70194853e-02  1.28e-09 1.18e-08  1.10e-07    10s
+  19   2.05706255e-02  1.76564091e-02  6.65e-10 8.21e-09  7.63e-08    11s
+  20   1.98371825e-02  1.81100058e-02  4.68e-10 5.70e-09  4.53e-08    11s
+  21   1.95971473e-02  1.86344499e-02  1.67e-09 2.83e-09  2.52e-08    11s
+  22   1.93044357e-02  1.88260400e-02  2.46e-09 1.83e-09  1.26e-08    11s
+  23   1.92007207e-02  1.90467330e-02  6.29e-10 6.21e-10  4.05e-09    12s
+  24   1.91766581e-02  1.91388392e-02  2.81e-09 1.20e-10  9.93e-10    12s
+  25   1.91665108e-02  1.91584998e-02  4.63e-09 2.71e-11  2.12e-10    13s
+  26   1.91649979e-02  1.91645940e-02  1.10e-08 6.29e-12  1.07e-11    13s
+
+Barrier solved model in 26 iterations and 12.85 seconds
+Optimal objective 1.91649979e-02
+
