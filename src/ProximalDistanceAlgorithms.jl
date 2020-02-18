@@ -1,6 +1,6 @@
 module ProximalDistanceAlgorithms
 
-using LinearAlgebra, Printf
+using LinearAlgebra, Statistics
 using Convex
 
 # default penalty schedule
