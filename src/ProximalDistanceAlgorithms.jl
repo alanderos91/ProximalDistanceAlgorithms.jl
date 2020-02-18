@@ -30,6 +30,7 @@ export ProximalPoint, SteepestDescent, BlackBox
 include(joinpath("convex_regression", "linear_operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))
 include(joinpath("convex_regression", "proximal_point.jl"))
+include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
