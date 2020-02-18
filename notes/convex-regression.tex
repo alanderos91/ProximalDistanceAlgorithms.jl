@@ -2,7 +2,7 @@
 
 \input{preamble.tex}
 
-\title{First-Order Methods for Convex Multivariate Regression}
+\title{Proximal Distance Application: Convex Multivariate Regression}
 \author{Alfonso Landeros}
 \date{\today}
 
@@ -16,15 +16,16 @@ Given a set of observations \(\{\bx_{i}, y_{i}\}_{i=1}^{n}\) with \(\bx_{i} \in 
     \sum_{i=1}^{n} (y_{i} - \psi(\bx_{i}))^{2}.
 \end{equation*}
 Here the minimum is taken over the set of all convex functions \(\psi : \Real^{d} \rightarrow \Real\).
-The properties of the convex LSE has been described in detail \cite{seijo2011}.
+Asymptotic and finite sample roperties of the convex LSE have been described in detail \cite{seijo2011}.
 The equivalent, finite dimensional problem
-\begin{equation*}
+\begin{equation}
+    \label{eq:problem_statement}
     \underset{\btheta; \bxi_{1}, \ldots, \bxi_{n}}{\mathrm{minimize}}
     ~\frac{1}{2} \|\by - \btheta\|_{2}^{2}
     \quad
     \text{subject to}
     ~\theta_{j} + \langle{\bx_{i} - \bx_{j},~\bxi_{j}}\rangle \le \theta_{i}
-\end{equation*}
+\end{equation}
 estimates function values \(\theta_{i} = \varphi_{n}(\bx_{i})\) and subgradients \(\bxi_{i} \in \Real^{d}\) at each data point.
 The discretization \(\hat{\btheta}\) can be extended to a continuous, convex function on \(\Real^{d}\) by the affine interpolation scheme
 \begin{equation*}
@@ -35,16 +36,17 @@ The discretization \(\hat{\btheta}\) can be extended to a continuous, convex fun
 \end{equation*}
 Further, one can restore smoothness by imposing Lipschitz constraints on each subgradient or applying postprocessing techniques \cite{mazumder2018}.
 
-Computation remains a challenge.
-Generic interior point methods do not scale to large datasets due to the \(n^{2}\) constraints.
+Yet, efficient computation remains a challenge.
+Generic interior point methods do not scale well due to the \(n^{2}\) constraints.
 Alternating direction method of multipliers (ADMM) has been proposed as an alternative that adequately exploits problem-specific structure \cite{mazumder2018}.
-Empirical evidence suggests ADMM scales to problems on the order of \(n \approx 5000\) data points and is largely insensitive to the dimension \(d\) of a function's domain.
+Empirical evidence suggests ADMM scales to problems on the order of \(n \approx 5000\) samples and is largely insensitive to the dimension \(d\) of a function's domain.
 However, the convergence properties of 3-block ADMM algorithms are not characterized and so the quality of solutions cannot be readily assessed.
+Moreover, ADMM is known to converge slowly to high precision.
 
-These notes explore proximal gradient algorithms tailored to convex regression.
+These notes explore proximal distance algorithms tailored to convex regression.
 We anticipate that the simplicity of updates, acceleration techniques, and well-established convergence theory will prove superior to ADMM in this context.
 
-\section*{\center A Penalty Algorithm}
+\section*{\center Setup and Structure of Constraints}
 
 The convex regression problem is a quadratic program
 \begin{equation*}
@@ -54,183 +56,130 @@ The convex regression problem is a quadratic program
     ~\bB \bz \le \boldsymbol{0},
 \end{equation*}
 where \(\bz = (\btheta, \bxi_{1}, \ldots, \bxi_{n})^{t}\) and \(\bA\) and \(\bB\) are compatible matrices to be determined.
-Its solution is approximated by an unconstrained program in which the sublevel set constraint is replaced with the algebraic penalty function \(\|(\bB \bz)_{+}\|_{2}^{2}\).
-Here \(u_{+} = \max\{0, u\}\) is understood as an element-wise operation.
-Explicitly, the unconstrained problem is of the form
-\begin{equation*}
-    \underset{\bz}{\mathrm{minimize}}
-    ~\frac{1}{2} \|\by - \btheta\|^{2}_{2}
-    + \frac{\rho}{2} \|(\bB \bz)_{+}\|_{2}^{2}.
-\end{equation*}
-Thus, the appropriate gradient is of the form
-\begin{equation*}
-    \bv_{n}
+Its solution is approximated by an unconstrained program in which the sublevel set constraint is replaced with the distance penalty \(q(\bz) = \frac{1}{2} \dist(\bB \bz, \Real_{-}^{p})^{2}\).
+Explicitly, we pass to the optimization problem
+\begin{equation}
+    \label{eq:unconstrained_problem}
+    \underset{\btheta, \bxi}{\mathrm{minimize}}
+    ~h_{\rho}(\btheta, \bxi)
     =
-    \bA^{\ast} \nabla f(\bA \bz) + \rho \bB^{\ast}(\bB \bz)_{+}
-    =
-    \bA^{\ast} \bA \bz + \rho \bB^{\ast} (\bB \bz)_{+},
-\end{equation*}
-and is used in the iterative map
-\begin{equation*}
-    \bz_{n+1} = \bz_{n} - \gamma_{n} \bv_{n}.
-\end{equation*}
-At each iteration, we can estimate the optimal step size by the recipe
-\begin{equation*}
-    \gamma_{n}
-    =
-    \frac{\|\bv_{n}\|^{2}}{\|\bA \bv_{n}\|^{2} + \rho \|\bB \bv_{n}\|^{2}}.
-\end{equation*}
-These updates reduce to linear operations and straightforward projection onto a non-negative orthant.
-Notably absent are costly matrix inversions.
-Fast convergence and efficient computation hinge on the structure of \(\bA\) and \(\bB\).
-
-\subsection*{Identifying missing matrices}
-
-Our goal is to describe the original problem in terms of a single vector \(\bz = (\btheta, \bxi_{1}, \ldots, \bxi_{n})^{t}\).
-Dealing with the loss term is straightforward:
-\begin{equation*}
-    \|\by - \btheta\|_{2}^{2}
-    =
-    \|\bA (\tilde{\by} - \bz)\|_{2}^{2},
-\end{equation*}
-with \(\bA = [\bI_{n \times n}~\boldsymbol{0}_{n \times d}~\ldots ~\boldsymbol{0}_{n \times d}]\) and \(\tilde{\by} = (\by, \boldsymbol{0}_{d \times 1}, \ldots, \boldsymbol{0}_{d \times 1})^{t}\).
-Identifying \(\bB\) requires more work.
-First, let \(\bDelta_{ij} = \bx_{i} - \bx_{j}\) and define \(C_{ij} = \langle{\bDelta_{ij}, \bxi_{j}}\rangle\).
-It follows that column \(j\) of \(\bZ\) is given by
-\begin{equation*}
-    \bC_{\cdot, j}
-    =
-    \bDelta_{\cdot,j} \bxi_{j}
-    =
-    \begin{bmatrix}
-        \bDelta_{1j}^{\ast} \\
-        \bDelta_{2j}^{\ast} \\
-        \vdots \\
-        \bDelta_{nj}^{\ast}
-    \end{bmatrix}
-    \bxi_{j}
-    =
-    \begin{bmatrix}
-        \langle\bDelta_{1j}, \bxi_{j}\rangle \\
-        \langle\bDelta_{2j}, \bxi_{j}\rangle \\
-        \vdots \\
-        \langle\bDelta_{nj}, \bxi_{j}\rangle
-    \end{bmatrix}_{n \times 1}.
-\end{equation*}
-The representation \(\bC = \sum_{j=1}^{n} \bC_{\cdot, j} \be_{j}^{\ast}\) then suggests that
-\begin{equation*}
-    \vec(\bC)
-    =
-    \sum_{j=1}^{n} (\be_{j} \otimes \bDelta_{\cdot,j})~\bxi_{j} 
-    =
-    \begin{bmatrix}
-        (\be_{1} \otimes \bDelta_{\cdot,1})
-        & (\be_{2} \otimes \bDelta_{\cdot,2})
-        & \cdots
-        & (\be_{n} \otimes \bDelta_{\cdot,n})
-    \end{bmatrix}
-    \begin{bmatrix}
-        \bxi_{1} \\
-        \bxi_{2} \\
-        \vdots \\
-        \bxi_{n}
-    \end{bmatrix}.
-\end{equation*}
-Now observe that the \(n^{2}\) constraints can be described by the generalized inequality \(\bD \btheta + \vec(\bC) \le \boldsymbol{0}\), where we define \([\bD \btheta]_{(i-1)n+j} = \theta_{j} - \theta_{i}\) as an \(n^{2} \times n\) matrix.
-Finally, combine our results to arrive at the identity
-\begin{equation*}
-    \bD \btheta + \vec(\bC)
-    =
-    \begin{bmatrix}
-        \bD
-        & (\be_{1} \otimes \bDelta_{\cdot,1})
-        & (\be_{2} \otimes \bDelta_{\cdot,2})
-        & \cdots
-        & (\be_{n} \otimes \bDelta_{\cdot,n})
-    \end{bmatrix}
-    \begin{bmatrix}
-        \btheta \\
-        \bxi_{1} \\
-        \bxi_{2} \\
-        \vdots \\
-        \bxi_{n}
-    \end{bmatrix} \\
-    =
-    \bB \bz,
-\end{equation*}
-as promised at the beginning.
-
-\subsection*{Exploiting structure to avoid explicit matrix operations}
-
-Let \(\bz \in \Real^{n(1+d)}\) as before.
-It is easy to check that \(\bA^{\ast} \bA \bz = (\btheta, \boldsymbol{0}, \ldots, \boldsymbol{0})\) as expected.
-Fortunately, the matrix \(\bB \in \Real^{n^{2} \times nd}\) is also highly structured.
-Computing \(\bB \bz\) is already straightforward based on the explicit form of the constraints.
-However, the gradient contains the product \(\bB^{\ast} \bw\).
-An explicit formula for this product would allow one to avoid forming any additional matrices altogether.
-Such a feat saves on memory requirements and potentially accelerates computing \(\bB^{\ast} (\bB \bz)_{+}\).
-
-Let
-\(
-\bH = \begin{bmatrix}
-    \bH_{1} & \bH_{2} & \cdots & \bH_{n}
-\end{bmatrix}
-\)
-with \(\bH_{j} = (\be_{j} \otimes \bDelta_{\cdot, j})\) so that
-\(
-\bB
-=
-\begin{bmatrix}
+    \underset{\btheta, \bxi}{\mathrm{minimize}}
+    ~\frac{1}{2} \|\btheta - \by\|^{2}_{2}
+    + \frac{\rho}{2} \dist(\bD \btheta + \bH \bxi, \Real_{-}^{p})^{2},
+\end{equation}
+based on the choices \(\bA = \begin{bmatrix}
+    \bI_{n \times n} & \boldsymbol{0}_{n \times nd}
+\end{bmatrix}\)
+and \(\bB = \begin{bmatrix}
     \bD & \bH
-\end{bmatrix}.
-\)
-The blocks of \(\bB^{\ast}\) will then correspond to updates to the variables \(\btheta, \bxi_{1}, \ldots, \bxi_{n}\).
-We start by deriving an explicit formula for \(\bD^{\ast} \bw\)
+\end{bmatrix}\).
+Both the loss and penalty functions have easy-to-compute proximal maps.
+Projection onto the non-positive orthant \(\Real_{-}^{p}\) is straightforward albeit \(p\) is order \(\mathcal{O}(n^{2})\).
+Moreover, the distance penalty \(\dist(\bx, S)\) has the obvious majorization \(\|\bx - P_{S}(\bx)\|^{2}_{2}\).
+This leads to a family of surrogates
+\begin{equation}
+    \label{eq:distance_majorization}
+    g_{\rho}(\btheta, \bxi \mid \btheta_{n}, \bxi_{n})
+    =
+    \frac{1}{2} \|\btheta - \by\|^{2}_{2}
+    +
+    \frac{\rho}{2} \|\bD \btheta + \bH \bxi - P_{S}(\bD \btheta_{n} + \bH \bxi_{n})\|^{2}_{2}.
+\end{equation}
+The relevant gradient is of the form
 \begin{equation*}
+    \bq_{n}
+    =
+    \begin{bmatrix}
+        \btheta - \by \\
+        \boldsymbol{0}
+    \end{bmatrix}
+    +
+    \rho \begin{bmatrix}
+        \bD^{\ast} \\
+        \bH^{\ast}
+    \end{bmatrix}[\bD \btheta + \bH \bxi
+        - P_{S}(\bD \btheta_{n} + \bH \bxi_{n})].
+\end{equation*}
+
+The remainder of this section is devoted to deriving explicit formulae for the actions of \(\bD\) and \(\bH\), their respective adjoints, and the required proximal maps that serve as ingredients for the various algorithms contained in this text.
+Note that we have avoided describing entries of \(\bD\) and \(\bH\).
+This is because there are two possible approaches: one with redundant constraints and one without.
+
+\subsection*{Linear operators with redundant constraints}
+
+This version has \(\bD\) as a \(n^{2} \times n\) matrix and \(\bH\) as a \(n^{2} \times nd\) matrix.
+We take \(\bw = \vec(\bW)\) with \(\bW \in \Real^{n \times n}\).
+
+Multiplication by \(\bD\) follows directly from the definition of the constraints:
+\begin{equation}
+    \label{eq:operator_D_redundant}
+    [\bD \btheta]_{(i-1)n+j} = \theta_{j} - \theta_{i}.
+\end{equation}
+The Riesz representation theorem helps us understand multiplication by \(\bD^{\ast}\):
+\begin{equation}
+    \label{eq:operator_Dt_redundant}
     \begin{split}
         \langle{\bD \btheta, \bw}\rangle
         &=
-        \sum_{i,j} (\bD \btheta)_{(i-1)n+j} w_{(i-1)n+j} \\
+        \sum_{i,j} (\bD \btheta)_{(i-1)n+j}~w_{(i-1)n+j} \\
         &=
-        \sum_{i,j} (\btheta_{j} - \btheta_{i}) w_{ij} \\
+        \sum_{i,j} (\theta_{j} - \theta_{i}) w_{ij} \\
         &=
         \langle{\bW^{\ast} \boldsymbol{1}, \btheta}\rangle
         -
         \langle{\bW \boldsymbol{1}, \btheta}\rangle \\
         &=
-        \langle{(\bW^{\ast} - \bW) \boldsymbol{1}, \btheta}\rangle.
+        \langle{(\bW^{\ast} - \bW) \boldsymbol{1}, \btheta}\rangle \\
+        \implies
+        \bD^{\ast} \bw
+        &=
+        (\bW^{\ast} - \bW) \boldsymbol{1}
     \end{split}
-\end{equation*}
-Here it is understood that \(\bw = \vec(\bW)\).
-We conclude \(\bD^{\ast} \bw = (\bW^{\ast} - \bW) \boldsymbol{1}\).
-The products \(\bH_{j}^{\ast} \bw\) also have an explicit formula
-\begin{equation*}
-    \bH_{j}^{\ast} \bw
+\end{equation}
+
+Multiplication by \(\bH\) follows directly from the constraints.
+The matrix is organized into columns \(\bH_{\cdot, j}\) of width \(d\), each operating on the blocks \(\bxi_{j}\) contained in \(\bxi\).
+The \(j\)th block is of the form
+\begin{equation}
+    \label{eq:operator_H_redundant}
+    \bH_{\cdot,j}
     =
-    (\be_{j}^{\ast} \otimes \bDelta_{\cdot,j}^{\ast}) \bw
+    \begin{bmatrix}
+        (\bx_{1} - \bx_{j})^{\ast} \\
+        \vdots \\
+        (\bx_{i} - \bx_{j})^{\ast} \\
+        \vdots \\
+        (\bx_{n} - \bx_{j})^{\ast} \\
+    \end{bmatrix}
+    \qquad
+    j = 1,2,\ldots,n,
+\end{equation}
+so that \(\bH \bxi = \sum_{j}^{n} \bH_{\cdot,j} \bxi\).
+This representation leads to a simple formula for \(\bH^{\ast}\):
+\begin{equation}
+    \label{eq:operator_Ht_redundant}
+    \bH_{\cdot,j}^{\ast} \bw
     =
-    \bDelta_{\cdot,j}^{\ast} \bW \be_{j}
-    =
-    \sum_{i=1}^{n} \bDelta_{ij} w_{ij}
-    =
-    \sum_{i=1}^{n} w_{ij}(\bx_{i} - \bx_{j}).
-\end{equation*}
+    \sum_{i=1}^{n} w_{ij} (\bx_{i} - \bx_{j}).
+\end{equation}
+Further note that \(\bH\) is skew-symmetric; that is, \(\bH = \bL - \bL^{\ast}\) with \(\bL\) a strictly lower-triangular matrix.
+
 The Gram matrix \(\bB^{\ast} \bB \in \Real^{n(1+d) \times n(1+d)}\) consists of the blocks
 \begin{equation*}
     \begin{bmatrix}
         \bD^{\ast} \bD
-        & \bD^{\ast} \bH_{1}
-        & \bD^{\ast} \bH_{2}
+        & \bD^{\ast} \bH_{\cdot,1}
+        & \bD^{\ast} \bH_{\cdot,2}
         & \cdots
-        & \bD^{\ast} \bH_{n} \\
-        \bH_{1}^{\ast} \bD
-        & \bDelta_{\cdot,1}^{\ast} \bDelta_{\cdot,1}
+        & \bD^{\ast} \bH_{\cdot,n} \\
+        \bH_{\cdot,1}^{\ast} \bD
+        & \bH_{\cdot,1}^{\ast} \bH_{\cdot,1}
         & \boldsymbol{0}_{d \times d}
         & \cdots
         & \boldsymbol{0}_{d \times d} \\
-        \bH_{2}^{\ast} \bD
+        \bH_{\cdot,2}^{\ast} \bD
         & \boldsymbol{0}_{d \times d}
-        & \bDelta_{\cdot,2}^{\ast} \bDelta_{\cdot,2}
+        & \bH_{\cdot,2}^{\ast} \bH_{\cdot,2}
         & \ddots
         & \vdots \\
         \vdots
@@ -238,69 +187,98 @@ The Gram matrix \(\bB^{\ast} \bB \in \Real^{n(1+d) \times n(1+d)}\) consists of 
         & \ddots
         & \ddots
         & \boldsymbol{0}_{d \times d} \\
-       \bH_{n}^{\ast} \bD
+       \bH_{\cdot,n}^{\ast} \bD
         & \boldsymbol{0}_{d \times d}
         & \cdots
         & \boldsymbol{0}_{d \times d}
-        &\bDelta_{\cdot,n}^{\ast} \bDelta_{\cdot,n}
-    \end{bmatrix}.
+        &\bH_{\cdot,n}^{\ast} \bH_{\cdot,n}
+    \end{bmatrix},
+\end{equation*}
+which implies easy formulas for multiplying \((\btheta, \bxi)\) in terms of \(n+1\) blocks.
+These results may provide a stencils for extending proximal distance algorithms to a distributed computing environment.
+
+\subsection*{Linear operators without redundancy}
+
+The constraints \(\theta_{j} - \theta_{i} + \langle{\bx_{i} - \bx_{j}, \bxi_{j}}\rangle \le 0\) with \(i = j\) do not encode any information.
+We can therefore reduce dimensions in our linear operators.
+Specifically, we have \(\bD\) as a \(n(n-1) \times n\) matrix and \(\bH\) as a \(n(n-1) \times nd\) matrix.
+This should be the optimal representation in terms of memory requirements, as we shall soon observe.
+
+Once again, multiplication by \(bD\) is straightforward based on the constraint definitions:
+\begin{equation}
+    \label{eq:operator_D_efficient}
+    [\bD \btheta]_{k}
+    =
+    \theta_{j} - \theta_{i}
+\qquad i \neq j, \\
+\end{equation}
+with \(k \in \{1, 2, \ldots, \binom{n}{2}\}\) counting the unique comparisons.
+The blocks of \(\bH\) are now given by
+\begin{equation}
+    \bH_{(j-1)\binom{n}{2}+k,j}
+    =
+    \begin{bmatrix}
+        \boldsymbol{0} \\
+        \vdots \\
+        (\bx_{i} - \bx_{j})^{\ast} \\
+        \vdots \\
+        \boldsymbol{0}
+    \end{bmatrix}
+    \qquad i \neq j.
+\end{equation}
+For example, only the first \(\binom{n}{2}\) entries of \(\bH_{\cdot,1}\) are non-zero.
+This pattern makes \(\bH\) block diagonal.
+
+The non-trivial operators elude me at the moment\ldots
+
+\subsection*{Relevant proximal maps}
+
+\begin{equation*}
+    \begin{split}
+        \prox_{f}(\bA[\bz-\tilde{\by}])
+        =
+        \prox_{f}(\btheta - \by)
+        &=
+        \begin{cases}
+            \by + \left(1 - \frac{1}{2 \|\btheta - \by\|}\right) (\btheta - \by),
+                & \|\btheta - \by\| \ge \frac{1}{2} \\
+            \by,
+                & \text{otherwise}
+        \end{cases} \\
+        \prox_{\rho^{-1} g}(\bb)
+        &=
+        \frac{1}{1 + \rho} \bb
+            + \frac{\rho}{1 + \rho} P_{S}(\bb).
+    \end{split}
 \end{equation*}
 
-Below we summarize the components of the gradient \(\bv_{n+1}\) at iteration \(n+1\):
-\begin{align*}
-    \bv_{\btheta}
-    &=
-    \btheta_{n} - \by + \rho [\bW^{\ast} - \bW] \boldsymbol{1} \\
-    \bv_{\bxi_{j}}
-    &=
-    \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
-\end{align*}
-Here we have \(\vec(\bW) = (\bB \bz_{n})_{+}\) encoding the value of each constraint after projecting to a non-negative orthant.
-The proximal gradient updates take the form
-\begin{align*}
-    \btheta_{n+1}
-    &=
-    \btheta_{n}
-    - \gamma_{n} [\btheta_{n} - \by + \rho (\bW^{\ast} - \bW) \boldsymbol{1}], \\
-    \bxi_{n+1,j}
-    &=
-    \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast} \bW_{\cdot,j}.
-\end{align*}
+\section*{\center Algorithm 1: Proximal Distance}
+Exploiting the stationarity condition \(\bq_{n} = \boldsymbol{0}\) produces the MM algorithm
+\begin{equation*}
+    \begin{bmatrix}
+        \btheta_{n+1} \\
+        \bxi_{n+1}
+    \end{bmatrix}
+    =
+    \rho (\bI + \rho \bB^{\ast} \bB)^{-1}
+    \begin{bmatrix}
+        \bD^{\ast} \\
+        \bH^{\ast}
+    \end{bmatrix}
+    P_{S}(\bD \btheta_{n} + \bH \bxi_{n}).
+\end{equation*}
+Importantly, the matrix \(\bB^{\ast} \bB\) is typically positive semidefinite.
+This update is handled well using the method of conjugate gradients or LSMR because \(\bI + \bB^{\ast} \bB\) is sparse.
 
-\section*{\center Proximal Distance}
+\section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
 
-The distance penalty \(\dist(\bB \bz, S)\) has the obvious majorization \(\|\bB \bz - P_{S}(\bB \bz)\|^{2}_{2}\) with \(S = \Real^{n^{2}}_{-}\) the non-positive orthant of appropriate dimension.
-This leads to a family of surrogates
-\begin{equation*}
-    g_{\rho}(\bz \mid \bz_{n})
-    =
-    \frac{1}{2} \|\bA (\bz - \tilde{\by})\|_{2}^{2}
-    +
-    \frac{\rho}{2} \|\bB \bz - P_{S}(\bB \bz_{n})\|^{2}_{2},
-\end{equation*}
-which also majorize the penalized loss from before.
-The gradient of the surrogate is given by
-\begin{equation*}
-    \nabla g_{\rho}(\bz \mid \bz_{n})
-    =
-    \bA^{\ast} \bA (\bz - \tilde{\by})
-    +
-    \rho \bB^{\ast}[\bB \bz - P_{S}(\bB \bz_{n})].
-\end{equation*}
-There are two options for constructing an iterative algorithm.
-A viable MM scheme involves solving a linear system
-\begin{equation*}
-    \bz_{n+1}
-    =
-    \rho (\bA^{\ast} \bA + \rho \bB^{\ast} \bB)^{-1}
-    \bB^{\ast} P_{S}(\bB \bz_{n}).
-\end{equation*}
-This update is handled well using the method of conjugate gradients because the required matrix is sparse.
 Alternatively, we can exploit tangency to construct a steepest descent algorithm
 \begin{equation*}
     \bz_{n+1}
     =
-    \bz_{n} - \gamma_{n} \nabla g(\bz_{n} \mid \bz_{n}).
+    \bz_{n} - \gamma_{n} \nabla g_{\rho}(\bz_{n} \mid \bz_{n})
+    =
+    \bz_{n} - \gamma_{n} \nabla h_{\rho}(\bz_{n})
 \end{equation*}
 Explicitly, the update to each block follows from the formulas
 \begin{align*}
@@ -309,55 +287,35 @@ Explicitly, the update to each block follows from the formulas
     \btheta_{n} - \gamma_{n}\left[
         \btheta_{n} - \by
         + \rho \bD^{\ast} \left(\bD \btheta_{n}
-        + \bD^{\ast} \bH \bxi_{n} - P_{S}(\bB \bz_{n})
+        + \bD^{\ast} \bH \bxi_{n} - \bw
         \right)
     \right] \\
     \bxi_{n+1,j}
     &=
-    \bxi_{n,j} - \gamma_{n} \rho \bDelta_{\cdot,j}^{\ast}\left[
-        (\bD \btheta_{n})_{\cdot,j}
-        + \bDelta_{\cdot,j} \bxi_{n,j}
+    \bxi_{n,j} - \gamma_{n} \rho \bH_{\cdot,j}^{\ast}\left[
+        \bD \btheta_{n}
+        + \bH_{\cdot,j} \bxi_{n,j}
         - \bW_{\cdot,j}
     \right],
 \end{align*}
-where \(\vec(\bW) = (\bB \bz_{n})_{-}\) accounts for the projection.
-
-\section*{\center Proximal Distance with Douglas-Rachford Splitting}
-Here we combine the proximal distance and Douglas-Rachford splitting techniques.
-The penalized objective is of the form
+where \(\vec(\bW) = (\bB \bz_{n})_{-}\) accounts for the requisite projection.
+Because the gradient is linear in \(\bz\) we can solve for the optimal step size by maximizing \(g_{\rho}(\bz_{n} - \gamma \bq \mid \bz_{n})\) with respect to \(\gamma\).
+Straightforward application of the chain rule yields
 \begin{equation*}
-    h_{\rho}(\bz \mid \bz_{n})
+    \gamma_{n}
     =
-    f(\bz)
-    +
-    \rho g(\bB \bz).
+    \frac{\|\bv_{n}\|^{2}}{\|\bA \bv_{n}\|^{2} + \rho \|\bB \bv_{n}\|^{2}}.
 \end{equation*}
-Both \(f\) and \(g\) have simple proximal maps
-\begin{equation*}
-    \begin{split}
-        \prox_{f}(\bz)
-        =
-        \prox_{f}(\by)
-        &=
-        \begin{cases}
-            \by + \left(1 - \frac{1}{2 \|\btheta - \by\|}\right) (\btheta - \by),
-                & \|\btheta - \by\| \ge \frac{1}{2} \\
-            \by,
-                & \text{otherwise}
-        \end{cases}, \\
-        \prox_{\rho^{-1} g}(\bb)
-        &=
-        \frac{1}{1 + \rho} \bb
-            + \frac{\rho}{1 + \rho} P_{S}(\bb).
-    \end{split}
-\end{equation*}
+
+\section*{\center Algorithm 3: Operator Splitting}
+
 In view of the splitting property of proximal maps, it is tempting to pass to the quadratic program
 \begin{equation*}
     \mathrm{minmize}~h_{\rho}(\bz, \bb) =
         f(\bz) + \rho~g(\bb)
     \quad \text{subject to}~\bb = \bB \bz.
 \end{equation*}
-(Check!) If \(\bB \bB^{\ast}\) is positive semi-definite, then this problem can be solved by iterating the proximal map for \(h_{\rho}\) while maintaining \((\bz_{n}, \bb_{n})\) within the subspace \(V = \{(\bz, \bb) : \bb = \bB \bz\}\).
+(Check!) If \(\bB^{\ast} \bB\) is positive semi-definite, then this problem can be solved by iterating the proximal map for \(h_{\rho}\) while maintaining \((\bz_{n}, \bb_{n})\) within the subspace \(V = \{(\bz, \bb) : \bb = \bB \bz\}\).
 This may be achieved by the projection
 \begin{equation*}
     P_{V}(\bz, \bb)
