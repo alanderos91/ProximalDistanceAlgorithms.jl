@@ -23,7 +23,7 @@ Build a portable representation of a problem using Convex.jl.
 The problem can be passed to a supported black-box solver.
 See the Convex.jl documentation for more details.
 """
-struct BlackBox <: AlgoritimOption end
+struct BlackBox <: AlgorithmOption end
 
 include(joinpath("convex_regression", "linear_operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))

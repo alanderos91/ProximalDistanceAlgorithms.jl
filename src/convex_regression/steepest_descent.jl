@@ -39,7 +39,7 @@ function cvxreg_fit(::SteepestDescent, y, X;
     ρ_init::Real      = 1.0,
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
-    history::T        = __default_logger) where T
+    history::FuncLike = __default_logger) where FuncLike
     # extract problem information
     d, n = size(X)
 
