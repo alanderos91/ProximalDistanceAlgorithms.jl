@@ -2,6 +2,7 @@ module ProximalDistanceAlgorithms
 
 using LinearAlgebra, Statistics, SparseArrays, IterativeSolvers
 using Convex
+using RecipesBase
 
 import IterativeSolvers: CGStateVariables
 
@@ -49,5 +50,10 @@ include(joinpath("metric_nearness", "steepest_descent.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
 
 export metric_projection, metric_example
+
+# convergence metrics
+include("logging.jl")
+
+export MMLogger, SDLogger
 
 end # module
