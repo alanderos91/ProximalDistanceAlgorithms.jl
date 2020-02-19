@@ -164,7 +164,7 @@ This representation leads to a simple formula for \(\bH^{\ast}\):
 \end{equation}
 Further note that \(\bH\) is skew-symmetric; that is, \(\bH = \bL - \bL^{\ast}\) with \(\bL\) a strictly lower-triangular matrix.
 
-The Gram matrix \(\bB^{\ast} \bB \in \Real^{n(1+d) \times n(1+d)}\) consists of the blocks
+The Gram matrix \(\bB^{\ast} \bB \in \Real^{(n+nd) \times (n+nd)}\) consists of the blocks
 \begin{equation*}
     \begin{bmatrix}
         \bD^{\ast} \bD
@@ -260,15 +260,22 @@ Exploiting the stationarity condition \(\bq_{n} = \boldsymbol{0}\) produces the 
         \bxi_{n+1}
     \end{bmatrix}
     =
-    \rho (\bI + \rho \bB^{\ast} \bB)^{-1}
+    (\rho^{-1}\bA^{\ast} \bA + \bB^{\ast} \bB)^{-1}
+    \left(
+    \rho^{-1}
+    \begin{bmatrix}
+        \by \\
+        \boldsymbol{0}
+    \end{bmatrix}
+    +
     \begin{bmatrix}
         \bD^{\ast} \\
         \bH^{\ast}
     \end{bmatrix}
-    P_{S}(\bD \btheta_{n} + \bH \bxi_{n}).
+    P_{S}(\bD \btheta_{n} + \bH \bxi_{n})\right).
 \end{equation*}
 Importantly, the matrix \(\bB^{\ast} \bB\) is typically positive semidefinite.
-This update is handled well using the method of conjugate gradients or LSMR because \(\bI + \bB^{\ast} \bB\) is sparse.
+This update is handled well using the method of conjugate gradients due to sparsity.
 
 \section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
 
