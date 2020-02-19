@@ -1,34 +1,7 @@
-import ProximalDistanceAlgorithms: apply_D!, apply_Dt!, apply_DtD!,
+import ProximalDistanceAlgorithms:
+    make_D, make_H,
+    apply_D!, apply_Dt!, apply_DtD!,
     apply_H!, apply_Ht!
-
-function make_D(n)
-    D = spzeros(Int, n*n, n)
-    k = 1
-
-    for j in 1:n, i in 1:n
-        if i != j
-            D[k,i] = -1
-            D[k,j] = 1
-        end
-        k += 1
-    end
-
-    return D
-end
-
-function make_H(X)
-    d, n = size(X)
-    H = zeros(n*n, n*d)
-
-    for j in 1:n, i in 1:n, k in 1:d
-        I = (j-1)*n + i # column j, row i
-        J = (j-1)*d + k # block j, index k
-
-        H[I,J] = X[k,i] - X[k,j]
-    end
-
-    return H
-end
 
 @testset "linear operators" begin
     sample_size = (3, 10, 100)
