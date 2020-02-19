@@ -1,3 +1,36 @@
+# matrices
+
+function make_D(n)
+    D = spzeros(Int, n*n, n)
+    k = 1
+
+    for j in 1:n, i in 1:n
+        if i != j
+            D[k,i] = -1
+            D[k,j] = 1
+        end
+        k += 1
+    end
+
+    return D
+end
+
+function make_H(X)
+    d, n = size(X)
+    H = zeros(n*n, n*d)
+
+    for j in 1:n, i in 1:n, k in 1:d
+        I = (j-1)*n + i # column j, row i
+        J = (j-1)*d + k # block j, index k
+
+        H[I,J] = X[k,i] - X[k,j]
+    end
+
+    return H
+end
+
+# linear operators
+
 function apply_D!(C, θ)
    for j in eachindex(θ), i in eachindex(θ)
       @inbounds C[i,j] = θ[j] - θ[i]
@@ -36,12 +69,26 @@ function apply_H!(C, X, ξ)
    return C
 end
 
-function apply_Ht!(U, X, W)
+function apply_Ht!(U::AbstractMatrix, X, W)
    d, n = size(X)
    fill!(U, 0)
 
    for j in 1:n, i in 1:n, k in 1:d
+      # U has the same shape as X
       @inbounds U[k,j] = U[k,j] + W[i,j] * (X[k,i] - X[k,j])
+   end
+
+   return U
+end
+
+function apply_Ht!(U::AbstractVector, X, W)
+   d, n = size(X)
+   fill!(U, 0)
+
+   for j in 1:n, i in 1:n, k in 1:d
+      l = (j-1)*d + k
+      # U has the same shape as vec(X)
+      @inbounds U[l] = U[l] + W[i,j] * (X[k,i] - X[k,j])
    end
 
    return U
@@ -65,69 +112,69 @@ function apply_D_plus_H!(U, X, θ, ξ)
 end
 
 # version w/o redundant constraints
-
-function __apply_D_plus_H!(b, X, θ, ξ)
-   d, n = size(X)
-
-   l = 1
-   # contribution from D*θ
-   for j in 1:n, i in j+1:n
-      b[l] = θ[j] - θ[i]
-      b[n*(n-1)-l+1] = θ[i] - θ[j]
-      l += 1
-   end
-
-   l = 1
-   # contribution from H*ξ
-   for j in 1:n, i in 1:n
-      if i == j continue end
-      for k in 1:d
-         b[l] = b[l] + (X[k,i] - X[k,j]) * ξ[k,j]
-      end
-      l += 1
-   end
-
-   return b
-end
-
-function __build_D(n)
-    D = spzeros(Int, n*(n-1), n)
-    k = 1
-    for j in 1:n, i in j+1:n
-        D[k,i] = -1
-        D[k,j] = 1
-
-        D[n*(n-1)-k+1,i] = 1
-        D[n*(n-1)-k+1,j] = -1
-        k += 1
-    end
-
-    return D
-end
-
-function __build_H(X)
-   d, n = size(X)
-   H = zeros(n*(n-1), n*d)
-
-   l = 1
-   for j in 1:n, i in 1:n
-      if i == j continue end
-      for k in 1:d
-         I = l
-         J = (j-1)*d+k
-         H[I,J] = X[k,i] - X[k,j]
-      end
-      l += 1
-   end
-
-   return H
-end
-
-function __build_matrices(X)
-   d, n = size(X)
-   D = __build_D(n)
-   H = __build_H(X)
-   T = inv(I + D*D' + H*H')
-
-   return D', H', T
-end
+#
+# function __apply_D_plus_H!(b, X, θ, ξ)
+#    d, n = size(X)
+#
+#    l = 1
+#    # contribution from D*θ
+#    for j in 1:n, i in j+1:n
+#       b[l] = θ[j] - θ[i]
+#       b[n*(n-1)-l+1] = θ[i] - θ[j]
+#       l += 1
+#    end
+#
+#    l = 1
+#    # contribution from H*ξ
+#    for j in 1:n, i in 1:n
+#       if i == j continue end
+#       for k in 1:d
+#          b[l] = b[l] + (X[k,i] - X[k,j]) * ξ[k,j]
+#       end
+#       l += 1
+#    end
+#
+#    return b
+# end
+#
+# function __build_D(n)
+#     D = spzeros(Int, n*(n-1), n)
+#     k = 1
+#     for j in 1:n, i in j+1:n
+#         D[k,i] = -1
+#         D[k,j] = 1
+#
+#         D[n*(n-1)-k+1,i] = 1
+#         D[n*(n-1)-k+1,j] = -1
+#         k += 1
+#     end
+#
+#     return D
+# end
+#
+# function __build_H(X)
+#    d, n = size(X)
+#    H = zeros(n*(n-1), n*d)
+#
+#    l = 1
+#    for j in 1:n, i in 1:n
+#       if i == j continue end
+#       for k in 1:d
+#          I = l
+#          J = (j-1)*d+k
+#          H[I,J] = X[k,i] - X[k,j]
+#       end
+#       l += 1
+#    end
+#
+#    return H
+# end
+#
+# function __build_matrices(X)
+#    d, n = size(X)
+#    D = __build_D(n)
+#    H = __build_H(X)
+#    T = inv(I + D*D' + H*H')
+#
+#    return D', H', T
+# end
