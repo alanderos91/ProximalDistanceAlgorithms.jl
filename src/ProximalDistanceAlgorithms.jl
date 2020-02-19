@@ -33,6 +33,7 @@ struct BlackBox <: AlgorithmOption end
 
 export ProximalPoint, SteepestDescent, MM, BlackBox
 
+# example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))
 include(joinpath("convex_regression", "mm.jl"))
@@ -41,5 +42,12 @@ include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
+
+# example: metric nearness problem
+include(joinpath("metric_nearness", "linear_operators.jl"))
+include(joinpath("metric_nearness", "steepest_descent.jl"))
+include(joinpath("metric_nearness", "utilities.jl"))
+
+export metric_projection, metric_example
 
 end # module
