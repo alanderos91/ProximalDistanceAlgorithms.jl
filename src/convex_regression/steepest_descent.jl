@@ -32,7 +32,7 @@ function cvxreg_steepest_descent!(θ, ∇θ, ξ, ∇ξ, U, V, y, X, ρ)
     loss = 0.5 * (dot(θ,θ) - 2*dot(y, θ) + dot(y,y))
     objective = loss + 0.5*ρ*penalty
 
-    return γ, (a+b), loss, objective, penalty
+    return γ, sqrt(a+b), loss, objective, penalty
 end
 
 function cvxreg_fit(::SteepestDescent, y, X;
@@ -45,7 +45,7 @@ function cvxreg_fit(::SteepestDescent, y, X;
 
     # allocate matrices for intermediates
     U = zeros(n, n)
-    V = zeros(n ,n)
+    V = zeros(n, n)
 
     # allocate function estimates and subgradients
     θ = copy(y)
