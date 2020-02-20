@@ -56,4 +56,9 @@ include("logging.jl")
 
 export MMLogger, SDLogger
 
+# suggested penalty schedules
+include("penalty.jl")
+
+export slow_schedule, fast_schedule
+
 end # module
