@@ -1,0 +1,351 @@
+\documentclass{article}
+
+\input{preamble.tex}
+
+\title{Proximal Distance Application: Metric Projection}
+\author{Alfonso Landeros}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+The nearest metric problem \cite{sra2005} can be attacked with the penalty method of optimization.
+Given a \(n \times n\) dissimilarity matrix \(\bY = (y_{ij})\) with entries weighted by \(\bW = (w_{ij})\), our goal is to find a semi-metric \(\bX = (x_{ij})\) by solving a minimization problem of the form
+\begin{equation*}
+    h_{\rho}(\bX)
+    =
+    \frac{1}{2} \sum_{i>j} w_{ij}(x_{ij} - y_{ij})^{2}
+    +
+    \frac{\rho}{2} \sum_{i,j,k} c_{ijk}(\bX) + c_{jik}(\bX) + c_{kij}(\bX),
+\end{equation*}
+where the indices \((i,j,k)\) enumerate triangles.
+The functions \(c_{\cdot \cdot \cdot}(\bX)\) denote one of three constraints associated with each triangle.
+Symmetry allows one to store the matrices \(\bY\), \(\bW\), and \(\bX\) using entries from one of the strictly triangular regions.
+It is therefore useful to define the ``\(\mathrm{trivec}\)'' operation which maps \(\bX\) to a vectorized version of itself, \(\bx\) (Figure \ref{fig:trivec-operation}).
+The objective can then be expressed as
+\begin{equation*}
+  h_{\rho}(\bx)
+  =
+  \frac{1}{2} \lVert{\bW^{1/2}(\bx - \by)}\rVert^{2}_{2}
+  +
+  \frac{\rho}{2} \sum_{i,j,k} c_{ijk}(\bx) + c_{jik}(\bx) + c_{kij}(\bx).
+\end{equation*}
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{figures/trivec.pdf}
+    \caption{
+      Example of a symmetric matrix \(\bX\) and its vectorized counterpart \(\bx = \mathrm{trivec}(\bX)\).
+    }
+    \label{fig:trivec-operation}
+  \end{figure}
+Through an abuse of notation, the matrix \(\bW\) is now diagonal with entries \(w_{ij}\) and has the shape \(\binom{n}{2} \times \binom{n}{2}\).
+It is also useful to introduce the constraint matrix \(\bT \in \Real^{p \times r}\) used to encode each triangle inequality where \(p = 3 \binom{n}{3}\) and \(r = \binom{n}{2}\).
+Specifically, the row \(\bT_{ijk}\) is defined by its action on vectors;  \(\bT_{ijk} \bx = x_{i} - x_{j} - x_{k}\).
+Our approach enforces non-negativity and metric constraints using distance functions
+\begin{equation}
+  \label{eq:objective}
+  h_{\rho}(\bx)
+  =
+  \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
+    +
+  \frac{\rho}{2} \dist(\bT \bx, \mathbb{R}_{-}^{p})^{2}
+    +
+  \frac{\rho}{2} \dist(\bx, \mathbb{R}_{+}^{r})^{2},
+\end{equation}
+where \(\bx = \mathrm{trivec}(\bX)\) and \(\by = \mathrm{trivec}(\bY)\).
+The first distance penalty represents the triangle inequality constraints \(\bT \bx \le {\bf 0}\) while the second term enforces non-negativity.
+Fortunately, both distance functions have simple majorizations that yield a twice differentiable, strongly convex, and Lipschitz smooth surrogate
+\begin{equation}
+    \label{eq:surrogate}
+    g_{\rho}(\bx \mid \bx_{n})
+    =
+    \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
+    +
+    \frac{\rho}{2} \lVert{\bT \bx - P(\bT \bx_{n}, \mathbb{R}_{-}^{p})}\rVert^{2}_{2}
+    +
+    \frac{\rho}{2} \lVert{\bx - P(\bx_{n}, \mathbb{R}_{+}^{r})}\rVert^{2}_{2}.
+\end{equation}
+The notation \(P(\cdot, S)\) denotes projection onto a set \(S\).
+For convenience, we reduce the number of constriants by projecting onto the Cartesian product \(C = \Real_{+}^{r} \times \Real_{-}^{p}\) by defining the \textit{fusion matrix}
+\(\bD = \begin{bmatrix}
+    \bI & \bT^{\ast}
+\end{bmatrix}^{\ast}\)
+Thus, our surrogate~(\ref{eq:surrogate}) admits an equivalent representation
+\begin{equation*}
+    g_{\rho}(\bx \mid \bx_{n})
+    =
+    \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
+    +
+    \frac{\rho}{2} \lVert{\bD \bx - P(\bD \bx_{n}, C)}\rVert^{2}_{2},
+\end{equation*}
+with gradient
+\begin{equation}
+    \label{eq:surrogate-gradient}
+    \bq_{n}
+    =
+    \bW (\bx - \by)
+    +
+    \rho \bD^{\ast} [\bD \bx - P(\bD \bx_{n}, C)].
+\end{equation}
+
+\section*{\center Structure of Constraints}
+
+\begin{proposition}
+    The matrix \(\bT\) has \(3 \binom{m}{3}\) rows and \(\binom{m}{2}\) columns.
+\end{proposition}
+\begin{proof}
+    Interpret \(\bX\) as the adjacency matrix for a complete directed graph on \(m\) nodes without self-edges.
+    When \(\bX\) is symmetric the number of free parameters is therefore \(\binom{m}{2}\).
+    An oriented \(3\)-cycle is formed by fixing \(3\) nodes so there are \(\binom{m}{3}\) such cycles.
+    Now fix the orientation of the \(3\)-cycles and note that each triangle encodes \(3\) metric constraints.
+    The number of constraints is therefore \(3 \binom{m}{3}\).
+\end{proof}
+
+\begin{proposition}
+    Each column of \(\bT\) has \(3 (m-2)\) nonzero entries.
+\end{proposition}
+\begin{proof}
+    In view of the previous result, the entries \(T_{ij}\) encode whether edge \(j\) participates in constraint \(i\).
+    We proceed by induction on the number of nodes \(m\).
+    The base case \(m = 3\) involves one triangle and is trivial.
+    Note that a triangle encodes \(3\) inequalities.
+
+    Now consider a complete graph on \(m\) nodes and suppose the claim holds.
+    Without loss of generality, consider the collection of \(3\)-cycles oriented clockwise and fix an edge \(j\).
+    Adding a node to the graph yields \(2 m\) new edges, two for each of the existing \(m\) nodes.
+    This action also creates one new triangle for each existing edge.
+    Thus, edge \(j\) appears in \(3(m-2) + 3 = 3 [(m+1)-2]\) triangle inequality constraints based on the induction hypothesis.
+\end{proof}
+% TODO: Add a picture for "proof by picture".
+
+\begin{proposition}
+    Each column of \(\bT\) has \(m-2\) \(+1\)s and \(2(m-2)\) \(-1\)s.
+\end{proposition}
+\begin{proof}
+Interpret the inequality \(x_{ij} \le x_{ik} + x_{kj}\) with \(i > k > j\) as the ordered triple \(x_{ij}, x_{ik}, x_{kj}\).
+The statement is equivalent to counting
+\begin{align*}
+    a(N)
+    &=
+    \text{number of times \(x_{ij}\) appears in position 1, and}\\
+    b(N)
+    &=
+    \text{number of times \(x_{ij}\) appears in position 2 or 3},
+\end{align*}
+where \(N\) denotes the number of constraints.
+In view of the previous proposition, it is enough to prove \(a(N) = m-2\).
+Note that \(a(3) = 1\), meaning that \(x_{ij}\) appears in position \(1\) exactly once within a given triangle.
+Given that an edge \((i,j)\) appears in \(3 (m-2)\) constraints, divide this quantity by the number of constraints per triangle to arrive at the stated result.
+\end{proof}
+
+\begin{proposition}
+    The matrix \(\bT\) has full column rank.
+\end{proposition}
+\begin{proof}
+    It is enough to show that \(\bA = \bT^{\ast}\bT\) is full rank.
+    The first two propositions imply
+    \begin{equation*}
+        a_{ii}
+        =
+        \langle{\bT_{i}, \bT_{i}}\rangle
+        =
+        \sum (\pm 1)^{2}
+        =
+        3 (m-2).
+    \end{equation*}
+    To compute the off-diagonal entries, fix a triangle and note that two edges \(i\) and \(j\) appear in all three of its constraints of the form \(x_{i} \le x_{j} + x_{k}\).
+    There are three possibilities for a given constraint \(c\):
+    \begin{equation*}
+        T_{c,i} T_{c,j} \amp = \amp
+        \begin{cases}
+            -1, &\text{if \(i\) LHS, \(j\) RHS or vice-versa} \\
+            \amp 1,  &\text{if \(i\) and \(j\) both appear on RHS} \\
+            \amp 0,  &\text{if one of \(i\) or \(j\) is missing}.
+        \end{cases}
+    \end{equation*}
+    It follows that
+    \begin{equation*}
+        a_{ij}
+        =
+        \langle{\bT_{i}, \bT_{j}}\rangle
+        =
+        \begin{cases}
+            -1, &\text{if}\ldots \\
+            \amp 0, &\text{otherwise}.
+        \end{cases}
+    \end{equation*}
+    By Proposition 2, an edge \(i\) appears in \(3 (m-2)\) constraints.
+    Imposing the condition that edge \(j\) also appears reduces this number by \(m-2\), the number of remaining nodes that can contribute edges in our accounting.
+    The calculation
+    \begin{equation*}
+        \sum_{j \neq i} |a_{ij}| = 2 (m-2) < 3 (m-2) = |a_{ii}|
+    \end{equation*}
+    establishes that \(\bA\) is strictly diagonally dominant and hence full rank.
+\end{proof}
+
+\begin{proposition}
+    The matrix \(\bT^{\ast}\bT\) has at most \(3\) distinct eigenvalues of the form \(m-2\), \(2m-2\), and \(3m-4\) with multiplicities \(1\), \(m-1\), and \(\frac{1}{2} m (m-3)\), respectively.
+\end{proposition}
+
+\section*{\center Required Operators}
+
+Let \(\bz = \bT^{\ast} \bT \bx - \bT^{\ast} (\bT \bx)_{+}\) with \(\bz = \vec(\bZ)\).
+One can compute the required operation with a matrix-free algorithm in a single loop in \(\mathcal{O}(n^{3})\) operations.
+The recipe accumulates
+\begin{equation*}
+    \begin{split}
+        z_{ij}
+        &=
+        z_{ij}
+        + 3 x_{ij} - x_{ki} - x_{kj}
+        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
+        \qquad j = 1,\ldots,n-2 \\
+        z_{ki}
+        &=
+        z_{ki}
+        + 3 x_{ki} - x_{ij} - x_{kj}
+        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
+        \qquad i = j+1,\ldots,n-1 \\
+        z_{kj}
+        &=
+        z_{kj}
+        + 3 x_{kj} - x_{ij} - x_{ki}
+        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
+        \qquad k = i+1,\ldots,n
+    \end{split}
+\end{equation*}
+by visiting each triangle \((i,j,k)\) exactly once.
+Note that the algorithm operates on two columns at a time.
+Computing \(\bw = \bT \bx\) has a similar computational complexity:
+\begin{equation*}
+    \begin{split}
+        y_{ijk} &= x_{ij} - x_{ki} - x_{kj} \\
+        y_{jik} &= x_{ki} - x_{ij} - x_{kj} \\
+        y_{kij} &= x_{kj} - x_{ij} - x_{ki}. \\
+    \end{split}
+\end{equation*}
+Numerical experiments suggest that these two algorithms are superior to explicit matrix-vector with sparse matrix data structures despite \(>99\%\) sparsity for \(n \gg 1\).
+This is likely due to the large bandwidth of both matrices \(\bT\) and \(\bT^{\ast} \bT\).
+
+\section*{\center Algorithm 1: Proximal Distance}
+
+The stationary condition \(\nabla g_{\rho}(\bx \mid \bx_{n}) = {\bf 0}\) produces the iteration scheme
+\begin{equation*}
+  \begin{split}
+    \bx_{n+1}
+    &=
+    \left(
+      \frac{1+\rho}{\rho} \bW + \bT^{\ast} \bT
+    \right)^{-1}
+    \left[
+      \frac{1}{\rho} \bd
+      +
+      \bT^{\ast} P(\bT \bx_{n}, \mathbb{R}_{-}^{p})
+      +
+      P(\bx_{n}, \mathbb{R}_{+}^{r})
+    \right] \\
+    &=
+    \rho [\nabla^{2} g_{\rho}(\bx \mid \bx_{n})]^{-1}
+    \left[
+      \frac{1}{\rho} \bd
+      +
+      \bT^{\ast} P(\bT \bx_{n}, \mathbb{R}_{-}^{p})
+      +
+      P(\bx_{n}, \mathbb{R}_{+}^{r})
+    \right].
+  \end{split}
+\end{equation*}
+The Gram matrix \(\bT^{\ast} \bT\) preserves sparsity because rows of \(\bT\) are sparse except when \(m \le 4\).
+Moreover, one can avoid repeated evaluation of the requisite matrix inverse by computing the spectral decomposition \(\bT^{\ast} \bT = \bV \bLambda \bV^{-1}\) and applying Woodbury's identity.
+We write
+\begin{equation}
+  \label{eq:matrix-inverse}
+  \begin{split}
+    \left(
+      \frac{1+\rho}{\rho} \bW + \bT^{\ast} \bT
+    \right)^{-1}
+    &=
+    \frac{\rho}{1+\rho} \bW
+    -
+    \left(\frac{\rho}{1+\rho}\right)^{2} \bV \left(
+      \bLambda^{-1} + \frac{1+\rho}{\rho} \bW
+    \right)^{-1} \bV^{-1} \\
+    &=
+    \frac{\rho}{1+\rho} \bW
+    -
+    \left(\frac{\rho}{1+\rho}\right)^{2} \bV \bZ \bV^{-1},
+  \end{split}
+\end{equation}
+and identify the entries \(z_{ii} = \lambda_{ii} (\frac{\rho}{1+\rho} \lambda_{ii} + w_{ii})^{-1}\) of the diagonal matrix \(\bZ\).
+Given that projections onto non-negative and non-positive orthants scale linearly, each iteration is dominated by matrix-vector multiplication.
+
+Observe that \(h_{\rho}(\bx)\) is strongly convex for fixed \(\rho\) (check!) and possesses a global minimum in the limit \(\rho \to \infty\) provided the penalty terms vanish.
+Unfortunately, the Hessian of the surrogate, \(g_{\infty}(\bx \mid \bx_{\infty})\), is not bounded so it is not obvious that the MM iterates converge to a limit point.
+Noting that \(\rho^{-1}(1+\rho) \to 1\), the equality
+\begin{equation*}
+  \bx_{\infty}
+  =
+  \left(
+      \bW + \bT^{\ast} \bT
+    \right)^{-1}
+    \left[
+      \bT^{\ast} P(\bT \bx_{\infty}, \mathbb{R}_{-}^{p})
+      +
+      P(\bx_{\infty}, \mathbb{R}_{+}^{r})
+    \right],
+\end{equation*}
+holds precisely when the putative limit point \(\bx_{\infty}\) respects both types of constraints.
+Hence, the MM iterates \(\{\bx_{n}\}_{n \ge 0}\) converge.
+
+One can show that the positive definite matrix \(\bT^{\ast} \bT\) possesses three non-zero eigenvalues.
+However, the eigenvectors spanning each eigenspace are difficult to describe with exact formulas.
+In lieu of the explicit eigenstructure, one can take advantage of sparsity by using the method of conjugate gradients to solve the required linear system.
+
+\section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
+
+Linearity of the gradient~(\ref{eq:surrogate-gradient}) suggests an explicit formula for the optimal step size \(\gamma_{n}\) along \(\bq_{n} = \nabla g_{\rho}(\bx \mid \bx_{n})\).
+This follows easily from the chain rule
+\begin{equation*}
+  \begin{split}
+    \frac{\partial}{\partial \gamma} g_{\rho}(\bx - \gamma \bq_{n} \mid \bx_{n})
+    &=
+    \langle{\nabla g_{\rho}(\bx - \gamma \bq \mid \bx_{n}), \bq_{n}}\rangle \\
+    &=
+    \langle{
+      \bq_{n}
+        - \gamma \bW \bq_{n}
+        - \gamma \rho \bD^{\ast} \bD \bq_{n},
+     \bq_{n}}\rangle \\
+    &=
+    \lVert{\bq_{n}}\rVert^{2}
+    - \gamma (\lVert{\bW^{1/2} \bq_{n}}\rVert^{2} + \rho \lVert{\bT \bq_{n}}\rVert^{2}) \\
+    \implies \gamma_{n}
+    &=
+    \frac{\lVert{\bq_{n}}\rVert^{2}}{
+        \lVert{\bW^{1/2} \bq_{n}}\rVert^{2}
+        + \rho \lVert{\bq_{n}}\rVert^{2}
+        + \rho \lVert{\bT \bq_{n}}\rVert^{2}
+    }
+  \end{split}
+\end{equation*}
+The following iterative scheme suggests an explicit order of operations for the interested programmer:
+\begin{equation*}
+    \bx_{n+1}
+    =
+    \bx_{n}
+    - \gamma \left[
+    \bW (\bx - \by) + \rho \{
+        \bx - (\bx_{n})_{+}
+        + \bT^{\ast} \bT \bx - (\bT \bx_{n})_{-}
+        \}
+    \right].
+\end{equation*}
+%%%%% BIBLIOGRAPHY %%%%%
+\begin{thebibliography}{99}
+    \bibitem{sra2005}
+    Sra S, Tropp J, Dhillon IS (2005) {Triangle fixing algorithms for the metric nearness problem}. {\it Advances in Neural Information Processing Systems} 361-368
+    
+    \bibitem{langeMM2016}
+    Lange, K (2016) {\it MM Optimization Algorithms}. SIAM
+\end{thebibliography}
+\end{document}
