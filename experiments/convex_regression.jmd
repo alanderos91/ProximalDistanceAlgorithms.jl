@@ -1,11 +1,18 @@
 ---
 title: Convex Regression
+author: Alfonso Landeros
 ---
 
-```{julia}
+```{julia; result = "hidden"}
 using ProximalDistanceAlgorithms
-using Random, LinearAlgebra, Plots, DataFrames, CSV
+using Random, LinearAlgebra, Plots, DataFrames, CSV, Statistics
 gr(linewidth = 3, grid = false)
+
+const EXAMPLEDIR = joinpath("experiments", "cvxreg")
+const FIGURES    = joinpath(EXAMPLEDIR, "figures")
+const BENCHMARKS = joinpath(EXAMPLEDIR, "benchmarks")
+const LOGTYPES   = (MMLogger, SDLogger)
+const ALGORITHMS = (MM(), SteepestDescent())
 
 SAVEFIG = true
 ```
@@ -18,32 +25,25 @@ d = 1               # number of covariates
 n = 50              # number of samples
 σ = 0.2             # standard deviation of perturbations
 
+tag = "d=$(d)_n=$(n)_sigma=$(σ).pdf"
+
 # create a problem instance
 Random.seed!(1776)
-y, y_truth, X = cvxreg_example(φ, d, n, σ)
 
-# visualize 1D signal
-figure = plot(xlabel = "x", ylabel = "phi(x)", title = "1D convex regression")
+y, y_truth, X = cvxreg_example(φ, d, n, σ)
+y_scaled, X_scaled = mazumder_standardization(y, X)
+
+figureA = plot(title = "simulated data")
 plot!(X', y_truth, label = "truth")
 scatter!(X', y, label = "observed")
 
-SAVEFIG && savefig(figure,
-    joinpath("figures",
-        "cvxreg", "example_d=$(1)_n=$(n)_sigma=$(σ).pdf"))
-
-figure
-```
-
-```{julia}
-y_scaled, X_scaled = mazumder_standardization(y, X)
-
-figure = plot(xlabel = "x", ylabel = "phi(x)", title = "after standardization")
+figureB = plot(title = "after standardization")
 plot!(X_scaled', y_truth / norm(y_truth), label = "truth")
 scatter!(X_scaled', y_scaled, label = "observed")
 
-SAVEFIG && savefig(figure,
-    joinpath("figures",
-        "cvxreg", "standardize_d=1_n=50_sigma=0.2.pdf"))
+figure = plot(figureA, figureB, xlabel = "x", ylabel = "phi(x)",)
+
+SAVEFIG && savefig(figure, joinpath(FIGURES, "demo_"*tag))
 
 figure
 ```
@@ -51,110 +51,32 @@ figure
 ##### Proximal Distance
 
 ```{julia}
-struct MMLogger{vecT}
-    g::vecT     # norm of gradient
-    loss::vecT
-    objective::vecT
-    penalty::vecT
-    iteration::Vector{Int}
-end
+maxiters = 5*10^3
+sample_rate = 100
+ρ_init = 1.0
 
-function MMLogger(hint::Integer)
-    g = sizehint!(Float64[], hint)
-    loss = sizehint!(Float64[], hint)
-    objective = sizehint!(Float64[], hint)
-    penalty = sizehint!(Float64[], hint)
-    iteration = sizehint!(Int[], hint)
-
-    return MMLogger(g, loss, objective, penalty, iteration)
-end
-
-function (logger::MMLogger)(data, iteration)
-    # log history every 50 iterations
-    if iteration % 50 == 0
-        # retrieve info stored in data
-        g, loss, objective, penalty = data
-
-        # update fields
-        push!(logger.g, g)
-        push!(logger.loss, loss)
-        push!(logger.objective, objective)
-        push!(logger.penalty, penalty)
-        push!(logger.iteration, iteration)
-    end
-
-    return nothing
-end
-
-function convergence_history(logger::MMLogger)
-    figure = plot(title  = "convergence history",
-        xlabel = "iteration",
-        xscale = :log10,
-        yscale = :log10,
-        legend = :bottom)
-
-    plot!(logger.iteration, logger.loss, label = "loss")
-    plot!(logger.iteration, logger.objective, label = "objective")
-    plot!(logger.iteration, logger.penalty, label = "penalty")
-    plot!(logger.iteration, logger.g, label = "gradient")
-
-    return figure
-end
-```
-
-```{julia}
-function slow_schedule(T, n, ρ, iteration)
-    if iteration % 500 == 0
-        ρ_new = 1.1 * ρ
-        diff = 1 / ρ_new - 1 / ρ
-        for i in 1:n
-            T[i,i] = T[i,i] + diff
-        end
-        ρ = ρ_new
-    end
-
-    return ρ
-end
-
-function fast_schedule(T, n, ρ, iteration)
-    if iteration % 50 == 0
-        ρ_new = 1.1 * ρ
-        diff = 1 / ρ_new - 1 / ρ
-        for i in 1:n
-            T[i,i] = T[i,i] + diff
-        end
-        ρ = ρ_new
-    end
-
-    return ρ
-end
-```
-
-```{julia}
-logger = MMLogger(5000 ÷ 50)
+history = MMLogger(maxiters ÷ sample_rate, sample_rate)
 
 θ, ξ = @time cvxreg_fit(MM(), y_scaled, X_scaled,
-    maxiters = 5000,
-    ρ_init = 1.0,
-    penalty = slow_schedule,
-    history = logger)
+    maxiters = maxiters,
+    ρ_init   = ρ_init,
+    penalty  = slow_schedule,
+    history  = history)
 
 figure = plot(xlabel = "x", ylabel = "phi(x)", title = "original scale")
 plot!(X_scaled', y_truth, label = "truth")
 scatter!(X_scaled', y_scaled*norm(y), label = "observed")
 scatter!(X_scaled', θ*norm(y), label = "fit")
 
-SAVEFIG && savefig(figure,
-    joinpath("figures", "cvxreg", "mm", "fit_d=$(d)_n=$(n)_sigma=$(σ).pdf"))
+SAVEFIG && savefig(figure, joinpath(FIGURES, "fit_mm_"*tag))
 
 figure
 ```
 
 ```{julia}
-figure = convergence_history(logger)
+figure = plot(history)
 
-SAVEFIG && savefig(figure,
-    joinpath("figures", "cvxreg", "mm", "history_d=$(d)_n=$(n)_sigma=$(σ).pdf"))
+SAVEFIG && savefig(figure, joinpath(FIGURES, "log_mm_"*tag))
 
 figure
 ```
@@ -162,166 +84,149 @@ figure
 ##### Proximal Distance + Steepest Descent
 
 ```{julia}
-struct SDLogger{vecT}
-    γ::vecT     # step size
-    g::vecT     # norm of gradient
-    loss::vecT
-    objective::vecT
-    penalty::vecT
-    iteration::Vector{Int}
-end
+maxiters = 5*10^3
+sample_rate = 100
+ρ_init = 1.0
 
-function SDLogger(hint::Integer)
-    γ = sizehint!(Float64[], hint)
-    g = sizehint!(Float64[], hint)
-    loss = sizehint!(Float64[], hint)
-    objective = sizehint!(Float64[], hint)
-    penalty = sizehint!(Float64[], hint)
-    iteration = sizehint!(Int[], hint)
-
-    return SDLogger(γ, g, loss, objective, penalty, iteration)
-end
-
-function (logger::SDLogger)(data, iteration)
-    # log history every 50 iterations
-    if iteration % 50 == 0
-        # retrieve info stored in data
-        γ, g, loss, objective, penalty = data
-
-        # update fields
-        push!(logger.γ, γ)
-        push!(logger.g, g)
-        push!(logger.loss, loss)
-        push!(logger.objective, objective)
-        push!(logger.penalty, penalty)
-        push!(logger.iteration, iteration)
-    end
-
-    return nothing
-end
-
-function convergence_history(logger::SDLogger)
-    figure = plot(title  = "convergence history",
-        xlabel = "iteration",
-        xscale = :log10,
-        yscale = :log10,
-        legend = :bottom)
-
-    plot!(logger.iteration, logger.loss, label = "loss")
-    plot!(logger.iteration, logger.objective, label = "objective")
-    plot!(logger.iteration, logger.penalty, label = "penalty")
-    plot!(logger.iteration, logger.g, label = "gradient")
-
-    return figure
-end
-```
-
-```{julia}
-slow_schedule(ρ, iteration) = iteration % 500 == 0 ? ρ*1.1 : ρ
-fast_schedule(ρ, iteration) = iteration % 50 == 0 ? ρ*1.1 : ρ
-```
-
-```{julia}
-logger = SDLogger(5000 ÷ 50)
+history = SDLogger(maxiters ÷ sample_rate, sample_rate)
 
 θ, ξ = @time cvxreg_fit(SteepestDescent(), y_scaled, X_scaled,
-    maxiters = 5000,
-    ρ_init = 1.0,
-    penalty = slow_schedule,
-    history = logger)
+    maxiters = maxiters,
+    ρ_init   = ρ_init,
+    penalty  = slow_schedule,
+    history  = history)
 
 figure = plot(xlabel = "x", ylabel = "phi(x)", title = "original scale")
 plot!(X_scaled', y_truth, label = "truth")
 scatter!(X_scaled', y_scaled*norm(y), label = "observed")
 scatter!(X_scaled', θ*norm(y), label = "fit")
 
-SAVEFIG && savefig(figure,
-    joinpath("figures", "cvxreg", "sd", "fit_d=$(d)_n=$(n)_sigma=$(σ).pdf"))
+SAVEFIG && savefig(figure, joinpath(FIGURES, "fit_sd_"*tag))
 
 figure
 ```
 
 ```{julia}
-figure = convergence_history(logger)
+figure = plot(history)
 
-SAVEFIG && savefig(figure,
-    joinpath("figures", "cvxreg", "sd", "history_d=$(d)_n=$(n)_sigma=$(σ).pdf"))
+SAVEFIG && savefig(figure, joinpath(FIGURES, "log_sd_"*tag))
 
 figure
 ```
 
-```{julia}
-# store convergence history for each instance
-logs = Dict{Tuple{Int,Int},typeof(logger)}()
+### Benchmarks
 
+```{julia}
 # benchmark parameters
 σ = 0.2
 maxiters = 5*10^3
-Random.seed!(1776)
+ρ_init = 1.0
+sample_rate = 100
+ntrials = 100
 
-# fields for DataFrame summary
-ncovariates = Int[]
-nsamples    = Int[]
-loss        = Float64[]
-objective   = Float64[]
-penalty     = Float64[]
-gradient    = Float64[]
-cpu_time    = Float64[]
+COVARIATES = (1,2,10)
+OBSERVATIONS = (50, 100, 200, 500)
 
-for n in (50, 100, 200, 500), d in (1, 2, 10)
-    # simulate data
-    y, y_truth, X = cvxreg_example(φ, d, n, σ)
+for (LogType, algorithm) in zip(LOGTYPES, ALGORITHMS)
+    println("$(typeof(algorithm))")
+    # store convergence history for each instance
+    logs = Dict{Tuple{Int,Int},LogType}()
 
-    # standardize according to mazumder
-    y_scaled, X_scaled = mazumder_standardization(y, X)
+    # fields for DataFrame summary
+    ncovariates = Int[]
+    nsamples    = Int[]
+    loss        = Float64[]
+    objective   = Float64[]
+    penalty     = Float64[]
+    gradient    = Float64[]
+    cpu_time    = Float64[]
 
-    # initialize logger for the problem
-    history = SDLogger(maxiters ÷ 50)
-
-    # solve the problem and record CPU time
-    tt = @elapsed cvxreg_fit(SteepestDescent(), y_scaled, X_scaled,
-        maxiters = maxiters,
-        ρ_init   = 1.0,
-        penalty  = slow_schedule,
-        history  = history)
-
-    # save the log and record entries for summary
-    logs[(d,n)] = history
-
-    push!(ncovariates, d)
-    push!(nsamples, n)
-    push!(loss, history.loss[end])
-    push!(objective, history.objective[end])
-    push!(penalty, history.penalty[end])
-    push!(gradient, history.g[end])
-    push!(cpu_time, tt)
-end
-
-# save convergence histories to disk
-if SAVEFIG
-    for ((d,n), history) in logs
-        figure = convergence_history(history)
-        savefig(figure,
-            joinpath("figures",
-                "cvxreg", "sd", "benchmarks", "d=$(d)_n=$(n)_sigma=$(σ).pdf"))
+    if algorithm isa MM
+        prefix = "mm_"
+    elseif algorithm isa SteepestDescent
+        prefix = "sd_"
+    else
+        error("unknown algorithm option: $(algorithm)")
     end
+
+    # make sure each algorithm sees the same problem
+    Random.seed!(1776)
+
+    for n in OBSERVATIONS, d in COVARIATES
+        println("   (d, n) = ($(d), $(n))")
+        # simulate data
+        y, y_truth, X = cvxreg_example(φ, d, n, σ)
+
+        # standardize according to mazumder
+        y_scaled, X_scaled = mazumder_standardization(y, X)
+
+        # solve the problem and record CPU time
+        cpu_sample = zeros(ntrials)
+        for trial in 1:ntrials
+            history = LogType(maxiters ÷ sample_rate, sample_rate)
+
+            tt = @elapsed cvxreg_fit(algorithm, y_scaled, X_scaled,
+                maxiters = maxiters,
+                ρ_init   = ρ_init,
+                penalty  = slow_schedule,
+                history  = history)
+
+            cpu_sample[trial] = tt
+        end
+
+        # save the log and record entries for summary
+        history = LogType(maxiters ÷ sample_rate, sample_rate)
+        cvxreg_fit(algorithm, y_scaled, X_scaled,
+            maxiters = maxiters,
+            ρ_init   = ρ_init,
+            penalty  = slow_schedule,
+            history  = history)
+        logs[(d,n)] = history
+
+        push!(ncovariates, d)
+        push!(nsamples, n)
+        push!(loss, history.loss[end])
+        push!(objective, history.objective[end])
+        push!(penalty, history.penalty[end])
+        push!(gradient, history.g[end])
+        push!(cpu_time, mean(cpu_sample))
+    end
+
+    # save convergence histories to disk
+    if SAVEFIG
+        for ((d,n), history) in logs
+            problem = "d=$(d)_n=$(n)_sigma=$(σ).pdf"
+            figure = plot(history)
+            savefig(figure, joinpath(FIGURES, prefix*problem))
+        end
+    end
+
+    # table summary
+    df = DataFrame(
+        d = ncovariates,
+        n = nsamples,
+        cpu_time = cpu_time,
+        loss = loss,
+        objective = objective,
+        penalty = penalty,
+        gradient = gradient,
+    )
+
+    # save table to disk
+    CSV.write(joinpath(BENCHMARKS, prefix*"benchmarks.dat"), df)
 end
+```
 
-# table summary
-cvxreg_df = DataFrame(
-    d = ncovariates,
-    n = nsamples,
-    cpu_time = cpu_time,
-    loss = loss,
-    objective = objective,
-    penalty = penalty,
-    gradient = gradient,
-)
+##### Proximal Distance
 
-# save table to disk
-CSV.write(joinpath("tables", "cvxreg", "sd", "benchmarks.dat"), cvxreg_df)
+```{julia}
+CSV.read(joinpath(BENCHMARKS, "mm_benchmarks.dat"))
+```
 
-cvxreg_df
+##### Proximal Distance + Steepest Descent
+
+```{julia}
+CSV.read(joinpath(BENCHMARKS, "sd_benchmarks.dat"))
 ```
 
 ```{julia}
