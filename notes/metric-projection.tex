@@ -235,71 +235,72 @@ The stationary condition \(\nabla g_{\rho}(\bx \mid \bx_{n}) = {\bf 0}\) produce
     \bx_{n+1}
     &=
     \left(
-      \frac{1+\rho}{\rho} \bW + \bT^{\ast} \bT
+      \frac{1}{\rho} \bW + \bI + \bT^{\ast} \bT
     \right)^{-1}
     \left[
-      \frac{1}{\rho} \bd
+      \frac{1}{\rho} \bW \by
       +
-      \bT^{\ast} P(\bT \bx_{n}, \mathbb{R}_{-}^{p})
+      \bT^{\ast} (\bT \bx_{n})_{-}
       +
-      P(\bx_{n}, \mathbb{R}_{+}^{r})
+      (\bx_{n})_{+}
     \right] \\
     &=
     \rho [\nabla^{2} g_{\rho}(\bx \mid \bx_{n})]^{-1}
     \left[
-      \frac{1}{\rho} \bd
+      \frac{1}{\rho} \bW \by
       +
-      \bT^{\ast} P(\bT \bx_{n}, \mathbb{R}_{-}^{p})
+      \bT^{\ast} (\bT \bx_{n})_{-}
       +
-      P(\bx_{n}, \mathbb{R}_{+}^{r})
+      (\bx_{n})_{+}
     \right].
   \end{split}
 \end{equation*}
 The Gram matrix \(\bT^{\ast} \bT\) preserves sparsity because rows of \(\bT\) are sparse except when \(m \le 4\).
-Moreover, one can avoid repeated evaluation of the requisite matrix inverse by computing the spectral decomposition \(\bT^{\ast} \bT = \bV \bLambda \bV^{-1}\) and applying Woodbury's identity.
-We write
+Moreover, one can avoid repeated evaluation of the requisite matrix inverse by computing its spectral decomposition.
+Woodbury's identity can further simplify matters:
 \begin{equation}
   \label{eq:matrix-inverse}
   \begin{split}
     \left(
-      \frac{1+\rho}{\rho} \bW + \bT^{\ast} \bT
+      \frac{1}{\rho} \bW + \bI + \bT^{\ast} \bT
     \right)^{-1}
-    &=
-    \frac{\rho}{1+\rho} \bW
-    -
-    \left(\frac{\rho}{1+\rho}\right)^{2} \bV \left(
-      \bLambda^{-1} + \frac{1+\rho}{\rho} \bW
-    \right)^{-1} \bV^{-1} \\
-    &=
-    \frac{\rho}{1+\rho} \bW
-    -
-    \left(\frac{\rho}{1+\rho}\right)^{2} \bV \bZ \bV^{-1},
+    &= \cdots
+    % &=
+    % \frac{1}{\rho} \bW
+    % -
+    % \left(\frac{1}{\rho}\right)^{2} \bV \left(
+    %   \bLambda^{-1} + \frac{1}{\rho} \bW
+    % \right)^{-1} \bV^{-1} \\
+    % &=
+    % \frac{1}{\rho} \bW
+    % -
+    % \left(\frac{1}{\rho}\right)^{2} \bV \bZ \bV^{-1},
   \end{split}
 \end{equation}
-and identify the entries \(z_{ii} = \lambda_{ii} (\frac{\rho}{1+\rho} \lambda_{ii} + w_{ii})^{-1}\) of the diagonal matrix \(\bZ\).
-Given that projections onto non-negative and non-positive orthants scale linearly, each iteration is dominated by matrix-vector multiplication.
+% and identify the entries \(z_{ii} = \lambda_{ii} (\frac{1}{\rho} \lambda_{ii} + w_{ii})^{-1}\) of the diagonal matrix \(\bZ\).
+Unfortunately, the number of parameters is \(\binom{n}{2}\) so the cost of the decomposition is  \(\mathcal{O}(n^{6})\).
+Savings from caching the decomposition become marginal as the number of nodes increases.
+One can show that the positive definite matrix \(\bT^{\ast} \bT\) possesses three distinct eigenvalues.
+However, the eigenvectors spanning each eigenspace are difficult to describe with exact formulas.
+In lieu of the explicit eigenstructure, one can take advantage of sparsity by using the method of conjugate gradients to solve the required linear system.
 
-Observe that \(h_{\rho}(\bx)\) is strongly convex for fixed \(\rho\) (check!) and possesses a global minimum in the limit \(\rho \to \infty\) provided the penalty terms vanish.
+Observe that \(h_{\rho}(\bx)\) is strongly convex for fixed \(\rho\) and possesses a global minimum in the limit \(\rho \to \infty\) provided the penalty terms vanish.
 Unfortunately, the Hessian of the surrogate, \(g_{\infty}(\bx \mid \bx_{\infty})\), is not bounded so it is not obvious that the MM iterates converge to a limit point.
-Noting that \(\rho^{-1}(1+\rho) \to 1\), the equality
+The equality
 \begin{equation*}
   \bx_{\infty}
   =
   \left(
-      \bW + \bT^{\ast} \bT
+      \bI + \bT^{\ast} \bT
     \right)^{-1}
     \left[
-      \bT^{\ast} P(\bT \bx_{\infty}, \mathbb{R}_{-}^{p})
+      \bT^{\ast} (\bT \bx_{\infty})_{-}
       +
-      P(\bx_{\infty}, \mathbb{R}_{+}^{r})
+      (\bx_{\infty})_{+}
     \right],
 \end{equation*}
-holds precisely when the putative limit point \(\bx_{\infty}\) respects both types of constraints.
-Hence, the MM iterates \(\{\bx_{n}\}_{n \ge 0}\) converge.
-
-One can show that the positive definite matrix \(\bT^{\ast} \bT\) possesses three non-zero eigenvalues.
-However, the eigenvectors spanning each eigenspace are difficult to describe with exact formulas.
-In lieu of the explicit eigenstructure, one can take advantage of sparsity by using the method of conjugate gradients to solve the required linear system.
+holds precisely when the putative limit point \(\bx_{\infty}\) respects both constraints.
+Hence, the MM iterates \(\{\bx_{n}\}_{n \ge 0}\) converge to a no-progress point.
 
 \section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
 
@@ -328,7 +329,7 @@ This follows easily from the chain rule
     }
   \end{split}
 \end{equation*}
-The following iterative scheme suggests an explicit order of operations for the interested programmer:
+Explicitly, the iterative algorithm is given by
 \begin{equation*}
     \bx_{n+1}
     =
@@ -336,7 +337,7 @@ The following iterative scheme suggests an explicit order of operations for the 
     - \gamma \left[
     \bW (\bx - \by) + \rho \{
         \bx - (\bx_{n})_{+}
-        + \bT^{\ast} \bT \bx - (\bT \bx_{n})_{-}
+        + \bT^{\ast} \bT \bx - \bT^{\ast} (\bT \bx_{n})_{-}
         \}
     \right].
 \end{equation*}
