@@ -1,27 +1,3 @@
-function __do_linear_solve!(cg_iterator, b)
-    # unpack state variables
-    x = cg_iterator.x
-    u = cg_iterator.u
-    r = cg_iterator.r
-    c = cg_iterator.c
-
-    # initialize variables according to cg_iterator! with initially_zero = true
-    fill!(x, zero(eltype(x)))
-    fill!(u, zero(eltype(u)))
-    fill!(c, zero(eltype(c)))
-    copyto!(r, b)
-
-    tol = sqrt(eps(eltype(b)))
-    cg_iterator.mv_products = 0
-    cg_iterator.residual = norm(b)
-    cg_iterator.prev_residual = one(cg_iterator.residual)
-    cg_iterator.reltol = cg_iterator.residual * tol
-
-    for _ in cg_iterator end
-
-    return nothing
-end
-
 function cvxreg_mm!(θ, ξ, ∇θ, ∇ξ, U, V, b, b1, b2, w, w1, w2, y, X, T, cg_iterator, ρ)
 # function cvxreg_mm!(θ, ξ, y, X, D, H, T, ρ)
     # compute B*z = D*θ + H*ξ
