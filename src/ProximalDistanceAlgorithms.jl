@@ -8,7 +8,7 @@ import IterativeSolvers: CGStateVariables
 
 # default penalty schedule
 __default_schedule(ρ::Real, iteration::Integer) = ρ
-__default_schedule(T, n::Integer, ρ::Real, iteration::Integer) = ρ
+__default_schedule(T, W, n::Integer, ρ::Real, iteration::Integer) = ρ
 
 # default logging behavior
 __default_logger(data, iteration) = nothing
@@ -47,6 +47,7 @@ export cvxreg_fit, cvxreg_example, mazumder_standardization
 # example: metric nearness problem
 include(joinpath("metric_nearness", "linear_operators.jl"))
 include(joinpath("metric_nearness", "steepest_descent.jl"))
+include(joinpath("metric_nearness", "mm.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
 
 export metric_projection, metric_example
@@ -58,6 +59,9 @@ export MMLogger, SDLogger
 
 # suggested penalty schedules
 include("penalty.jl")
+
+# general utilities
+include("utilities.jl")
 
 export slow_schedule, fast_schedule
 

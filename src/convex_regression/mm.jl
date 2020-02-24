@@ -92,7 +92,7 @@ function cvxreg_fit(::MM, y, X;
         data = cvxreg_mm!(θ, ξ, ∇θ, ∇ξ, U, V, b, b1, b2, w, w1, w2, y, X, T, cg_iterator, ρ)
         # data = cvxreg_mm!(θ, ξ, y, X, D, H, T, ρ)
 
-        ρ = penalty(T, n, ρ, iteration)
+        ρ = penalty(T, I, n, ρ, iteration)
 
         history(data, iteration)
     end
