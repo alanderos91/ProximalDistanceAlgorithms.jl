@@ -164,7 +164,7 @@ function __apply_TtT_minus_npproj!(Q, B, X)
         end
     end
 
-    return Q, B
+    return nothing
 end
 
 function __apply_I_minus_nnproj!(Q, X)
@@ -197,7 +197,7 @@ function __accumulate_I_minus_nnproj!(Q, B, X)
         Q[i,j] += X[i,j] - B_ij
     end
 
-    return Q, B
+    return nothing
 end
 
 function __apply_T_evaluate_norm_squared(Q)
