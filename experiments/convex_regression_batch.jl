@@ -16,7 +16,7 @@ experiments = "/u/home/a/alandero/ProximalDistanceAlgorithms/experiments"
 for key in algorithms, d in covariates, n in samples
     # generate input string for benchmark
     jcode = """
-    (key, d, n, sigma, seed) = ($(key), $(d), $(n), $(sigma), $(seed));
+    (key, d, n, sigma, seed) = (:$(key), $(d), $(n), $(sigma), $(seed));
     (maxiters, sample_rate, ntrials) = ($(m), $(r), $(t));
     include(\"convex_regression.jl\")
     """
