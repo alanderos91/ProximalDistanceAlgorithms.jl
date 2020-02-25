@@ -25,6 +25,16 @@ end
 φ(x) = dot(x, x)
 
 function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
+    # create a sample convergence history
+    y, y_truth, X = cvxreg_example(φ, d, n, σ)
+    y_scaled, X_scaled = mazumder_standardization(y, X)
+    sample_log = initialize_log(algorithm, maxiters, sample_rate)
+    @timed cvxreg_fit(algorithm, y_scaled, X_scaled,
+        maxiters = maxiters,
+        ρ_init   = 1.0,
+        penalty  = slow_schedule,
+        history  = sample_log)
+
     # benchmark data
     loss      = Vector{Float64}(undef, ntrials)
     objective = Vector{Float64}(undef, ntrials)
@@ -70,16 +80,6 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
             gradient   = gradient,
             cpu_time   = cpu_time,
             memory     = memory)
-
-    # create a sample convergence history
-    y, y_truth, X = cvxreg_example(φ, d, n, σ)
-    y_scaled, X_scaled = mazumder_standardization(y, X)
-    sample_log = initialize_log(algorithm, maxiters, sample_rate)
-    cvxreg_fit(algorithm, y_scaled, X_scaled,
-        maxiters = maxiters,
-        ρ_init   = 1.0,
-        penalty  = slow_schedule,
-        history  = sample_log)
 
     hf = DataFrame(
             loss      = sample_log.loss,
