@@ -5,7 +5,7 @@ covariates = (1, 4, 16, 64)
 samples = (50, 100, 200, 400)
 sigma = 0.1
 m = 10^3
-r = 100
+r = 10
 t = 10
 
 # directory
