@@ -26,7 +26,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     @timed metric_projection(algorithm, W, D,
         maxiters = maxiters,
         ρ_init   = 1.0,
-        penalty  = slow_schedule,
+        penalty  = fast_schedule,
         history  = sample_log)
 
     # benchmark data
@@ -49,7 +49,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
         result = @timed metric_projection(algorithm, W, D,
             maxiters = maxiters,
             ρ_init   = 1.0,
-            penalty  = slow_schedule,
+            penalty  = fast_schedule,
             history  = history)
 
         # record benchmark data
