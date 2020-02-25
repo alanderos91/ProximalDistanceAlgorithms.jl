@@ -14,10 +14,10 @@ const BENCHMARKS = joinpath(EXAMPLEDIR, "benchmarks")
 const LOGTYPES   = (MMLogger, SDLogger)
 const ALGORITHMS = (MM(), SteepestDescent())
 
-SAVEFIG = true
+SAVEFIG = false
 ```
 
-### Example 1: Euclidean norm
+### Example: Euclidean norm
 
 ```{julia}
 φ(x) = dot(x, x)    # function to estimate
@@ -112,109 +112,6 @@ figure = plot(history)
 SAVEFIG && savefig(figure, joinpath(FIGURES, "log_sd_"*tag))
 
 figure
-```
-
-### Benchmarks
-
-```{julia}
-# benchmark parameters
-σ = 0.2
-maxiters = 5*10^3
-ρ_init = 1.0
-sample_rate = 100
-ntrials = 100
-
-COVARIATES = (1,2,10)
-OBSERVATIONS = (50, 100, 200, 500)
-
-for (LogType, algorithm) in zip(LOGTYPES, ALGORITHMS)
-    println("$(typeof(algorithm))")
-    # store convergence history for each instance
-    logs = Dict{Tuple{Int,Int},LogType}()
-
-    # fields for DataFrame summary
-    ncovariates = Int[]
-    nsamples    = Int[]
-    loss        = Float64[]
-    objective   = Float64[]
-    penalty     = Float64[]
-    gradient    = Float64[]
-    cpu_time    = Float64[]
-
-    if algorithm isa MM
-        prefix = "mm_"
-    elseif algorithm isa SteepestDescent
-        prefix = "sd_"
-    else
-        error("unknown algorithm option: $(algorithm)")
-    end
-
-    # make sure each algorithm sees the same problem
-    Random.seed!(1776)
-
-    for n in OBSERVATIONS, d in COVARIATES
-        println("   (d, n) = ($(d), $(n))")
-        # simulate data
-        y, y_truth, X = cvxreg_example(φ, d, n, σ)
-
-        # standardize according to mazumder
-        y_scaled, X_scaled = mazumder_standardization(y, X)
-
-        # solve the problem and record CPU time
-        cpu_sample = zeros(ntrials)
-        for trial in 1:ntrials
-            history = LogType(maxiters ÷ sample_rate, sample_rate)
-
-            tt = @elapsed cvxreg_fit(algorithm, y_scaled, X_scaled,
-                maxiters = maxiters,
-                ρ_init   = ρ_init,
-                penalty  = slow_schedule,
-                history  = history)
-
-            cpu_sample[trial] = tt
-        end
-
-        # save the log and record entries for summary
-        history = LogType(maxiters ÷ sample_rate, sample_rate)
-        cvxreg_fit(algorithm, y_scaled, X_scaled,
-            maxiters = maxiters,
-            ρ_init   = ρ_init,
-            penalty  = slow_schedule,
-            history  = history)
-        logs[(d,n)] = history
-
-        push!(ncovariates, d)
-        push!(nsamples, n)
-        push!(loss, history.loss[end])
-        push!(objective, history.objective[end])
-        push!(penalty, history.penalty[end])
-        push!(gradient, history.g[end])
-        push!(cpu_time, mean(cpu_sample))
-    end
-
-    # save convergence histories to disk
-    if SAVEFIG
-        for ((d,n), history) in logs
-            problem = "d=$(d)_n=$(n)_sigma=$(σ).pdf"
-            figure = plot(history)
-            savefig(figure, joinpath(FIGURES, prefix*problem))
-        end
-    end
-
-    # table summary
-    df = DataFrame(
-        d = ncovariates,
-        n = nsamples,
-        cpu_time = cpu_time,
-        loss = loss,
-        objective = objective,
-        penalty = penalty,
-        gradient = gradient,
-    )
-
-    # save table to disk
-    CSV.write(joinpath(BENCHMARKS, prefix*"benchmarks.dat"), df)
-end
 ```
 
 ##### Proximal Distance
