@@ -10,3 +10,6 @@
 
 # Julia packages
 Manifest.toml
+
+# Hoffman2 logs
+experiments/*/logs
