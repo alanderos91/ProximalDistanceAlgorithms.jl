@@ -32,7 +32,7 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
     @timed cvxreg_fit(algorithm, y_scaled, X_scaled,
         maxiters = maxiters,
         ρ_init   = 1.0,
-        penalty  = slow_schedule,
+        penalty  = fast_schedule,
         history  = sample_log)
 
     # benchmark data
@@ -58,7 +58,7 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
         result = @timed cvxreg_fit(algorithm, y_scaled, X_scaled,
             maxiters = maxiters,
             ρ_init   = 1.0,
-            penalty  = slow_schedule,
+            penalty  = fast_schedule,
             history  = history)
 
         # record benchmark data
@@ -82,6 +82,7 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
             memory     = memory)
 
     hf = DataFrame(
+            iteration = sample_log.iteration,
             loss      = sample_log.loss,
             objective = sample_log.objective,
             penalty   = sample_log.penalty,

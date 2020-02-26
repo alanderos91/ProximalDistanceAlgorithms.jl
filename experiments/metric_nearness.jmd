@@ -1,0 +1,31 @@
+---
+title: Metric Nearness
+---
+
+```{julia}
+using ProximalDistanceAlgorithms
+using Random, LinearAlgebra, Plots, DataFrames, CSV
+gr(linewidth = 3, grid = false)
+```
+
+```{julia}
+# algorithm parameters
+maxiters = 10^4
+ρ_init = 1.0
+
+# create problem instance
+n = 32
+Random.seed!(5357)
+W, D = metric_example(n)
+
+# convergence metrics
+sample_rate = 100
+history = SDLogger(maxiters ÷ sample_rate, sample_rate)
+
+X = @time metric_projection(SteepestDescent(), W, D,
+        maxiters = maxiters,
+        ρ_init   = ρ_init,
+        history  = history)
+
+plot(history)
+```

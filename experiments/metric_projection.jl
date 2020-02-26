@@ -72,6 +72,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
             memory     = memory)
 
     hf = DataFrame(
+            iteration = sample_log.iteration,
             loss      = sample_log.loss,
             objective = sample_log.objective,
             penalty   = sample_log.penalty,
