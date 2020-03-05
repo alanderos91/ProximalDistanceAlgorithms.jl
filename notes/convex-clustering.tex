@@ -1,0 +1,126 @@
+\documentclass{article}
+
+\input{preamble.tex}
+\usepackage{hyperref}
+
+\title{Proximal Distance Application: Convex Clustering}
+\author{Alfonso Landeros}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+Convex clustering of \(n\) samples based on \(d\) features can be formulated in terms of the regularized objective
+\begin{equation}
+    \label{eq:regularized-objective}
+    F_{\gamma}(\bU)
+    =
+    \frac{1}{2} \|\bU - \bX\|_{F}^{2}
+    +
+    \gamma \sum_{i < j} w_{ij} \|\bU (\be_{i} - \be_{j})\|,
+\end{equation}
+where \(\bX \in \Real^{d \times n}\) encodes the data, columns of \(\bU \in \Real^{d \times n}\) represent cluster assignments, and \(\be_{k} \in \Real^{n}\) is the standard basis vector.
+The weights \(w_{ij}\) have a graphical interpretation.
+Related samples have \(w_{ij} > 0\), otherwise \(w_{ij} = 0\).
+This implies that minimization of \(F_{\gamma}(\bU)\) separates over the connected components of the graph.
+Finally, the regularization parameter \(\gamma\) tunes the number of clusters in a non-linear fashion.
+Previous work establishes that the solution path \(\bU(\gamma)\) varies continuously with respect to regularization \cite{chi2015}.
+
+The convex clustering problem can be solved with an ADMM approach, or its relative the AMA.
+These notes seek to reformulate convex clustering as a projection problem.
+Enforcing a small number of clusters amounts to strong consensus in columns of \(\bU\).
+An equivalent approach is to impose \textit{block} sparsity on a vector (or matrix) encoding the differences \(\bu_{i} - \bu_{j}\).
+The advantages of the projection perspective include access to proximal distance methods and an explicit mechanism for selecting the number of clusters.
+
+\section*{\center The Fusion Matrix}
+
+Here we derive a linear operator \(\bD\) mapping columns of \(\bU\) to the differences \(\bu_{i} - \bu_{j}\).
+This operator will be referred to as the \textit{fusion matrix} for the convex clustering problem.
+
+To start, define a collection of comparison matrices \(\bD^{i,j} \in \Real^{d \times dn}\) by the rule
+\begin{equation}
+    \label{eq:comparison-matrix-1}
+    \bD^{i,j}[\vec(\bU)] = \bu_{i} - \bu_{j},
+\end{equation}
+with \(\vec(\bU) \in \Real^{dn}\).
+Note that the vectorization operation maps column \(\bu_{j}\) to the linear indices \((j-1)n + 1\) up to \((j-1)n + d\).
+Thus, define the index sets
+\begin{equation*}
+    \label{eq:index-sets}
+    \mathcal{I}_{j}^{n}
+    =
+    \{k : (j-1)n + 1 \le k \le (j-1)n + d\}
+\end{equation*}
+so that rows of \(\bD^{i,j}\) take the form
+\begin{equation}
+    \label{eq:comparison-matrix-2}
+    D_{k\ell}^{i,j}
+    =
+    \begin{cases}
+        +1, & \text{if \(\ell \in \mathcal{I}_{i}^{n}\)} \\
+        -1, & \text{if \(\ell \in \mathcal{I}_{j}^{n}\)} \\
+        \phantom{+}0, & \text{otherwise}.
+    \end{cases}
+\end{equation}
+Note that \(\mathcal{I}_{i}^{n} \cap \mathcal{I}_{j}^{n} = \emptyset\) whenever \(i \neq j\).
+Letting \(\ell = \binom{n}{2}\) count the number of unique comparisons, we can now identify the fusion matrix by stacking the comparison matrices defined in (\ref{eq:comparison-matrix-1})-(\ref{eq:comparison-matrix-2}) (here given in terms of its transpose):
+\begin{equation}
+    \label{eq:fusion-matrix}
+    \bD^{t}
+    =
+    \begin{bmatrix}
+        \bD^{1,2}
+        & \cdots
+        & \bD^{i,j}
+        & \cdots
+        & \bD^{n-1,n}
+    \end{bmatrix}^{t}.
+\end{equation}
+We are now in a position to attack the convex clustering problem with a distance penalty.
+Letting \(S_{k}\) denote the set of \(k\)-block sparse vectors, we propose minimizing the penalized objective
+\begin{equation}
+    h_{\rho}(\bU;k)
+    =
+    \frac{1}{2}\|\bU - \bX\|_{F}^{2}
+    +
+    \frac{\rho}{2} \dist(\bD \vec(\bU), S_{k})^{2}
+\end{equation}
+
+\section*{\center Block Sparsity Projection}
+
+Projection onto \(S_{k}\) is a simple operation.
+We start with a motivating example in which blocks are of size 1.
+Suppose we want a \(2\)-sparse representation of a vector \(\bx \in \Real^{5}\).
+In this setting, we should keep that two largest entries of \(\bx\) and drop the rest in order to remain ``close'' to the original vector.
+For example,
+\begin{equation*}
+    \begin{bmatrix}
+        1 & 2 & 3 & 4 & 2
+    \end{bmatrix}
+    \overset{P_{S_{k}}}{\longrightarrow}
+    \begin{bmatrix}
+        0 & 0 & 3 & 4 & 0
+    \end{bmatrix}
+\end{equation*}
+so that the distance between the two vectors is \(\sqrt{5}\).
+Keeping the smallest components tends to increase the distance; see for example
+\begin{equation*}
+    \begin{bmatrix}
+        1 & 2 & 3 & 4 & 2
+    \end{bmatrix}
+    {\longrightarrow}
+    \begin{bmatrix}
+        1 & 2 & 0 & 0 & 0
+    \end{bmatrix}
+\end{equation*}
+which implies distance \(5\).
+Extending this idea to structured sparsity requires us to have a notion of ``small blocks''.
+A natural choice is to impose a norm condition.
+For convex clustering, this means we should keep the top $k$ blocks based on \(\|\bu_{i} - \bu_{j}\|_{\dagger}\) and set the rest to zero.
+This procedure effectively selects $k$ representatives for each cluster and assigns the remaining $n - k$ points to one of the \(k\) groups.
+
+\begin{thebibliography}{1}
+    \bibitem{chi2015}
+    Chi, E. C., Lange, K. (2015). {Splitting Methods for Convex Clustering}. {Journal of Computational and Graphical Statistics}, 24(4), 994–1013. \url{https://doi.org/10.1080/10618600.2014.948181}
+\end{thebibliography}
+\end{document}
