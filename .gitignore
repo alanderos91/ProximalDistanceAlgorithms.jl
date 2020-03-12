@@ -4,6 +4,7 @@
 *.fls
 *.log
 *.synctex.gz
+*.out
 
 # system files
 .DS_Store
