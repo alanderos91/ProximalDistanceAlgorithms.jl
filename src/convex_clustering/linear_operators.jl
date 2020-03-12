@@ -1,29 +1,16 @@
-function __accumulate_averaging_step!(Q, W, wbar, U)
+function __accumulate_averaging_step!(Q, W, U)
     d, n = size(U)  # extract dimensions
-    T = eltype(U)   # extract field type
 
-    for i in 1:n, k in 1:d
-        # compute the leave-one-out arithmetic means utilde[i], online
-        utilde_i = zero(T)
-
-        # indices j < i, standard recurrence relation
-        for j in 1:i-1
-            utilde_i = utilde_i + (W[i,j]^2 * U[k,j] - utilde_i) / j
-        end
-
-        # indices j > i, needs correction in denominator
-        for j in i+1:n
-            utilde_i = utilde_i + (W[i,j]^2 * U[k,j] - utilde_i) / (j-1)
-        end
-
-        # accumulate the centering operation
-        Q[k,i] = Q[k,i] + 2*(n-1) * (wbar[i]*U[k,i] - utilde_i)
+    for j in 1:n, i in 1:j-1, k in 1:d
+        δ_ijk = W[i,j]^2*(U[k,i] - U[k,j])
+        Q[k,i] = Q[k,i] + δ_ijk
+        Q[k,j] = Q[k,j] - δ_ijk
     end
 
     return nothing
 end
 
-function __accumulate_sparsity_correction!(Q, W, U Iv, Jv)
+function __accumulate_sparsity_correction!(Q, W, U, Iv, Jv)
     d, n = size(U)  # extract dimensions
 
     # iterate over k-largest cluster distances

@@ -52,6 +52,13 @@ include(joinpath("metric_nearness", "utilities.jl"))
 
 export metric_projection, metric_example
 
+# example: convex clustering
+include(joinpath("convex_clustering", "linear_operators.jl"))
+include(joinpath("convex_clustering", "steepest_descent.jl"))
+include(joinpath("convex_clustering", "utilities.jl"))
+
+export convex_clustering, get_cluster_assignment
+
 # convergence metrics
 include("logging.jl")
 
