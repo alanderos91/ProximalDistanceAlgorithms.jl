@@ -1,0 +1,105 @@
+---
+title: Mammal Dentation
+---
+
+```{julia; echo = false; results = "hidden"}
+using ProximalDistanceAlgorithms
+using CSV, DataFrames, Plots, MultivariateStats
+```
+
+## The Data
+
+```{julia}
+# load data
+mammals = CSV.read("data/mammals.dat")
+
+# delete that extra column at the beginning
+mammals = mammals[:, 2:end]
+
+# form input matrix for our clustering algorithm
+X = mammals[:, 2:end] |> Matrix{Float64} |> transpose |> Matrix
+
+# change first column to species
+rename!(mammals, :X => :species)
+
+first(mammals, 5)
+```
+
+## Dimensionality Reduction
+
+```{julia}
+# extract number of features and samples
+d, n = size(X)
+
+# find principal components and map down to 2 dimensions
+M = fit(PCA, X, maxoutdim = 2)
+Z = transform(M, X)
+
+# create point data
+xs = Z[1,:]
+ys = Z[2,:]
+
+# create annotations
+annotations = [text("$(mammals.species[i])", :black, :bottom, 8) for i in 1:n]
+
+# plot the data using principal components
+scatter(xs, ys, legend = false, grid = false)
+xlabel!("PCA 1")
+ylabel!("PCA 2")
+annotate!(xs, ys, annotations)
+```
+
+```{julia}
+A_distance = [W[i,j]*norm(X[:,i] - X[:,j]) for j in 1:n, i in 1:n]
+heatmap(A_distance, xrotation = 45, xtick_direction = :out)
+title!("Euclidean distance (raw)")
+xticks!(1:27, mammals.species)
+yticks!(1:27, mammals.species)
+```
+
+```{julia}
+A_PCA = [W[i,j]*norm(Z[:,i] - Z[:,j]) for j in 1:n, i in 1:n]
+heatmap(A_PCA, xrotation = 45, xtick_direction = :out)
+title!("Euclidean distance (PCA)")
+xticks!(1:27, mammals.species)
+yticks!(1:27, mammals.species)
+```
+
+## Convex clustering with proximal distance surrogate
+
+```{julia}
+# create weights matrix
+W = ones(n, n)
+
+# set algorithm parameters
+maxiters = 10^3
+penalty_func = slow_schedule
+
+# run the algorithm with SteepestDescent
+U = @time convex_clustering(SteepestDescent(), W, X,
+        penalty = penalty_func,
+        maxiters = maxiters,
+        ncluster = 225 # FIX THIS
+    );
+```
+
+```{julia}
+# form distance matrix and plot it
+A = [W[i,j]*norm(U[:,i] - U[:,j]) for j in 1:n, i in 1:n]
+
+heatmap(A, xrotation = 45, xtick_direction = :out)
+title!("Euclidean distance (convex clustering)")
+xticks!(1:27, mammals.species)
+yticks!(1:27, mammals.species)
+```
+
+```{julia}
+# get cluster assignments
+component, components = get_cluster_assignment(W, U, 1.0)
+
+# visualize clusters with colors
+scatter(xs, ys, legend = false, grid = false, color = component)
+xlabel!("PCA 1")
+ylabel!("PCA 2")
+annotate!(xs, ys, annotations)
+```
