@@ -100,14 +100,14 @@ This result is easier to derive by applying the ``vec'' identity
     \bD^{i,j} \vec(\bU).
 \end{equation*}
 We are now in a position to attack the convex clustering problem with a distance penalty.
-Letting \(S_{k}\) denote the set of \(k\)-block sparse vectors, we propose minimizing the penalized objective
+Letting \(S_{K}\) denote the set of \(K\)-block sparse vectors, we propose minimizing the penalized objective
 \begin{equation}
     \label{eq:penalized-loss}
     h_{\rho}(\bU)
     =
     \frac{1}{2}\|\bU - \bX\|_{F}^{2}
     +
-    \frac{\rho}{2} \dist(\bW \bD \vec(\bU), S_{k})^{2},
+    \frac{\rho}{2} \dist(\bW \bD \vec(\bU), S_{K})^{2},
 \end{equation}
 where the diagonal matrix \(\bW\) which scales blocks corresponding to each difference \(\bu_{i} - \bu_{j}\).
 Concretely, its structure is
@@ -122,6 +122,7 @@ Concretely, its structure is
         0 & 0 & \cdots & 0 & w_{n-1~n} \bI_{d}
     \end{bmatrix}.
 \end{equation*}
+Keep in mind that \(K\) depends on the number of desired clusters \(k\) and the number of samples \(n\).
 Take \(\bu = \vec(\bU)\) and \(\bx = \vec(\bX)\), and apply a distance majorization to derive the handy surrogate
 \begin{equation}
     \label{eq:surrogate}
@@ -130,7 +131,7 @@ Take \(\bu = \vec(\bU)\) and \(\bx = \vec(\bX)\), and apply a distance majorizat
     \frac{1}{2}\|\bu - \bx\|_{2}^{2}
     +
     \frac{\rho}{2}
-    \| \bW \bD \bu - P_{S_{k}}(\bW \bD \bu_{n}) \|_{2}^{2}.
+    \| \bW \bD \bu - P_{S_{K}}(\bW \bD \bu_{n}) \|_{2}^{2}.
 \end{equation}
 Its gradient is affine in \(\bu\):
 \begin{equation}
@@ -142,55 +143,33 @@ Its gradient is affine in \(\bu\):
     (\bu - \bx)
     +
     \rho \bD^{t} \bW^{t} \left[
-        \bW \bD \bu - P_{S_{k}}(\bW \bD \bu_{n})
+        \bW \bD \bu - P_{S_{K}}(\bW \bD \bu_{n})
     \right].
 \end{equation}
 
 \section*{\center Matrix-Free Operations}
 
 The constraint matrix has dimensions \(dm \times dn\) where \(m = \binom{n}{2}\) so we should avoid forming linear operators as matrices wherever possible.
-Equation (\ref{eq:gradient}) suggests that any first-order method needs to handle four main operations: (i) left-multiplication by \(\bD^{t} \bW^{t} \bW \bD\), (ii) left-multiplication by \(\bW \bD\), (iii) left-multiplication by \(\bD^{t} \bW^{t}\), and (iv) projection onto a block sparsity set \(P_{S_{k}}(\cdot)\).
+Equation (\ref{eq:gradient}) suggests that any first-order method needs to handle four main operations: (i) left-multiplication by \(\bD^{t} \bW^{t} \bW \bD\), (ii) left-multiplication by \(\bW \bD\), (iii) left-multiplication by \(\bD^{t} \bW^{t}\), and (iv) projection onto a block sparsity set \(P_{S_{K}}(\cdot)\).
 Here we derive explicit formulas for each operation and discuss their interpretation along with computational complexity.
 
-\subsection*{(i) Operator \(\bD^{t} \bW^{t} \bW \bD\): Weighted Averaging + Centering}
+\subsection*{(i) Operator \(\bD^{t} \bW^{t} \bW \bD\): Distance Averaging}
 
-It is easy to see that \(\bW^{t} \bW\) will simply apply squared weights \(w_{ij}^{2}\) to blocks encoding \(\bu_{i} - \bu_{j}\).
-Applying \(\bD^{t} \bW^{t} \bW \bD\) to \(\bu = \vec(\bU)\) is effectively an averaging operation.
-Through abuse of notation, say \(w_{ij} = w_{ji}\) and define
+The calculation
 \begin{align*}
-    \bar{w}_{i}^{2}
+    \vec(\bD^{t} \bW^{t} \bW \bD \bu)
     &=
-    \frac{1}{n-1} \sum_{j \neq i}^{n} w_{ij}^{2}
-    \qquad
-    \text{(related to weighted degree of point \(i\))} \\
-    \tilde{\bu}_{i}
+    \sum_{i<j} w_{ij}^{2} \{(\be_{i} - \be_{j})(\be_{i} - \be_{j})^{t} \otimes \bI_{d}\}~\bu \\
     &=
-    \frac{1}{n-1} \sum_{j \neq i}^{n} w_{ij}^{2} \bu_{j}
-    \quad
-    \text{(leave-one-out weighted arithmetic mean)}
+    \vec
+    \sum_{i<j} w_{ij}^{2} \bU (\be_{i} - \be_{j})(\be_{i} - \be_{j})^{t} \\
+    &=
+    \vec
+    \sum_{i<j} w_{ij}^{2} (\bu_{i} - \bu_{j}) \be_{i}^{t} - w_{ij}^{2} (\bu_{i} - \bu_{j}) \be_{j}^{t}
 \end{align*}
-which will feature in our derivation.
-Passing to the unvectorized version of the product, we have
-\begin{align*}
-    \sum_{i < j} w_{ij}^{2}~\bU (\be_{i} - \be_{j}) (\be_{i} - \be_{j})^{t}
-    &=
-    2 \sum_{i=1}^{n} \sum_{j \neq i}^{n} w_{ij}^{2} (\bu_{i} - \bu_{j}) \be_{i}^{t} \\
-    &=
-    2 (n-1) \sum_{i=1}^{n} (\bar{w}_{i} \bu_{i} - \tilde{\bu}_{i}) \be_{i}^{t} \\
-    &=
-    2 (n-1) \begin{bmatrix}
-        (\bar{w}_{1} \bu_{1} - \tilde{\bu}_{1})
-        & (\bar{w}_{2} \bu_{2} - \tilde{\bu}_{2})
-        & \cdots
-        & (\bar{w}_{n} \bu_{n} - \tilde{\bu}_{n})
-    \end{bmatrix}
-\end{align*}
-We exploit the symmetric roles of \((i,j)\) in passing to the first equality.
-The rest follows from applying the definitions above and concatenating column vectors.
-The weights \(\bar{w}_{i}\) can be computed once offline.
-Computing the required averages and centering operations can be done in \(\mathcal{O}([dn]^{2})\) which substantially better than a naive approach with \(\mathcal{O}(d^{2}mn) \sim \mathcal{O}(d^{2}n^{3})\) FLOPS.
-Sparse matrix implementation can match the computational complexity of the explicit formula but incurs overhead from chasing pointers.
-Further, this approach can be parallized especially in the Julia language.
+shows that this operation adds \(w_{ij}^{2} (\bu_{i} - \bu_{j})\) to block \(i\) and substracts it from block \(j\).
+This procedure can be implemented with a \(\mathcal{O}(dn^{2})\) algorithm, which is substantially better than an approach with explicit calls to linear algebra subroutines (order \(\mathcal{O}(d^{2}n^{3})\)).
+Sparse matrix-vector multiplication can match the computational complexity of our formula but incurs overhead from chasing pointers.
 
 \subsection*{(ii) Operator \(\bW \bD\): Weighted Differencing}
 
@@ -200,18 +179,17 @@ Its computational complexity is \(\mathcal{O}(n^{2})\) due to the number of comp
 \subsection*{(iii) Operator \(\bD^{t} \bW^{t}\): Sparse Correction}
 
 We can focus soley on \(\bD^{t}\) because \(\bW\) is block diagonal.
-Letting \(\by_{n} = P_{S_{k}}(\bD \bu_{n})\), the notation \(\by^{i,j}_{n}\) indicates the block corresponding to the projection of the difference \(\bu_{n,i} - \bu_{n,j}\).
-Typically \(k\) is small so \(\by_{n}\) is highly sparse.
+Letting \(\by_{n} = P_{S_{K}}(\bD \bu_{n})\), the notation \(\by^{i,j}_{n}\) indicates the block corresponding to the projection of the difference \(\bu_{n,i} - \bu_{n,j}\).
 From (\ref{eq:fusion-matrix}) it follows that the expression \(\bz + \bD^{t} \by_{n}\) translates to the sum
 \begin{equation*}
     \bz + \sum_{i<j} [(\be_{i} - \be_{j}) \otimes \bI_{d}]~\by^{i,j}_{n},
 \end{equation*}
 which (i) adds \(\by^{i,j}_{n}\) to block \(i\) of \(\bz\) and (ii) subtracts \(\by^{i,j}_{n}\) from block \(j\) of \(\bz\).
-Thus, the computational complexity of \(\bz + \bD^{t} \by_{n}\) is \(\mathcal{O}(k)\).
+Thus, the computational complexity of \(\bz + \bD^{t} \by_{n}\) is \(\mathcal{O}(K)\).
 
-\subsection*{(iv) Operator \(P_{S_{k}}(\cdot)\): Block Sparsity Projection}
+\subsection*{(iv) Operator \(P_{S_{K}}(\cdot)\): Block Sparsity Projection}
 
-Projection onto \(S_{k}\) is a simple operation.
+Projection onto \(S_{K}\) is a simple operation.
 We start with a motivating example with blocks of size 1.
 Suppose we want a \(2\)-sparse representation of a vector \(\bx \in \Real^{5}\).
 In this setting, we should keep that two largest entries of \(\bx\) and drop the rest in order to remain ``close'' to the original vector.
@@ -220,7 +198,7 @@ For example,
     \begin{bmatrix}
         1 & 2 & 3 & 4 & 2
     \end{bmatrix}
-    \overset{P_{S_{k}}}{\longrightarrow}
+    \overset{P_{S_{K}}}{\longrightarrow}
     \begin{bmatrix}
         0 & 0 & 3 & 4 & 0
     \end{bmatrix}
@@ -239,17 +217,21 @@ Keeping the smallest components tends to increase the distance; see for example
 which implies distance \(5\).
 Extending this idea to structured sparsity requires us to have a notion of ``small blocks''.
 A natural choice is to impose a norm condition.
-For example, under a norm condition we should keep the top $k$ blocks based on \(\|\bu_{i} - \bu_{j}\|_{\dagger}\) and set the rest to zero.
-This procedure effectively selects $k$ representatives for each cluster and assigns the remaining $n - k$ points to one of the \(k\) groups.
-Generally, the objectives (\ref{eq:regularized-objective}) and (\ref{eq:penalized-loss}) impose additional weights on each norm of differences, but this adds little additional overhead.
-Finding the largest \(k\) distances \(w_{ij} \| \bu_{i} - \bu_{j} \|\) can be achieved with a single sweep through the data.
-Accounting for comparisons, computing each norm, and tracking the \(k\) largest values implies a complexity of order \(\mathcal{O}(\log(k)dn^{2})\).
+For example, under a norm condition we should keep blocks based on \(\|\bu_{i} - \bu_{j}\|_{\dagger}\) and set the rest to zero.
+
+Imposing \(k\) clusters on the data amounts to selecting \(\bU\) with \(k\) linearly independent columns.
+However, the number of unique distances is \(\binom{n}{2}\), so how do we choose the projection set \(S_{K}\) with \(K\) being a function of \(k\) and \(n\)?
+\textbf{Unfortunately, the relationship is not unique as it depends on the number of points in each cluster}.
+
+Generally, objectives (\ref{eq:regularized-objective}) and (\ref{eq:penalized-loss}) impose additional weights on each distance but this adds little additional overhead.
+Finding the largest \(K\) distances \(w_{ij} \| \bu_{i} - \bu_{j} \|\) can be achieved with a single sweep through the data.
+Accounting for comparisons, computing each norm, and tracking the \(K\) largest values implies a complexity of order \(\mathcal{O}(\log(K)dn^{2})\).
 
 \subsection*{A Few Observations}
 
 \begin{itemize}
     \item Combining (iii) and (iv) is straightforward.
-    Moreover, these notes suggest there is no need to compute \(P_{S_{k}}(\bD \bu_{n})\).
+    Moreover, these notes suggest there is no need to compute \(P_{S_{K}}(\bD \bu_{n})\).
     It is enough to identify the top \(k\) blocks required for the projection so that the ``sparse correction'' can be applied without explicit calls to linear algebra subroutines.
 
     \item The block sparsity projection is not unique in general.
@@ -268,7 +250,7 @@ The surrogate (\ref{eq:surrogate}) and stationarity condition \(\bv_{n} = \bolds
     \left[\frac{1}{\rho} \bx + \bD^{t} \bW^{t} P_{S_{k}}(\bW \bD \bu_{n})\right],
 \end{equation*}
 which is simply solving a linear system \(\bA \bx = \bb\).
-Setting up the RHS is dominated by computational cost of finding the largest \(k\) distances \(w_{ij} \| \bu_{i} - \bu_{j} \|\).
+Setting up the RHS is dominated by computational cost of finding the largest \(K\) distances \(w_{ij} \| \bu_{i} - \bu_{j} \|\).
 The required matrix inverse should have an explicit inverse; empirical tests suggest both \(\bA\) and \(\bA^{-1}\) are diagonal + circulant with identical sparsity patterns.
 
 \section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
