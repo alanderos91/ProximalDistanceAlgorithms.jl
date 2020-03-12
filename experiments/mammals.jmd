@@ -4,7 +4,8 @@ title: Mammal Dentation
 
 ```{julia; echo = false; results = "hidden"}
 using ProximalDistanceAlgorithms
-using CSV, DataFrames, Plots, MultivariateStats
+using CSV, DataFrames, Plots
+using LinearAlgebra, MultivariateStats
 ```
 
 ## The Data
