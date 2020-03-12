@@ -29,19 +29,6 @@ function __accumulate_sparsity_correction!(Q, W, U, Iv, Jv)
     return nothing
 end
 
-# compute norm(u_i - u_j), norm of vector from point i to point j
-function __compute_difference_norm(W, U, i, j)
-    d = size(U, 1)
-    dist = zero(eltype(U)) # careful with Ints
-
-    for k in 1:d
-        δ_ij = W[i,j]*(U[k,i] - U[k,j])
-        dist = dist + δ_ij^2
-    end
-
-    return dist
-end
-
 #
 # I: set of i indices
 # J: set of j indices
@@ -53,7 +40,7 @@ function __find_large_blocks!(I, J, v, W, U)
     n = size(U, 2)
 
     for j in 1:n, i in 1:j-1
-        v_ij = __compute_difference_norm(W, U, i, j)
+        v_ij = __distance(W, U, i, j)
         l = searchsortedlast(v, v_ij)
 
         if l > 0
@@ -76,7 +63,7 @@ function __evaluate_weighted_gradient_norm(W, Q)
     val = zero(eltype(Q))
 
     for j in 1:n, i in 1:j-1
-        block_val = __compute_difference_norm(W, Q, i, j)
+        block_val = __distance(W, Q, i, j)
         val = val + block_val
     end
 
