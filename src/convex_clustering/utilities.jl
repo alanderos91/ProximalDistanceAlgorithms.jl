@@ -6,7 +6,7 @@ function __distance(X, i, j)
         δ_ij += (X[k,i] - X[k,j])^2
     end
 
-    return δ_ij
+    return sqrt(δ_ij)
 end
 
 function __distance(W, X, i, j)
@@ -63,26 +63,6 @@ function adjacency_to_neighborhood(A::Matrix)
     return (neighbor, weight)
 end
 
-function get_cluster_assignment(W, U, tol)
-    d, n = size(U)
-
-    # adjacency matrix
-    A = [W[i,j]*norm(U[:,i] - U[:,j]) for i in 1:n, j in 1:n]
-
-    for K in eachindex(A)
-        if A[K] < tol
-            A[K] = 1
-        else
-            A[K] = 0
-        end
-    end
-
-    neighbor, weight = adjacency_to_neighborhood(A)
-    component, components = connect(neighbor)
-
-    return component, components
-end
-
 function gaussian_weights(X; phi = 1.0)
     d, n = size(X)
 
@@ -91,11 +71,48 @@ function gaussian_weights(X; phi = 1.0)
 
     for j in 1:n, i in 1:j-1
         δ_ij = __distance(X, i, j)
-        w_ij = exp(-phi*δ_ij)
+        w_ij = exp(-phi*δ_ij^2)
 
         W[i,j] = w_ij
         W[j,i] = w_ij
     end
 
     return W
+end
+
+function tri2vec(i, j, n)
+  return (i-1)*n - i*(i-1)÷2 + j - i
+end
+
+function knn_weights(W, k)
+    n = size(W, 1)
+    w = [W[i,j] for j in 1:n for i in j+1:n] |> vec
+    i = 1
+    neighbors = tri2vec.(i, (i+1):n, n)
+    keep = neighbors[sortperm(w[neighbors])[1:k]]
+
+    for i in 2:(n-1)
+        group_A = tri2vec.(i, (i+1):n, n)
+        group_B = tri2vec.(1:(i-1), n, n)
+        neighbors = [group_A; group_B]
+        knn = neighbors[sortperm(w[neighbors])[1:k]]
+        keep = union(knn, keep)
+    end
+
+    i = n
+    neighbors = tri2vec.(1:(i-1), i, n)
+    knn = neighbors[sortperm(w[neighbors])[1:k]]
+    keep = union(knn, keep)
+
+    W_knn = zero(W)
+
+    for j in 1:n, i in j+1:n
+        l = tri2vec(i, j, n)
+        if l in keep
+            W_knn[i,j] = W[i,j]
+            W_knn[j,i] = W[i,j]
+        end
+    end
+
+    return W_knn
 end
