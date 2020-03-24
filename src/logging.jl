@@ -122,28 +122,28 @@ end
 
     # loss
     @series begin
-        seriestype := :scatter
+        seriestype --> :scatter
         label --> "loss"
         logger.iteration, logger.loss
     end
 
     # objective
     @series begin
-        seriestype := :scatter
+        seriestype --> :scatter
         label --> "objective"
         logger.iteration, logger.objective
     end
 
     # penalty
     @series begin
-        seriestype := :scatter
+        seriestype --> :scatter
         label --> "penalty"
         logger.iteration, logger.penalty
     end
 
     # norm of gradient
     @series begin
-        seriestype := :scatter
+        seriestype --> :scatter
         label --> "gradient"
         logger.iteration, logger.g
     end
