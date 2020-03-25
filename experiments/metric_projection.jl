@@ -19,6 +19,22 @@ function initialize_log(::SteepestDescent, maxiters, sample_rate)
     return SDLogger(maxiters ÷ sample_rate, sample_rate)
 end
 
+# penalty function
+rho_schedule(ρ, iteration) = iteration % 50 == 0 ? ρ*2.0 : ρ
+
+function rho_schedule(T, W, n, ρ, iteration)
+    if iteration % 50 == 0
+        ρ_new = 2.0 * ρ
+        for i in 1:n
+            diff = W[i,i] / ρ_new - W[i,i] / ρ
+            T[i,i] = T[i,i] + diff
+        end
+        ρ = ρ_new
+    end
+
+    return ρ
+end
+
 function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     # create a sample convergence history
     W, D = metric_example(n)
@@ -26,7 +42,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     @timed metric_projection(algorithm, W, D,
         maxiters = maxiters,
         ρ_init   = 1.0,
-        penalty  = fast_schedule,
+        penalty  = rho_schedule,
         history  = sample_log)
 
     # benchmark data
