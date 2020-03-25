@@ -69,7 +69,7 @@ function gaussian_weights(X; phi = 1.0)
     T = eltype(X)
     W = zeros(n, n)
 
-    for j in 1:n, i in 1:j-1
+    for j in 1:n, i in j+1:n
         δ_ij = __distance(X, i, j)
         w_ij = exp(-phi*δ_ij^2)
 
@@ -81,7 +81,7 @@ function gaussian_weights(X; phi = 1.0)
 end
 
 function tri2vec(i, j, n)
-  return (i-1)*n - i*(i-1)÷2 + j - i
+  return (j-i) + n*(i-1) - (i*(i-1))>>1
 end
 
 function knn_weights(W, k)

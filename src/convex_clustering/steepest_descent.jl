@@ -5,7 +5,7 @@ function cvxclst_steepest_descent!(Q, U, X, W, ρ, Iv, Jv, v)
     fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0)
     __find_large_blocks!(Iv, Jv, v, W, U)
     __accumulate_averaging_step!(Q, W, U)
-    __accumulate_sparsity_correction!(Q, W, U, Iv, Jv)
+    __apply_sparsity_correction!(Q, W, U, Iv, Jv)
 
     # 1b. evaluate loss, penalty, and objective:
     loss = 0.5 * (dot(U,U) - 2*dot(U,X) + dot(X,X))
@@ -35,19 +35,18 @@ function convex_clustering(::SteepestDescent, W, X;
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
     history::FuncLike = __default_logger,
-    ncluster::Integer = 2) where FuncLike
+    K::Integer        = 2) where FuncLike
     #
     # extract problem dimensions
     d, n = size(X)
 
     # allocate optimization variable
-    U = copy(X)
+    U = zero(X)
 
     # allocate gradient and auxilliary variable
     Q = similar(X)
 
     # initialize data structures for sparsity projection
-    K = ncluster
     Iv = zeros(Int, K)
     Jv = zeros(Int, K)
     v  = zeros(K)
@@ -55,6 +54,13 @@ function convex_clustering(::SteepestDescent, W, X;
     # initialize penalty coefficient
     ρ = ρ_init
 
+    # call main subroutine
+    convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
+
+    return U
+end
+
+function convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
     for iteration in 1:maxiters
         # iterate the algorithm map
         data = cvxclst_steepest_descent!(Q, U, X, W, ρ, Iv, Jv, v)
@@ -65,6 +71,42 @@ function convex_clustering(::SteepestDescent, W, X;
         # check for updates to the convergence history
         history(data, iteration)
     end
+end
 
-    return U
+function convex_clustering_path(::SteepestDescent, W, X;
+    ρ_init::Real          = 1.0,
+    maxiters::Integer     = 100,
+    penalty::Function     = __default_schedule,
+    history::FunctionLike = __default_logger,
+    K_path::AbstractVector{Int}   = Int[]) where FunctionLike
+    #
+    # extract problem dimensions
+    d, n = size(X)
+
+    # allocate optimization variable
+    U = zero(X)
+
+    # allocate gradient and auxilliary variable
+    Q = similar(X)
+
+    # allocate solution path
+    path = [similar(U) for _ in eachindex(K_path)]
+
+    for (i, K) in enumerate(K_path)
+        # initialize data structures for sparsity projection
+        Iv = zeros(Int, K)
+        Jv = zeros(Int, K)
+        v  = zeros(K)
+
+        # set the starting value for the penalty coefficient
+        ρ = ρ_init
+
+        # use the old U as a warm-start
+        convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
+
+        # save solution for the subproblem
+        copyto!(path[i], U)
+    end
+
+    return path
 end

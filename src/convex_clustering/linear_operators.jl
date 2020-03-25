@@ -1,7 +1,7 @@
 function __accumulate_averaging_step!(Q, W, U)
     d, n = size(U)  # extract dimensions
 
-    for j in 1:n, i in 1:j-1, k in 1:d
+    for j in 1:n, i in j+1:n, k in 1:d
         δ_ijk = W[i,j]^2*(U[k,i] - U[k,j])
         Q[k,i] = Q[k,i] + δ_ijk
         Q[k,j] = Q[k,j] - δ_ijk
@@ -10,20 +10,32 @@ function __accumulate_averaging_step!(Q, W, U)
     return nothing
 end
 
-function __accumulate_sparsity_correction!(Q, W, U, Iv, Jv)
+function __accumulate_all_operations!(Q, W, U, Iv, Jv)
+    d, n = size(U)  # extract dimensions
+    blocks = zip(Iv, Jv)
+
+    for j in 1:n, i in j+1:n, k in 1:d
+        if (i,j) in blocks
+            δ_ijk = zero(eltype(W))
+        else
+            δ_ijk = (W[i,j]^2)*(U[k,i] - U[k,j])
+        end
+
+        Q[k,i] = Q[k,i] + δ_ijk
+        Q[k,j] = Q[k,j] - δ_ijk
+    end
+
+    return nothing
+end
+
+function __apply_sparsity_correction!(Q, W, U, Iv, Jv)
     d, n = size(U)  # extract dimensions
 
-    # iterate over k-largest cluster distances
-    for l in eachindex(Iv)
-        i, j = Iv[l], Jv[l]
+    for (i, j) in zip(Iv, Jv), k in 1:d
+        δ_ijk = (W[i,j]^2)*(U[k,i] - U[k,j])
 
-        # apply correction to each block
-        for k in 1:d
-            δ_ij = W[i,j]*(U[k,i] - U[k,j])
-
-            Q[k,i] = Q[k,i] - δ_ij
-            Q[k,j] = Q[k,j] + δ_ij
-        end
+        Q[k,i] = Q[k,i] - δ_ijk
+        Q[k,j] = Q[k,j] + δ_ijk
     end
 
     return nothing
@@ -39,7 +51,7 @@ end
 function __find_large_blocks!(I, J, v, W, U)
     n = size(U, 2)
 
-    for j in 1:n, i in 1:j-1
+    for j in 1:n, i in j+1:n
         v_ij = __distance(W, U, i, j)
         l = searchsortedlast(v, v_ij)
 
@@ -62,9 +74,9 @@ function __evaluate_weighted_gradient_norm(W, Q)
     d, n = size(Q)
     val = zero(eltype(Q))
 
-    for j in 1:n, i in 1:j-1
-        block_val = __distance(W, Q, i, j)
-        val = val + block_val
+    for j in 1:n, i in j+1:n
+        δ_ij = __distance(W, Q, i, j)
+        val = val + δ_ij^2
     end
 
     return val
