@@ -1,18 +1,175 @@
-function __distance(X, i, j)
-    d = size(X, 1)
-    δ_ij = zero(eltype(X))
+##### sparse fused block projection #####
 
-    for k in 1:d
-        δ_ij += (X[k,i] - X[k,j])^2
+"""
+```
+distance(A, i, j)
+```
+
+Compute the Euclidean distance between `A[:,i]` and `A[:,j]` in-place.
+"""
+function distance(A, i, j)
+    T = eltype(A)
+    d_ij = zero(sqrt(one(T)))
+
+    for k in 1:size(A, 1)
+        d_ij += (A[k,i] - A[k,j])^2
     end
 
-    return sqrt(δ_ij)
+    return sqrt(d_ij)
 end
 
-function __distance(W, X, i, j)
-    return W[i,j] * __distance(X, i, j)
+"""
+```
+distance(W, A, i, j)
+```
+
+Compute the weighted Euclidean distance between `A[:,i]` and `A[:,j]` in-place.
+"""
+function distance(W, A, i, j)
+    return W[i,j] * distance(A, i, j)
 end
 
+"""
+```
+sparse_fused_block_projection(W, A, [k = 1])
+```
+
+Compute a `k`-sparse fused block projection of `A[:,i] - A[:,j]`.
+The matrix `W` applies a weight to each Euclidean distance between centroids.
+Only the lower triangular region is used; that is, `W[i,j]` assumes `i > j`.
+
+For the sake of computational performance, we assume `A` is `d` by `n`, where `d` is the number of features and `n` is the number of samples.
+
+The optional argument `0 <= k <= binomial(n, 2)` enforces the number of non-zero
+blocks within the projection.
+"""
+function sparse_fused_block_projection(W, A, k = 1)
+    d, n = size(A)          # d features, n samples
+    k_max = binomial(n, 2)  # total number of unique comparisons
+
+    T = eltype(A)                   # element type of A
+    distT = typeof(sqrt(one(T)))    # type for distances
+
+    # enforce 0 <= k <= k_max
+    k = min(k, k_max)
+    k = max(k, 0)
+
+    # data structures for finding k-largest distances
+    # e.g. Iv[1], Jv[1] => (i, j)
+    # such that distance v[1] is the smallest in the list v
+    Iv = zeros(Int, k)              # index i
+    Jv = zeros(Int, k)              # index j
+    v  = zeros(distT, k)            # list of distances, in ascending order
+    y  = zeros(distT, d * k_max)    # allocate memory for projection
+
+    # zero-overhead implementation
+    k > 0 && sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
+
+    return y, Iv, Jv, v
+end
+
+"""
+```
+sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
+```
+
+In-place version of `sparse_fused_block_projection`.
+
+- The vector `y` stores the result of the projection.
+- The inputs `Iv`, `Jv` store the pairs `(i,j)` and `v` stores the weighted distances.
+"""
+function sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
+    # identify the pairs (i,j) that we should keep
+    find_large_blocks!(Iv, Jv, v, W, A)
+
+    # ... then construct projection of D*vec(A)
+    apply_projection!(y, W, A, Iv, Jv)
+
+    return y, Iv, Jv, v
+end
+
+"""
+```
+find_large_blocks!(Iv, Jv, v, W, A)
+```
+
+Compute the k-largest weighted centroid distances `W[i,j] * norm(A[:,i] - A[:,j])` in-place with a single sweep.
+The inputs `Iv`, `Jv` store the pairs `(i,j)` and `v` stores the weighted distances.
+We assume `length(Iv) == length(Jv) == length(v) == k`.
+"""
+function find_large_blocks!(Iv, Jv, v, W, A)
+    n = size(A, 2)
+
+    for j in 1:n, i in j+1:n
+        # compute weighted Euclidean distance between centroids for i and j
+        v_ij = distance(W, A, i, j)
+
+        # binary search on v to find rank of v_ij relative to the current list
+        l = searchsortedlast(v, v_ij)
+
+        # l = 0 if v_ij < every value in v
+        if l > 0
+            # Update parallel arrays Iv, Jv, v:
+            #   - First delete the smallest entry in v.
+            #   - Iinsert the new element at position l.
+            popfirst!(v)
+            insert!(v, l, v_ij)
+
+            popfirst!(Iv)
+            insert!(Iv, l, i)
+
+            popfirst!(Jv)
+            insert!(Jv, l, j)
+        end
+    end
+
+    return Iv, Jv, v
+end
+
+"""
+```
+tri2vec(i, j, n)
+```
+
+Map a Cartesian coordinate `(i,j)` with `i > j` to its index in dictionary
+order, assuming `i` ranges from `1` to `n`.
+"""
+function tri2vec(i, j, n)
+    return (i-j) + n*(j-1) - (j*(j-1))>>1
+end
+
+"""
+```
+apply_projection!(y, A, Iv, Jv)
+```
+
+Apply a sparse fused block projection of `A[:,i] - A[:,j]` in-place by storing
+the result in `y`. The inputs `Iv` and `Jv` encode the k-largest centroid
+differences, where k is the length of both `Iv` and of `Jv`. We assume the pairs
+`(i,j)` obey the rule `i > j`.
+"""
+function apply_projection!(y, W, A, Iv, Jv)
+    d, n = size(A)
+
+    # for each pair (i,j) with i > j:
+    for (i,j) in zip(Iv, Jv)
+        # find the block corresponding to (i,j) within the vector y
+        l = tri2vec(i, j, n)
+
+        start = d*(l-1) + 1
+        stop  = d*l
+        block = start:stop
+
+        # copy A[:,i] - A[:,j] in-place to y
+        for (k, idx) in enumerate(block)
+            y[idx] = W[i,j] * (A[k,i] - A[k,j])
+        end
+    end
+
+    return y
+end
+
+##### cluster assignment #####
 """
 Finds the connected components of a graph.
 Nodes should be numbered 1,2,...
@@ -63,6 +220,8 @@ function adjacency_to_neighborhood(A::Matrix)
     return (neighbor, weight)
 end
 
+##### weights #####
+
 function gaussian_weights(X; phi = 1.0)
     d, n = size(X)
 
@@ -70,7 +229,7 @@ function gaussian_weights(X; phi = 1.0)
     W = zeros(n, n)
 
     for j in 1:n, i in j+1:n
-        δ_ij = __distance(X, i, j)
+        δ_ij = distance(X, i, j)
         w_ij = exp(-phi*δ_ij^2)
 
         W[i,j] = w_ij
@@ -80,27 +239,23 @@ function gaussian_weights(X; phi = 1.0)
     return W
 end
 
-function tri2vec(i, j, n)
-  return (j-i) + n*(i-1) - (i*(i-1))>>1
-end
-
 function knn_weights(W, k)
     n = size(W, 1)
     w = [W[i,j] for j in 1:n for i in j+1:n] |> vec
     i = 1
-    neighbors = tri2vec.(i, (i+1):n, n)
+    neighbors = tri2vec.((i+1):n, i, n)
     keep = neighbors[sortperm(w[neighbors])[1:k]]
 
     for i in 2:(n-1)
-        group_A = tri2vec.(i, (i+1):n, n)
-        group_B = tri2vec.(1:(i-1), n, n)
+        group_A = tri2vec.((i+1):n, i, n)
+        group_B = tri2vec.(n, 1:(i-1), n)
         neighbors = [group_A; group_B]
         knn = neighbors[sortperm(w[neighbors])[1:k]]
         keep = union(knn, keep)
     end
 
     i = n
-    neighbors = tri2vec.(1:(i-1), i, n)
+    neighbors = tri2vec.(i, 1:(i-1), n)
     knn = neighbors[sortperm(w[neighbors])[1:k]]
     keep = union(knn, keep)
 

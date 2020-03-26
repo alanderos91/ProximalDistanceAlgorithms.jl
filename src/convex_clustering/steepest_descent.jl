@@ -1,26 +1,28 @@
-function cvxclst_steepest_descent!(Q, U, X, W, ρ, Iv, Jv, v)
-    # 1. form the gradient:
+function cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
+    # 1a. form the gradient:
+    fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0); fill!(p, 0)
 
-    # 1a. partial evaluation: Dt*Wt*[W*D*u - P(y)]
-    fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0)
-    __find_large_blocks!(Iv, Jv, v, W, U)
-    __accumulate_averaging_step!(Q, W, U)
-    __apply_sparsity_correction!(Q, W, U, Iv, Jv)
+    sparse_fused_block_projection!(p, Iv, Jv, v, W, U)
+    cvxclst_apply_fusion_matrix!(y, W, U)
+    # mul!(y, WD, vec(U))
 
-    # 1b. evaluate loss, penalty, and objective:
-    loss = 0.5 * (dot(U,U) - 2*dot(U,X) + dot(X,X))
-    penalty = dot(Q, Q)
-    objective = loss + 0.5*ρ*penalty
+    @. y = y - p
+    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+    # mul!(vec(Q), transpose(WD), y)
 
-    # 1c. finish forming the gradient: (u-x) + ρ*Dt*Wt*[W*D*u - P(y)]
     for K in eachindex(Q)
         Q[K] = (U[K] - X[K]) + ρ*Q[K]
     end
 
+    # 1b. evaluate loss, penalty, and objective:
+    loss = dot(U,U) - 2*dot(U,X) + dot(X,X)
+    penalty = dot(y, y)
+    objective = 0.5 * (loss + ρ*penalty)
+
     # 2. compute stepsize
     a = dot(Q, Q)                               # norm^2 of gradient
     b = __evaluate_weighted_gradient_norm(W, Q) # norm^2 of W*D*gradient
-    γ = a / (a + ρ*b)
+    γ = a / (a + ρ*b + eps())
 
     # 3. apply the update
     for K in eachindex(U)
@@ -41,10 +43,12 @@ function convex_clustering(::SteepestDescent, W, X;
     d, n = size(X)
 
     # allocate optimization variable
-    U = zero(X)
+    U = copy(X)
 
     # allocate gradient and auxilliary variable
     Q = similar(X)
+    y = zeros(eltype(X), d*binomial(n, 2))
+    p = zero(y)
 
     # initialize data structures for sparsity projection
     Iv = zeros(Int, K)
@@ -54,16 +58,20 @@ function convex_clustering(::SteepestDescent, W, X;
     # initialize penalty coefficient
     ρ = ρ_init
 
+    # D = cvxcluster_fusion_matrix(d, n)
+    # w = [W[i,j] for j in 1:n for i in j+1:n]
+    # WD = Diagonal(repeat(w, inner=d)) * D
+
     # call main subroutine
-    convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
+    convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
 
     return U
 end
 
-function convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
+function convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
     for iteration in 1:maxiters
         # iterate the algorithm map
-        data = cvxclst_steepest_descent!(Q, U, X, W, ρ, Iv, Jv, v)
+        data = cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
 
         # check for updates to the penalty coefficient
         ρ = penalty(ρ, iteration)
@@ -88,6 +96,8 @@ function convex_clustering_path(::SteepestDescent, W, X;
 
     # allocate gradient and auxilliary variable
     Q = similar(X)
+    y = zeros(eltype(X), d*binomial(n, 2))
+    p = zero(y)
 
     # allocate solution path
     path = [similar(U) for _ in eachindex(K_path)]
@@ -102,7 +112,7 @@ function convex_clustering_path(::SteepestDescent, W, X;
         ρ = ρ_init
 
         # use the old U as a warm-start
-        convex_clustering!(Q, U, Iv, Jv, v, X, W, ρ, maxiters, penalty, history)
+        convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
 
         # save solution for the subproblem
         copyto!(path[i], U)
