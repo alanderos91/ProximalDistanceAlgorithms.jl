@@ -222,6 +222,16 @@ end
 
 ##### weights #####
 
+"""
+```
+gaussian_weights(X; [phi = 1.0])
+```
+
+Assign weights to each pair of samples `(i,j)` based on a Gaussian kernel.
+The parameter `phi` scales the influence of the distance `norm(X[:,i] - X[:,j])^2`.
+
+**Note**: Samples are assumed to be given in columns.
+"""
 function gaussian_weights(X; phi = 1.0)
     d, n = size(X)
 
@@ -239,6 +249,13 @@ function gaussian_weights(X; phi = 1.0)
     return W
 end
 
+"""
+```
+knn_weights(W, k)
+```
+
+Threshold weights `W` based on `k` nearest neighbors.
+"""
 function knn_weights(W, k)
     n = size(W, 1)
     w = [W[i,j] for j in 1:n for i in j+1:n] |> vec

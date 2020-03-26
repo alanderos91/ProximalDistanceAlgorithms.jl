@@ -25,6 +25,13 @@ function cvxcluster_fusion_matrix(d, n)
     return D
 end
 
+"""
+```
+cvxclst_apply_fusion_matrix!(y, W, U)
+```
+
+Multiply `vec(U)` by `W*D` and store the result in `y`.
+"""
 function cvxclst_apply_fusion_matrix!(y, W, U)
     d, n = size(U)
 
@@ -37,6 +44,13 @@ function cvxclst_apply_fusion_matrix!(y, W, U)
     return y
 end
 
+"""
+```
+cvxclst_apply_fusion_matrix!(Q, W, y)
+```
+
+Multiply `y` by `D'*W` and store the result in `Q`.
+"""
 function cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
     d, n = size(Q)
 
@@ -55,78 +69,13 @@ function cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
     return y
 end
 
-function __accumulate_averaging_step!(Q, W, U)
-    d, n = size(U)  # extract dimensions
+"""
+```
+__evaluate_weighted_gradient_norm(W, Q)
+```
 
-    for j in 1:n, i in j+1:n, k in 1:d
-        δ_ijk = W[i,j]^2*(U[k,i] - U[k,j])
-        Q[k,i] = Q[k,i] + δ_ijk
-        Q[k,j] = Q[k,j] - δ_ijk
-    end
-
-    return nothing
-end
-
-function __accumulate_all_operations!(Q, W, U, Iv, Jv)
-    d, n = size(U)  # extract dimensions
-    blocks = zip(Iv, Jv)
-
-    for j in 1:n, i in j+1:n, k in 1:d
-        if (i,j) in blocks
-            δ_ijk = zero(eltype(W))
-        else
-            δ_ijk = (W[i,j]^2)*(U[k,i] - U[k,j])
-        end
-
-        Q[k,i] = Q[k,i] + δ_ijk
-        Q[k,j] = Q[k,j] - δ_ijk
-    end
-
-    return nothing
-end
-
-function __apply_sparsity_correction!(Q, W, U, Iv, Jv)
-    d, n = size(U)  # extract dimensions
-
-    for (i, j) in zip(Iv, Jv), k in 1:d
-        δ_ijk = (W[i,j]^2)*(U[k,i] - U[k,j])
-
-        Q[k,i] = Q[k,i] - δ_ijk
-        Q[k,j] = Q[k,j] + δ_ijk
-    end
-
-    return nothing
-end
-
-#
-# I: set of i indices
-# J: set of j indices
-# v: list of norm differences norm(u_i - u_j)
-# W: weights
-# U: current cluster assignments
-# k: number of blocks
-function __find_large_blocks!(I, J, v, W, U)
-    n = size(U, 2)
-
-    for j in 1:n, i in j+1:n
-        v_ij = distance(W, U, i, j)
-        l = searchsortedlast(v, v_ij)
-
-        if l > 0
-            popfirst!(v)
-            insert!(v, l, v_ij)
-
-            popfirst!(I)
-            insert!(I, l, i)
-
-            popfirst!(J)
-            insert!(J, l, j)
-        end
-    end
-
-    return nothing
-end
-
+Evaluate the norm squared of `W*D*vec(Q)`.
+"""
 function __evaluate_weighted_gradient_norm(W, Q)
     d, n = size(Q)
     val = zero(eltype(Q))
@@ -138,37 +87,3 @@ function __evaluate_weighted_gradient_norm(W, Q)
 
     return val
 end
-
-# function test(d, n, k)
-#     # simulate data
-#     U = rand(d, n)
-#
-#     # initialize data structures
-#     Iv = zeros(Int, k)
-#     Jv = zeros(Int, k)
-#     v = zeros(k)
-#
-#     # check
-#     @time find_large_blocks!(Iv, Jv, v, U, k)
-#
-#     return Iv, Jv, v
-# end
-#
-# function forloopcheck(d, n)
-#     x = rand(d)
-#
-#     @time for j in 1:n, i in 1:j-1
-#         norm(x)
-#     end
-# end
-
-# Implementation notes:
-#
-# 1. Want to compute ||u_i - u_j|| efficiently
-#   a. Store U as d by n matrix --> use my code
-#   b. Store U as list of column vectors --> use `norm`
-#
-# 2. Want to find k-largest blocks according to ||u_i - u_j||.
-#   a. The number of comparisons is n choose 2, so would like to
-#    avoid storing differences explicitly. Lazy approach?
-#   b. Finding the k-largest blocks should have an O(n log k) algorithm (heaps).
