@@ -1,19 +1,22 @@
 import ProximalDistanceAlgorithms:
-    __find_large_blocks!,
-    __accumulate_averaging_step!,
-    __apply_sparsity_correction!,
-    __accumulate_all_operations!,
+    cvxclst_fusion_matrix,
+    cvxclst_apply_fusion_matrix!,
+    cvxclst_apply_fusion_matrix_transpose!,
+    cvxclst_evaluate_gradient,
+    cvxclst_stepsize,
+    cvxclst_evaluate_objective,
+    distance,
+    sparse_fused_block_projection,
     tri2vec
 
 function cvxcluster_initialize(d, n)
     # weights matrix
-    # W = zeros(n, n)
-    # for j in 1:n, i in 1:j-1
-    #     w_ij = rand()
-    #     W[i,j] = w_ij
-    #     W[j,i] = w_ij
-    # end
-    W = ones(n, n)
+    W = zeros(n, n)
+    for j in 1:n, i in 1:j-1
+        w_ij = rand()
+        W[i,j] = w_ij
+        W[j,i] = w_ij
+    end
 
     # synthetic data
     U = randn(d, n)
@@ -23,8 +26,7 @@ function cvxcluster_initialize(d, n)
     e = [Imat[:,i] for i in 1:n]
 
     # fusion matrix
-    D_ij = [kron((e[i] - e[j])', I(d)) for j in 1:n for i in j+1:n]
-    D = vcat(D_ij...)
+    D = cvxclst_fusion_matrix(d, n)
 
     # reshaped weight matrix
     w = zeros(d*binomial(n,2))
@@ -35,128 +37,140 @@ function cvxcluster_initialize(d, n)
             ix += 1
         end
     end
-    Wdiag = Diagonal(w)
 
-    # W * D and transpose(W * D)
-    WD = Wdiag*D
-    WDt = transpose(WD)
+    # W*D and transpose(W*D)
+    Wdiag = Diagonal(w)
+    WD    = Wdiag*D
+    WDt   = transpose(WD)
 
     return W, U, D, WD, WDt
 end
 
-function cvxcluster_auxilliary(U, WD)
-    # allocate auxilliary variables
-    Q = similar(U)          # output dimensions same as U
-    x = similar(vec(U))     # output dimensions same as U, vectorized
-    y = zeros(size(WD, 1))  # for (W*D)(U)
-    P_y = zero(y)           # for projection
-
-    return Q, x, y, P_y
-end
-
-@testset "linear operators" begin
+@testset "Convex Clustering" begin
+    # simulated examples for testing
     features = (2, 10)
     samples  = (50, 100)
 
     examples = [cvxcluster_initialize(d, n) for d in features, n in samples]
 
-    # test: (W*D)'(W*D)*vec(U)
-    for example in examples
-        W, U, D, WD, WDt = example
-        Q, x, y, P_y = cvxcluster_auxilliary(U, WD)
-
-        mul!(y, WD, vec(U)) # expected
-        mul!(x, WDt, y)
-        @time begin
-            fill!(Q, 0); __accumulate_averaging_step!(Q, W, U) # observed
-        end
-        @test x ≈ vec(Q)
-    end
-
-    # test: (W*D)'*[(W*D)*vec(U) - P(W*D*vec(U))]
-    @testset "w/ explicit search" begin
+    @testset "linear operators" begin
         for example in examples
             W, U, D, WD, WDt = example
-            Q, x, y, P_y = cvxcluster_auxilliary(U, WD)
 
             d, n = size(U)
             println("$(d) features, $(n) samples")
 
-            K_max = binomial(n, 2)
-            K_lo = round(Int, 0.3 * K_max)
-            K_hi = round(Int, 0.7 * K_max)
+            # auxiliary variables
+            V  = zero(U)             # output dimensions same as U
+            v  = similar(vec(U))     # vectorized U
+            y1 = zeros(size(WD, 1))  # for (W*D) * u
+            y2 = zero(y1)            # for (W*D) * u
+            yproj = zero(y1)         # for projection of y
 
-            for K in (K_lo, K_hi, K_max)
-                print("  sparsity = $(K)\t")
-                # initialize data structures for sparsity projection
-                Iv = zeros(Int, K)
-                Jv = zeros(Int, K)
-                v  = zeros(K)
+            println("  warm-up:")
+            @time cvxclst_apply_fusion_matrix!(y1, W, U)
+            @time cvxclst_apply_fusion_matrix_transpose!(V, W, y1)
+            @time mul!(y2, WD, vec(U))
+            @time mul!(v, WDt, y2)
+            println()
 
-                fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0)
-                __find_large_blocks!(Iv, Jv, v, W, U)
+            # reset
+            fill!(y1, 0)
+            fill!(V, 0)
 
-                # expected
-                fill!(P_y, 0); mul!(y, WD, vec(U))
-                for (i, j) in zip(Iv, Jv)
-                    l = i < j ? tri2vec(i, j, n) : tri2vec(j, i, n)
-                    block = (l-1)*d+1:l*d
-                    for k in block
-                        P_y[k] = y[k]
-                    end
-                end
-                mul!(x, WDt, y - P_y)
+            # test: (W*D)*u
+            println("  (W*D) * u:")
+            print("    operator: ")
+            @time cvxclst_apply_fusion_matrix!(y1, W, U) # observed
+            print("    mul!:     ")
+            @time mul!(y2, WD, vec(U))                   # expected
+            @test y1 ≈ y2
+            println()
 
-                # observed
-                @time begin
-                    fill!(Q, 0); __accumulate_all_operations!(Q, W, U, Iv, Jv)
-                end
-                @test x ≈ vec(Q)
-            end
+            # test: (WD)t(WD) * vec(U)
+            println("  (W*D)t * y:")
+            print("    operator: ")
+            @time cvxclst_apply_fusion_matrix_transpose!(V, W, y1) # observed
+            print("    mul!:     ")
+            @time mul!(v, WDt, y2)
+            @test vec(V) ≈ v
+            println()
         end
     end
 
-    @testset "w/ sparsity correction" begin
+    @testset "steepest descent" begin
         for example in examples
             W, U, D, WD, WDt = example
-            Q, x, y, P_y = cvxcluster_auxilliary(U, WD)
 
+            # parameters
             d, n = size(U)
+            k = binomial(n, 2) ÷ 2
+            ρ = 2.0
+
+            X = U .- 4.0            # simulated data
+            Δ = U-X                 # difference between centroids
+            yproj, _, _, _ = sparse_fused_block_projection(W, U, k) # projection
+            z = WD*vec(U) - yproj   # direction of projection
+
             println("$(d) features, $(n) samples")
 
-            K_max = binomial(n, 2)
-            K_lo = round(Int, 0.3 * K_max)
-            K_hi = round(Int, 0.7 * K_max)
+            # test: gradient evaluation
 
-            for K in (K_lo, K_hi, K_max)
-                print("  sparsity = $(K)\t")
-                # initialize data structures for sparsity projection
-                Iv = zeros(Int, K)
-                Jv = zeros(Int, K)
-                v  = zeros(K)
+            # observed
+            Q = cvxclst_evaluate_gradient(W, U, X, ρ, k)
 
-                fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0)
-                __find_large_blocks!(Iv, Jv, v, W, U)
+            # expected
+            q = vec(Δ) + ρ*WDt*z
 
-                # expected
-                fill!(P_y, 0); mul!(y, WD, vec(U))
-                for (i, j) in zip(Iv, Jv)
-                    l = i < j ? tri2vec(i, j, n) : tri2vec(j, i, n)
-                    block = (l-1)*d+1:l*d
-                    for k in block
-                        P_y[k] = y[k]
-                    end
-                end
-                mul!(x, WDt, y - P_y)
+            @test vec(Q) ≈ q
 
-                # observed
-                @time begin
-                    fill!(Q, 0)
-                    __accumulate_averaging_step!(Q, W, U)
-                    __apply_sparsity_correction!(Q, W, U, Iv, Jv)
-                end
-                @test x ≈ vec(Q)
-            end
+            # test: step size calculation
+
+            # observed
+            γ1, normgrad1 = cvxclst_stepsize(W, Q, ρ)
+
+            # expected
+            a = dot(Q, Q)
+            v = WD * vec(Q)
+            b = dot(v, v)
+            γ2 = a / (a + ρ*b + eps())
+            normgrad2 = sqrt(a)
+
+            @test γ1 ≈ γ2
+            @test normgrad1 ≈ normgrad2
+
+            # test: loss, penalty, objective
+
+            # observed
+            loss, penalty, objective = cvxclst_evaluate_objective(U, X, z, ρ)
+
+            # expected
+            @test loss ≈ dot(Δ, Δ)
+            @test penalty ≈ dot(z, z)
+            @test objective ≈ 0.5 * (loss + ρ*penalty)
+        end
+    end
+
+    @testset "utilities" begin
+        d, n = 100, 1000
+        A = randn(d, n)
+        W = Symmetric(rand(n, n))
+
+        i = 348
+        j = 32
+
+        # test: norm(ui - uj)
+        @test distance(A, i, j) ≈ norm(A[:,i] - A[:,j])
+
+        # test: wij * norm(ui - uj)
+        @test distance(W, A, i, j) ≈ W[i,j] * norm(A[:,i] - A[:,j])
+
+        # test: tri2vec, dictionary ordering
+        n = 4
+        count = 1
+        for j in 1:n, i in j+1:n
+            @test tri2vec(i, j, n) == count
+            count += 1
         end
     end
 end

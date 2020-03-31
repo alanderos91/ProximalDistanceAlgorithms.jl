@@ -1,35 +1,54 @@
-function cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
-    # 1a. form the gradient:
-    fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0); fill!(p, 0)
-
-    sparse_fused_block_projection!(p, Iv, Jv, v, W, U)
-    cvxclst_apply_fusion_matrix!(y, W, U)
-    # mul!(y, WD, vec(U))
-
-    @. y = y - p
-    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
-    # mul!(vec(Q), transpose(WD), y)
-
-    for K in eachindex(Q)
-        Q[K] = (U[K] - X[K]) + ρ*Q[K]
-    end
-
-    # 1b. evaluate loss, penalty, and objective:
-    loss = dot(U,U) - 2*dot(U,X) + dot(X,X)
-    penalty = dot(y, y)
-    objective = 0.5 * (loss + ρ*penalty)
-
-    # 2. compute stepsize
+function cvxclst_stepsize(W, Q, ρ)
     a = dot(Q, Q)                               # norm^2 of gradient
     b = __evaluate_weighted_gradient_norm(W, Q) # norm^2 of W*D*gradient
     γ = a / (a + ρ*b + eps())
 
-    # 3. apply the update
-    for K in eachindex(U)
-        U[K] = U[K] - γ*Q[K]
+    return γ, sqrt(a)
+end
+
+# used internally
+function cvxclst_evaluate_gradient!(Q, y, p, W, U, X, Iv, Jv, v, ρ)
+    fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0); fill!(p, 0)
+
+    sparse_fused_block_projection!(p, Iv, Jv, v, W, U)
+    cvxclst_apply_fusion_matrix!(y, W, U)
+    @. y = y - p
+    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+
+    for idx in eachindex(Q)
+        Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
+    end
+end
+
+# for testing
+function cvxclst_evaluate_gradient(W, U, X, ρ, k)
+    p, Iv, Jv, v = sparse_fused_block_projection(W, U, k)
+    y = cvxclst_apply_fusion_matrix(W, U)
+    @. y = y - p
+    Q = cvxclst_apply_fusion_matrix_transpose(W, y)
+    for idx in eachindex(Q)
+        Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
     end
 
-    return γ, sqrt(a), loss, objective, penalty
+    return Q
+end
+
+function cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
+    # 1a. form the gradient:
+    cvxclst_evaluate_gradient!(Q, y, p, W, U, X, Iv, Jv, v, ρ)
+
+    # 1b. evaluate loss, penalty, and objective:
+    loss, penalty, objective = cvxclst_evaluate_objective(U, X, y, ρ)
+
+    # 2. compute stepsize
+    γ, normgrad = cvxclst_stepsize(W, Q, ρ)
+
+    # 3. apply the update
+    for idx in eachindex(U)
+        U[idx] = U[idx] - γ*Q[idx]
+    end
+
+    return γ, normgrad, loss, objective, penalty
 end
 
 function convex_clustering(::SteepestDescent, W, X;

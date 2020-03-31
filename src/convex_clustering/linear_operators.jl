@@ -9,7 +9,7 @@ The result `D` is compatible with `vec(A)`, where `A` is `d` by `n`.
 Blocks are stacked in dictionary order.
 For example, if `n = 3` then the blocks are ordered `(2,1), (3,1), (3,2)`.
 """
-function cvxcluster_fusion_matrix(d, n)
+function cvxclst_fusion_matrix(d, n)
     Idn = I(n)  # n by n identity matrix
     Idd = I(d)  # d by d identity matrix
 
@@ -46,6 +46,22 @@ end
 
 """
 ```
+cvxclst_apply_fusion_matrix(W, U)
+
+Multiply `vec(U)` by `W*D`.
+```
+"""
+function cvxclst_apply_fusion_matrix(W, U)
+    d, n = size(U)
+    y = zeros(eltype(U), d*binomial(n,2))
+
+    cvxclst_apply_fusion_matrix!(y, W, U)
+
+    return y
+end
+
+"""
+```
 cvxclst_apply_fusion_matrix!(Q, W, y)
 ```
 
@@ -67,6 +83,25 @@ function cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
     end
 
     return y
+end
+
+"""
+```
+cvxclst_apply_fusion_matrix!(W, y)
+```
+
+Multiply `y` by `D'*W` and return the result in matrix form.
+"""
+function cvxclst_apply_fusion_matrix_transpose(W, y)
+    n = size(W, 1)
+    m = length(y)
+    d = m ÷ binomial(n, 2)
+
+    Q = zeros(d, n)
+
+    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+
+    return Q
 end
 
 """

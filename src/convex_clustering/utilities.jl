@@ -1,3 +1,20 @@
+##### penalized optimization
+"""
+```
+cvxclst_evaluate_objective(U, X, y, ρ)
+```
+
+Evaluate the penalized objective with coefficient `ρ` based on centroid matrix `U` and data `X`.
+The variable `y` represents the vector pointing towards the projection of `W*D*vec(U)`.
+"""
+function cvxclst_evaluate_objective(U, X, y, ρ)
+    loss = dot(U,U) - 2*dot(U,X) + dot(X,X)
+    penalty = dot(y, y)
+    objective = 0.5 * (loss + ρ*penalty)
+
+    return loss, penalty, objective
+end
+
 ##### sparse fused block projection #####
 
 """
