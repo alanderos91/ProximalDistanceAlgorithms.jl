@@ -58,7 +58,7 @@ include(joinpath("convex_clustering", "steepest_descent.jl"))
 include(joinpath("convex_clustering", "utilities.jl"))
 
 export convex_clustering, convex_clustering_path,
-    gaussian_weights, knn_weights
+    gaussian_weights, knn_weights, gaussian_clusters, get_clustering, count_clusters
 
 # convergence metrics
 include("logging.jl")

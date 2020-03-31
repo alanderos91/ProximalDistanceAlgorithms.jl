@@ -220,6 +220,35 @@ function adjacency_to_neighborhood(A::Matrix)
     return (neighbor, weight)
 end
 
+function get_clustering(U)
+    d, n = size(U)
+
+    A = zeros(Bool, n, n)
+
+    for j in 1:n, i in j+1:n
+        if distance(U, i, j)^2 < 1e-3
+            A[i,j] = 1
+            A[j,i] = 1
+        end
+    end
+
+    nbhood, _  = adjacency_to_neighborhood(A)
+    cluster, c = connect(nbhood)
+
+    return A, cluster, c
+end
+
+function count_clusters(Upath)
+    ncluster = zeros(Int, length(Upath))
+
+    for (i, U) in enumerate(Upath)
+        _, _, c = get_clustering(U)
+        ncluster[i] = c
+    end
+
+    return ncluster
+end
+
 ##### weights #####
 
 """
@@ -287,4 +316,18 @@ function knn_weights(W, k)
     end
 
     return W_knn
+end
+
+##### simulation #####
+
+function gaussian_clusters(centers, n)
+    cluster = Matrix{Float64}[]
+
+    for center in centers
+        d = length(center)
+        data = center .+ 0.1*randn(d, n)
+        push!(cluster, data)
+    end
+
+    return hcat(cluster...)
 end
