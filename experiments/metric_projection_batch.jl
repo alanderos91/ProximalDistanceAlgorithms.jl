@@ -66,7 +66,7 @@ function main()
         end
 
         # build two job chains
-        if K > 2
+        if K > NaN
             # subtmit hold until previous job finishes
             run(`qsub -hold_jid metric$(K-2) -N metric$(K) tmp.sh`)
         else

@@ -72,7 +72,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
         loss[k]      = history.loss[end]
         objective[k] = history.objective[end]
         penalty[k]   = history.penalty[end]
-        gradient[k]  = history.penalty[end]
+        gradient[k]  = history.gradient[end]
         cpu_time[k]  = result[2]         # seconds
         memory[k]    = result[3] / 1e6   # MB
     end
