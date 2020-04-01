@@ -1,6 +1,6 @@
 """
 ```
-construct_fustion_matrix(d, n)
+cvxclst_fusion_matrix(d, n)
 ```
 
 Construct a block matrix `D` such that `Dblock * vec(A) == A[:,i] - A[:,j]`.

@@ -337,6 +337,14 @@ end
 
 ##### simulation #####
 
+"""
+```
+gaussian_clusters(centers, n)
+```
+
+Simulate Gaussian centroids in 2D with the given `centers`.
+Each cluster is generated with `n` points.
+"""
 function gaussian_clusters(centers, n)
     cluster = Matrix{Float64}[]
 
