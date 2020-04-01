@@ -4,8 +4,8 @@ function metric_mm!(X, x, ∇X, B, b, W, D, cg_iterator, ρ)
     # form the gradient and RHS of A*x = b simultaneously
     fill!(∇X, 0)
     fill!(B, 0)
-    _, _, penalty1 = metric_apply_operator1!(∇X, B, X)
-    _, _, penalty2 = metric_accumulate_operator2!(∇X, B, X)
+    penalty1 = metric_apply_operator1!(∇X, B, X)
+    penalty2 = metric_accumulate_operator2!(∇X, B, X)
     for j in 1:n, i in j+1:n
         ∇X[i,j] = W[i,j] * (X[i,j] - D[i,j]) + ρ*∇X[i,j]
         B[i,j] = B[i,j] + W[i,j] * D[i,j] / ρ
@@ -64,7 +64,7 @@ function metric_projection(::MM, W, D;
     ρ = ρ_init
 
     # sparse matrix A = (W/ρ + T'T)
-    T = metric_matrix(n)
+    T = metric_fusion_matrix(n)
     A = T'T
 
     for k in 1:m

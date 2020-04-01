@@ -3,14 +3,17 @@ function metric_steepest_descent!(X, Q, W, D, ρ)
 
     # 1a. form the gradient:
     fill!(Q, 0)
-    _, penalty1 = metric_apply_operator1!(Q, X)
-    _, penalty2 = metric_accumulate_operator2!(Q, X)
+    penalty1 = metric_apply_operator1!(Q, X)
+    penalty2 = metric_accumulate_operator2!(Q, X)
+
+    loss = zero(eltype(X))
     for j in 1:n, i in j+1:n
         Q[i,j] = W[i,j] * (X[i,j] - D[i,j]) + ρ*Q[i,j]
+        loss = loss + W[i,j]*(X[i,j] - D[i,j])^2
     end
-    
+
     # 1b. evaluate loss, penalty, and objective:
-    loss = dot(X, X) - 2*dot(D, X) + dot(D, D)
+
     penalty = penalty1 + penalty2
     objective = 0.5 * (loss + ρ*penalty)
 

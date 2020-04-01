@@ -131,13 +131,13 @@ end
             Q[k,j] += Q_kj
 
             # accumulate penalty T*x - min(T*x, 0)
-            penalty = penalty + (abc - fabc)^2
-            penalty = penalty + (bac - fbac)^2
-            penalty = penalty + (cab - fcab)^2
+            penalty += (abc - fabc)^2
+            penalty += (bac - fbac)^2
+            penalty += (cab - fcab)^2
         end
     end
 
-    return Q, penalty
+    return penalty
 end
 
 # Operator 1:
@@ -184,7 +184,7 @@ function metric_apply_operator1!(Q, B, X)
         end
     end
 
-    return Q, B, penalty
+    return penalty
 end
 
 # Operator 2: x = trivec(X); x - max(0, x)
@@ -198,7 +198,7 @@ end
         penalty += Δ^2
     end
 
-    return Q
+    return penalty
 end
 
 function metric_accumulate_operator2!(Q, B, X)
@@ -208,15 +208,15 @@ function metric_accumulate_operator2!(Q, B, X)
     for j in 1:n, i in j+1:n
         B_ij = max(0, X[i,j])
         Δ = X[i,j] - B_ij
-        B[i,j] += B_ij
-        Q[i,j] += Δ
+        B[i,j] = B[i,j] + B_ij
+        Q[i,j] = Q[i,j] + Δ
         penalty += Δ^2
     end
 
-    return nothing
+    return penalty
 end
 
-function __apply_T_evaluate_norm_squared(Q)
+@inbounds function __apply_T_evaluate_norm_squared(Q)
     v = zero(eltype(Q))
     n = size(Q, 1)
 
