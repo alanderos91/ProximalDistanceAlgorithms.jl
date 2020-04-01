@@ -3,7 +3,7 @@ import ProximalDistanceAlgorithms:
     apply_D!, apply_Dt!, apply_DtD!,
     apply_H!, apply_Ht!
 
-@testset "linear operators" begin
+@testset "Convex Regression" begin
     sample_size = (3, 10, 100)
     domain_size = (1, 10)
 

@@ -21,10 +21,6 @@ function cvxcluster_initialize(d, n)
     # synthetic data
     U = randn(d, n)
 
-    # linear operators as matrices
-    Imat = 1.0*I(n)
-    e = [Imat[:,i] for i in 1:n]
-
     # fusion matrix
     D = cvxclst_fusion_matrix(d, n)
 
