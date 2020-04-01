@@ -1,13 +1,20 @@
 # matrix constructors
 
-function metric_matrix(n::Integer)
+"""
+```
+metric_fustion_matrix(n::Integer)
+
+Construct the triangle inequality matrix for the projection problem on `n` nodes.
+```
+"""
+function metric_fusion_matrix(n::Integer)
     nrows = n*(n-1)*(n-2) ÷ 2
 
     I = zeros(3*nrows)
     J = zeros(3*nrows)
     V = zeros(3*nrows)
 
-    I, J, V = metric_matrix!(I, J, V, n)
+    I, J, V = metric_fusion_matrix!(I, J, V, n)
 
     return sparse(I, J, V)
 end
@@ -30,7 +37,7 @@ function __set_row!(I, J, V, s1, s2, s3, t)
     return nothing
 end
 
-function metric_matrix!(I, J, V, n)
+function metric_fusion_matrix!(I, J, V, n)
     t = 1
     for j in 1:n-2, i in j+1:n-1, k in i+1:n
         # map to linear indices
@@ -46,9 +53,10 @@ function metric_matrix!(I, J, V, n)
     return I, J, V
 end
 
-# linear operators
+##### linear operators
 
-function __apply_T!(y, X)
+# for testing: T * trivec(X)
+@inbounds function metric_apply_fusion_matrix!(y, X)
     Δ = 1 # edge counter
     n = size(X, 1)
 
@@ -69,43 +77,42 @@ function __apply_T!(y, X)
     return y
 end
 
-function __apply_TtT!(Q, X)
+# for testing: Tt*T * trivec(X)
+@inbounds function metric_apply_gram_matrix!(Q, X)
     n = size(X, 1)
 
     for j in 1:n-2, i in j+1:n-1
         a = X[i,j]  # fix one edge
 
-        for k in i+1:n
+        @simd for k in i+1:n
             b = X[k,i]
             c = X[k,j]
 
-            # check edges of one triangle
-            abc = a - b - c
-            bac = b - a - c
-            cab = c - a - b
-
-            # TtT*x - Tt*(T*x)_{-}
-            Q_ij = 3*abc
-            Q_ki = 3*bac
-            Q_kj = 3*cab
+            # TtT*x
+            Q_ij = 3*a - b - c
+            Q_ki = 3*b - a - c
+            Q_kj = 3*c - a - b
 
             # accumulate
-            Q[i,j] += t_ij
-            Q[k,i] += t_ki
-            Q[k,j] += t_kj
+            Q[i,j] += Q_ij
+            Q[k,i] += Q_ki
+            Q[k,j] += Q_kj
         end
     end
 
     return Q
 end
 
-function __apply_TtT_minus_npproj!(Q, X)
+# Operator 1: y = Tt*T * trivec(X); y - min(0, y)
+@inbounds function metric_apply_operator1!(Q, X)
     n = size(X, 1)
+
+    penalty = zero(eltype(Q))
 
     for j in 1:n-2, i in j+1:n-1
         a = X[i,j]
 
-        for k in i+1:n
+        @simd for k in i+1:n
             b = X[k,i]
             c = X[k,j]
 
@@ -122,16 +129,24 @@ function __apply_TtT_minus_npproj!(Q, X)
             Q[i,j] += Q_ij
             Q[k,i] += Q_ki
             Q[k,j] += Q_kj
+
+            # accumulate penalty T*x - min(T*x, 0)
+            penalty = penalty + (abc - fabc)^2
+            penalty = penalty + (bac - fbac)^2
+            penalty = penalty + (cab - fcab)^2
         end
     end
 
-    return Q
+    return Q, penalty
 end
 
+# Operator 1:
 # Q accumulates gradient
-# Z accumulates W*y + ρ*(proj(...))
-function __apply_TtT_minus_npproj!(Q, B, X)
+# B accumulates W*y + ρ*(proj(...))
+function metric_apply_operator1!(Q, B, X)
     n = size(X, 1)
+
+    penalty = zero(eltype(Q))
 
     for j in 1:n-2, i in j+1:n-1
         a = X[i,j]
@@ -161,40 +176,41 @@ function __apply_TtT_minus_npproj!(Q, B, X)
             Q[i,j] += Q_ij
             Q[k,i] += Q_ki
             Q[k,j] += Q_kj
+
+            # accumulate penalty T*x - min(T*x, 0)
+            penalty += (abc - fabc)^2
+            penalty += (bac - fbac)^2
+            penalty += (cab - fcab)^2
         end
     end
 
-    return nothing
+    return Q, B, penalty
 end
 
-function __apply_I_minus_nnproj!(Q, X)
+# Operator 2: x = trivec(X); x - max(0, x)
+@inbounds function metric_accumulate_operator2!(Q, X)
     n = size(X, 1)
+    penalty = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
-        Q[i,j] = X[i,j] - max(0, X[i,j])
+        Δ = X[i,j] - max(0, X[i,j])
+        Q[i,j] += Δ
+        penalty += Δ^2
     end
 
     return Q
 end
 
-function __accumulate_I_minus_nnproj!(Q, X)
+function metric_accumulate_operator2!(Q, B, X)
     n = size(X, 1)
-
-    for j in 1:n, i in j+1:n
-        Q[i,j] += X[i,j] - max(0, X[i,j])
-    end
-
-    return Q
-end
-
-function __accumulate_I_minus_nnproj!(Q, B, X)
-    n = size(X, 1)
+    penalty = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
         B_ij = max(0, X[i,j])
-
+        Δ = X[i,j] - B_ij
         B[i,j] += B_ij
-        Q[i,j] += X[i,j] - B_ij
+        Q[i,j] += Δ
+        penalty += Δ^2
     end
 
     return nothing

@@ -1,24 +1,18 @@
 function metric_steepest_descent!(X, Q, W, D, ρ)
     n = size(X, 1)
 
-    # 1. form the gradient:
-    # Q = W ∘ (X - D) + ρ*(X - (X)_+ + TtT*vec(X) - Tt*(T*vec(X))_-)
-
-    # 1a. (X - (X)_+ + TtT*vec(X) - Tt*(T*vec(X))_-)
+    # 1a. form the gradient:
     fill!(Q, 0)
-    __apply_TtT_minus_npproj!(Q, X)
-    __accumulate_I_minus_nnproj!(Q, X)
-
-    # 1b. evaluate loss, penalty, and objective:
-    loss = 0.5 * (dot(X,X) - 2*dot(D,X) + dot(D,D))
-    penalty = dot(Q, Q)
-    objective = loss + 0.5*ρ*penalty
-
-    # 1c. finish forming the gradient
-    # @. Q = W .* (X - D) + ρ*Q
+    _, penalty1 = metric_apply_operator1!(Q, X)
+    _, penalty2 = metric_accumulate_operator2!(Q, X)
     for j in 1:n, i in j+1:n
         Q[i,j] = W[i,j] * (X[i,j] - D[i,j]) + ρ*Q[i,j]
     end
+    
+    # 1b. evaluate loss, penalty, and objective:
+    loss = dot(X, X) - 2*dot(D, X) + dot(D, D)
+    penalty = penalty1 + penalty2
+    objective = 0.5 * (loss + ρ*penalty)
 
     # 2. compute stepsize
     a = dot(Q, Q)                               # norm^2 of gradient

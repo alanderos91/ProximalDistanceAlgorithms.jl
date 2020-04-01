@@ -1,22 +1,21 @@
 function metric_mm!(X, x, ∇X, B, b, W, D, cg_iterator, ρ)
     n = size(X, 1)
 
-    # form the gradient and RHS of A*x = b
+    # form the gradient and RHS of A*x = b simultaneously
     fill!(∇X, 0)
     fill!(B, 0)
-    __apply_TtT_minus_npproj!(∇X, B, X)
-    __accumulate_I_minus_nnproj!(∇X, B, X)
-
-    # evaluate loss, penalty, and objective:
-    loss = 0.5 * (dot(X, X) - 2*dot(D, X) + dot(D, D))
-    penalty = dot(∇X, ∇X)
-    objective = loss + 0.5*ρ*penalty
-
-    # finish forming the gradient and b
+    _, _, penalty1 = metric_apply_operator1!(∇X, B, X)
+    _, _, penalty2 = metric_accumulate_operator2!(∇X, B, X)
     for j in 1:n, i in j+1:n
         ∇X[i,j] = W[i,j] * (X[i,j] - D[i,j]) + ρ*∇X[i,j]
         B[i,j] = B[i,j] + W[i,j] * D[i,j] / ρ
     end
+
+    # evaluate loss, penalty, and objective:
+    loss = dot(X, X) - 2*dot(D, X) + dot(D, D)
+    penalty = penalty1 + penalty2
+    objective = 0.5 * (loss + ρ*penalty)
+
     g = norm(∇X)
 
     # solve the linear system
