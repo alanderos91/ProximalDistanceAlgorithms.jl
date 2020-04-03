@@ -20,6 +20,19 @@ function cvxclst_evaluate_gradient!(Q, y, p, W, U, X, Iv, Jv, v, ρ)
     end
 end
 
+function cvxclst_evaluate_gradient!(Q, y, p, index, W, U, X, k, ρ)
+    fill!(Q, 0); fill!(p, 0)
+
+    cvxclst_apply_fusion_matrix!(y, W, U)
+    sparse_fused_block_projection!(p, y, index, k)
+    @. y = y - p
+    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+
+    for idx in eachindex(Q)
+        Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
+    end
+end
+
 # for testing
 function cvxclst_evaluate_gradient(W, U, X, ρ, k)
     p, Iv, Jv, v = sparse_fused_block_projection(W, U, k)
@@ -51,54 +64,72 @@ function cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
     return γ, normgrad, loss, objective, penalty
 end
 
-function convex_clustering(::SteepestDescent, W, X;
-    ρ_init::Real      = 1.0,
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger,
-    K::Integer        = 2) where FuncLike
-    #
-    # extract problem dimensions
-    d, n = size(X)
+function cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
+    # 1a. form the gradient:
+    cvxclst_evaluate_gradient!(Q, y, p, index, W, U, X, K, ρ)
 
-    # allocate optimization variable
-    U = copy(X)
+    # 1b. evaluate loss, penalty, and objective:
+    loss, penalty, objective = cvxclst_evaluate_objective(U, X, y, ρ)
 
-    # allocate gradient and auxilliary variable
-    Q = similar(X)
-    y = zeros(eltype(X), d*binomial(n, 2))
-    p = zero(y)
+    # 2. compute stepsize
+    γ, normgrad = cvxclst_stepsize(W, Q, ρ)
 
-    # initialize data structures for sparsity projection
-    Iv = zeros(Int, K)
-    Jv = zeros(Int, K)
-    v  = zeros(K)
-
-    # initialize penalty coefficient
-    ρ = ρ_init
-
-    # D = cvxcluster_fusion_matrix(d, n)
-    # w = [W[i,j] for j in 1:n for i in j+1:n]
-    # WD = Diagonal(repeat(w, inner=d)) * D
-
-    # call main subroutine
-    convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
-
-    return U
-end
-
-function convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
-    for iteration in 1:maxiters
-        # iterate the algorithm map
-        data = cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
-
-        # check for updates to the penalty coefficient
-        ρ = penalty(ρ, iteration)
-
-        # check for updates to the convergence history
-        history(data, iteration)
+    # 3. apply the update
+    for idx in eachindex(U)
+        U[idx] = U[idx] - γ*Q[idx]
     end
+
+    return γ, normgrad, loss, objective, penalty
 end
+
+# function convex_clustering(::SteepestDescent, W, X;
+#     ρ_init::Real      = 1.0,
+#     maxiters::Integer = 100,
+#     penalty::Function = __default_schedule,
+#     history::FuncLike = __default_logger,
+#     K::Integer        = 2) where FuncLike
+#     #
+#     # extract problem dimensions
+#     d, n = size(X)
+#
+#     # allocate optimization variable
+#     U = copy(X)
+#
+#     # allocate gradient and auxilliary variable
+#     Q = similar(X)
+#     y = zeros(eltype(X), d*binomial(n, 2))
+#     p = zero(y)
+#
+#     # initialize data structures for sparsity projection
+#     Iv = zeros(Int, K)
+#     Jv = zeros(Int, K)
+#     v  = zeros(K)
+#
+#     # initialize penalty coefficient
+#     ρ = ρ_init
+#
+#     # D = cvxcluster_fusion_matrix(d, n)
+#     # w = [W[i,j] for j in 1:n for i in j+1:n]
+#     # WD = Diagonal(repeat(w, inner=d)) * D
+#
+#     # call main subroutine
+#     convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
+#
+#     return U
+# end
+#
+# function convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
+#     for iteration in 1:maxiters
+#         # iterate the algorithm map
+#         data = cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
+#
+#         # check for updates to the penalty coefficient
+#         ρ = penalty(ρ, iteration)
+#
+#         # check for updates to the convergence history
+#         history(data, iteration)
+#     end
+# end
 
 function convex_clustering_path(::SteepestDescent, W, X;
     ρ_init::Real          = 1.0,
@@ -138,4 +169,79 @@ function convex_clustering_path(::SteepestDescent, W, X;
     end
 
     return path
+end
+
+function convex_clustering(::SteepestDescent, W, X;
+    ρ_init::Real          = 1.0,
+    maxiters::Integer     = 100,
+    penalty::Function     = __default_schedule,
+    history::FunctionLike = __default_logger,
+    K::Integer            = 1) where FunctionLike
+    #
+    # extract problem dimensions
+    d, n = size(X)
+
+    # allocate optimization variable
+    U = copy(X)
+
+    # allocate gradient and auxiliary variables
+    Q = similar(X)
+    y = zeros(eltype(X), d*binomial(n, 2))
+    p = zero(y)
+
+    # allocate adjacency graph and class labels
+    A = zeros(Bool, n, n)
+    class = ones(Int, n)
+    new_class = copy(class)
+
+    # initialize data structures for sparsity projection
+    # Iv = zeros(Int, K)
+    # Jv = zeros(Int, K)
+    # v  = zeros(K)
+    index = collect(1:length(y))
+
+    # set the starting value for the penalty coefficient
+    ρ = ρ_init
+
+    converging = true
+    iteration = 1
+    nclasses = 1
+    new_nclasses = 1
+
+    while converging && iteration ≤ maxiters
+        # apply iteration map
+        # data = cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
+        data = cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
+
+        # check for updates to the penalty coefficient
+        ρ = penalty(ρ, iteration)
+
+        # check for updates to the convergence history
+        history(data, iteration)
+
+        # update labels
+        # A, new_class, new_nclasses = assign_classes!(new_class, A, U)
+
+        # check for convergence
+        # for j in 1:n, i in j+1:n
+        #     δ[i,j] = distance(U, i, j)
+        #     δ[j,i] = δ[i,j]
+        # end
+        #
+        # converging = false
+        # for j in 1:n
+        #     i = argmin(δ[:,j])
+        #     if new_class[i] != new_class[j]
+        #         converging = true
+        #     end
+        # end
+
+        # copyto!(class, new_class)
+        # nclasses = new_nclasses
+        iteration = iteration + 1
+    end
+
+    assign_classes!(class, A, U)
+
+    return U, class, min(iteration, maxiters)
 end

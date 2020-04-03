@@ -60,6 +60,30 @@ For the sake of computational performance, we assume `A` is `d` by `n`, where `d
 The optional argument `0 <= k <= binomial(n, 2)` enforces the number of non-zero
 blocks within the projection.
 """
+# function sparse_fused_block_projection(W, A, k = 1)
+#     d, n = size(A)          # d features, n samples
+#     k_max = binomial(n, 2)  # total number of unique comparisons
+#
+#     T = eltype(A)                   # element type of A
+#     distT = typeof(sqrt(one(T)))    # type for distances
+#
+#     # enforce 0 <= k <= k_max
+#     k = min(k, k_max)
+#     k = max(k, 0)
+#
+#     # data structures for finding k-largest distances
+#     # e.g. Iv[1], Jv[1] => (i, j)
+#     # such that distance v[1] is the smallest in the list v
+#     Iv = zeros(Int, k)              # index i
+#     Jv = zeros(Int, k)              # index j
+#     v  = zeros(distT, k)            # list of distances, in ascending order
+#     y  = zeros(distT, d * k_max)    # allocate memory for projection
+#
+#     # zero-overhead implementation
+#     k > 0 && sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
+#
+#     return y, Iv, Jv, v
+# end
 function sparse_fused_block_projection(W, A, k = 1)
     d, n = size(A)          # d features, n samples
     k_max = binomial(n, 2)  # total number of unique comparisons
@@ -71,18 +95,18 @@ function sparse_fused_block_projection(W, A, k = 1)
     k = min(k, k_max)
     k = max(k, 0)
 
-    # data structures for finding k-largest distances
-    # e.g. Iv[1], Jv[1] => (i, j)
-    # such that distance v[1] is the smallest in the list v
-    Iv = zeros(Int, k)              # index i
-    Jv = zeros(Int, k)              # index j
-    v  = zeros(distT, k)            # list of distances, in ascending order
-    y  = zeros(distT, d * k_max)    # allocate memory for projection
+    # allocate memory for W*D*vec(A) and its projection
+    y = zeros(distT, d * k_max)
+    index = collect(1:length(y))
+    buffer = zero(y)
 
-    # zero-overhead implementation
-    k > 0 && sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
+    # compute y = W*D*vec(A) in-place
+    cvxclst_apply_fusion_matrix!(y, W, A)
 
-    return y, Iv, Jv, v
+    # compute projection in-place
+    k > 0 && sparse_fused_block_projection!(buffer, y, index, k)
+
+    return y, buffer, index
 end
 
 """
@@ -103,6 +127,11 @@ function sparse_fused_block_projection!(y, Iv, Jv, v, W, A)
     apply_projection!(y, W, A, Iv, Jv)
 
     return y, Iv, Jv, v
+end
+
+function sparse_fused_block_projection!(buffer, y, index, K)
+    find_large_blocks!(index, y)
+    apply_projection!(buffer, y, index, K)
 end
 
 """
@@ -141,6 +170,10 @@ function find_large_blocks!(Iv, Jv, v, W, A)
     end
 
     return Iv, Jv, v
+end
+
+function find_large_blocks!(indices, y)
+    sortperm!(indices, y, rev = true, initialized = true)
 end
 
 """
@@ -186,21 +219,27 @@ function apply_projection!(y, W, A, Iv, Jv)
     return y
 end
 
+function apply_projection!(dest, src, index, K)
+    for k in 1:K
+        dest[index[k]] = src[index[k]]
+    end
+end
+
 ##### cluster assignment #####
 """
 Finds the connected components of a graph.
 Nodes should be numbered 1,2,...
 """
-function connect(neighbor::Array{Array{Int, 1}, 1})
+function connect!(component, A)
 #
-    nodes = length(neighbor)
-    component = zeros(Int, nodes)
+    nodes = size(A, 1)
+    fill!(component, 0)
     components = 0
-    for i = 1:nodes
-        if component[i] > 0 continue end
+    for j = 1:nodes
+        if component[j] > 0 continue end
         components = components + 1
-        component[i] = components
-        visit!(neighbor, component, i)
+        component[j] = components
+        visit!(component, A, j)
     end
     return (component, components)
 end
@@ -208,62 +247,36 @@ end
 """
 Recursively assigns components by depth first search.
 """
-function visit!(neighbor::Array{Array{Int,1},1},
-  component::Vector{Int}, i::Int)
+function visit!(component, A, j::Int)
 #
-    for j in neighbor[i]
-        if component[j] > 0 continue end
-        component[j] = component[i]
-        visit!(neighbor, component, j)
-    end
-end
-
-"""
-Collects neighborhoods and weights from an adjacency matrix A.
-"""
-function adjacency_to_neighborhood(A::Matrix)
-#
-    (nodes, T) = (size(A, 1), eltype(A))
-    neighbor = [Vector{Int}() for i = 1:nodes]
-    weight = [Vector{T}() for i = 1:nodes]
-    for i = 1:nodes
-        for j = 1:nodes
-            if A[i, j] != zero(T)
-                push!(neighbor[i], j)
-                push!(weight[i], A[i, j])
-            end
+    nodes = size(A, 1)
+    for i in 1:nodes
+        if A[i,j] == 1 # check that i is a neighbor of j
+            if component[i] > 0 continue end
+            component[i] = component[j]
+            visit!(component, A, i)
         end
     end
-    return (neighbor, weight)
 end
 
-function get_clustering(U)
+function assign_classes!(class, A, U)
     d, n = size(U)
 
-    A = zeros(Bool, n, n)
-
+    # update adjacency matrix
     for j in 1:n, i in j+1:n
-        if distance(U, i, j)^2 < 1e-3
+        if distance(U, i, j) < 5e-4
             A[i,j] = 1
             A[j,i] = 1
+        else
+            A[i,j] = 0
+            A[j,i] = 0
         end
     end
 
-    nbhood, _  = adjacency_to_neighborhood(A)
-    cluster, c = connect(nbhood)
+    # assign classes based on connected components
+    class, nclasses = connect!(class, A)
 
-    return A, cluster, c
-end
-
-function count_clusters(Upath)
-    ncluster = zeros(Int, length(Upath))
-
-    for (i, U) in enumerate(Upath)
-        _, _, c = get_clustering(U)
-        ncluster[i] = c
-    end
-
-    return ncluster
+    return (A, class, nclasses)
 end
 
 ##### weights #####
@@ -307,19 +320,19 @@ function knn_weights(W, k)
     w = [W[i,j] for j in 1:n for i in j+1:n] |> vec
     i = 1
     neighbors = tri2vec.((i+1):n, i, n)
-    keep = neighbors[sortperm(w[neighbors])[1:k]]
+    keep = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
 
     for i in 2:(n-1)
         group_A = tri2vec.((i+1):n, i, n)
-        group_B = tri2vec.(n, 1:(i-1), n)
+        group_B = tri2vec.(i, 1:(i-1), n)
         neighbors = [group_A; group_B]
-        knn = neighbors[sortperm(w[neighbors])[1:k]]
+        knn = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
         keep = union(knn, keep)
     end
 
     i = n
     neighbors = tri2vec.(i, 1:(i-1), n)
-    knn = neighbors[sortperm(w[neighbors])[1:k]]
+    knn = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
     keep = union(knn, keep)
 
     W_knn = zero(W)
@@ -355,4 +368,21 @@ function gaussian_clusters(centers, n)
     end
 
     return hcat(cluster...)
+end
+
+function cvxclstr_search(X, maxiters, K)
+    d, n = size(X)
+    α = [1 / norm(X[:, i]) for i in 1:n]
+    Y = X * Diagonal(α)
+    W = gaussian_weights(Y)
+
+    history = SDLogger(length(K), maxiters)
+
+    result = Vector{Int}[]
+    for k in K
+        _, class, _ = @time convex_clustering(SteepestDescent(), W, Y, maxiters = maxiters, penalty = fast_schedule, K = k, history = history)
+        push!(result, class)
+    end
+
+    return result, history
 end
