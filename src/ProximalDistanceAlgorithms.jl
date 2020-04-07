@@ -60,6 +60,11 @@ include(joinpath("convex_clustering", "utilities.jl"))
 export convex_clustering, convex_clustering_path,
     gaussian_weights, knn_weights, gaussian_clusters, get_clustering, count_clusters
 
+# example: total variation image denoising
+include(joinpath("image_denoising", "steepest_descent.jl"))
+
+export image_denoise
+
 # convergence metrics
 include("logging.jl")
 
