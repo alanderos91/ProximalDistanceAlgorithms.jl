@@ -1,4 +1,44 @@
-function imgtvd_steepest_descent!(Q, dx, dy, U, W, ρ, epsilon)
+function prox_l2_ball!(dx, dy, z, epsilon)
+    norm_d = sqrt(dot(dx, dx) + dot(dy, dy))
+    c = epsilon / norm_d
+    c = norm_d > 1 ? c : one(c)
+    @. dx = dx - c * dx
+    @. dy = dy - c * dy
+
+    return nothing
+end
+
+function prox_l1_ball!(dx, dy, z, epsilon)
+    norm_d = norm(dx, 1) + norm(dy, 1)
+    if norm_d - epsilon > epsilon * 1e-8 # constraint is violated
+        copyto!(z, dx)
+        copyto!(z, length(dx) + 1, dy, 1, length(dy))
+        @. z = abs(z)
+        sort!(z, rev = true)
+
+        j = 1
+        λ = z[j] - epsilon
+
+        while j < length(z) && (z[j] ≤ λ || z[j+1] > λ)
+            λ = (j*λ + z[j+1]) / (j+1)
+            j += 1
+        end
+
+        for k in 1:length(dx)
+            dx[k] = dx[k] - sign(dx[k]) * max(0, abs(dx[k]) - λ)
+        end
+        for k in 1:length(dy)
+            dy[k] = dy[k] - sign(dy[k]) * max(0, abs(dy[k]) - λ)
+        end
+    else # penalty term is zero
+        @. dx = zero(eltype(dx))
+        @. dy = zero(eltype(dy))
+    end
+
+    return nothing
+end
+
+function imgtvd_steepest_descent!(Q, dx, dy, z, U, W, ρ, epsilon, prox!)
     m, n = size(U) # m rows, n columns
 
     # compute derivatives on columns, dx = Dx * U
@@ -11,12 +51,8 @@ function imgtvd_steepest_descent!(Q, dx, dy, U, W, ρ, epsilon)
         dy[i,j] = U[i,j+1] - U[i,j] # TODO: do this by fixing a column
     end
 
-    # project onto Euclidean ball of radius epsilon
-    norm_d = sqrt(dot(dx, dx) + dot(dy, dy))
-    c = epsilon / norm_d
-    c = norm_d > 1 ? c : one(c)
-    @. dx = dx - c * dx
-    @. dy = dy - c * dy
+    # compute proximal map
+    prox!(dx, dy, z, epsilon)
 
     # evaluate loss, penalty, and objective
     loss      = dot(U, U) - 2*dot(U, W) + dot(W, W)
@@ -79,7 +115,8 @@ function image_denoise(::SteepestDescent, W;
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
     history::FuncLike = __default_logger,
-    epsilon::Real     = 1.0) where FuncLike
+    epsilon::Real     = 1.0,
+    proxmap::Function = prox_l2_ball!) where FuncLike
     #
     m, n = size(W)   # m pixels by n pixels
     T = eltype(W)    # element type
@@ -88,12 +125,12 @@ function image_denoise(::SteepestDescent, W;
     Q  = zero(W)            # gradient
     dx = zeros(T, m-1, n)   # derivatives along rows
     dy = zeros(T, m, n-1)   # derivatives along cols
-
+    z  = zeros(T, length(dx) + length(dy)) # for l1 projection
     ρ = ρ_init
 
     for iteration in 1:maxiters
         # iterate the algorithm map
-        data = imgtvd_steepest_descent!(Q, dx, dy, U, W, ρ, epsilon)
+        data = imgtvd_steepest_descent!(Q, dx, dy, z, U, W, ρ, epsilon, proxmap)
 
         # check for updates to the penalty coefficient
         ρ = penalty(ρ, iteration)
