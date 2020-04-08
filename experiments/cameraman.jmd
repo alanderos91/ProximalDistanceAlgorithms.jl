@@ -1,0 +1,293 @@
+---
+title: Total variation image denoising
+options:
+    fig_ext: .svg
+---
+
+##### Overview of image denoising
+
+The technique of *image denoising* treats the pixels of an image as a 2D signal.
+One removes noise by solving a least squares problem subject to a *total variation* (TV) penalty.
+Specifically, given an image $\boldsymbol{W}$ we seek a denoised version $\boldsymbol{U}$ that minimizes
+$$
+\min \|\boldsymbol{U} - \boldsymbol{W}\|^{2} + \gamma \mathrm{TV}(\boldsymbol{U}),
+$$
+where $\mathrm{TV}(\boldsymbol{U})$ is *a* norm on derivatives; that is, there are multiple possible definitions.
+
+As an example, let $\boldsymbol{x} \in \mathbb{R}^{n}$ denote a 1D signal.
+Define a forward first-order difference operator on $n$ points as
+$$
+\boldsymbol{D}_{n}
+=
+\begin{bmatrix}
+    \boldsymbol{0} & \boldsymbol{I}_{n-1}
+\end{bmatrix}
+-
+\begin{bmatrix}
+    \boldsymbol{I}_{n-1} & \boldsymbol{0}
+\end{bmatrix}
+=
+\begin{bmatrix}
+        -1 &      1 &      0 &      0 & \cdots &      0 \\
+         0 &     -1 &      1 &      0 & \cdots &      0 \\
+    \vdots & \ddots & \ddots & \ddots & \ddots & \vdots \\
+         0 & \cdots &      0 &     -1 &      1 &      0 \\
+         0 &      0 & \cdots &      0 &     -1 &      1
+\end{bmatrix}
+$$
+which has $n-1$ rows and $n$ columns.
+This means $\boldsymbol{D} \boldsymbol{x}$ maps $n$ data points to $n-1$ derivatives.
+We can extend this operator to a 2D signal $\boldsymbol{W} \in \mathbb{R}^{m \times n}$.
+Multiplication on the right $\boldsymbol{D}_{m} \boldsymbol{W}$ recovers row derivatives $W_{i+1,j} - W_{i,j}$ and multiplication on the left $\boldsymbol{W} \boldsymbol{D}_{n}$ recovers column derivatives $W_{i,j+1} - W_{i,j}$.
+Rudin, Osher, and Fatemi (1992) proposed the isotropic total variation norm
+$$
+\mathrm{TV}(\boldsymbol{W})
+=
+\sum_{i,j} \sqrt{|W_{i+1,j} - W_{i,j}|^{2} + |W_{i,j+1} - W_{i,j}|^{2}}.
+$$
+Unfortunately, it is not differentiable.
+The anisotropic version is easier to work with:
+$$
+\mathrm{TV}(\boldsymbol{W})
+=
+\sum_{i,j} \sqrt{|W_{i+1,j} - W_{i,j}|^{2}} + \sqrt{|W_{i,j+1} - W_{i,j}|^{2}}
+=
+\sum_{i,j} |W_{i+1,j} - W_{i,j}| + |W_{i,j+1} - W_{i,j}|.
+$$
+This simplies as
+$$
+\mathrm{TV}(\boldsymbol{W})
+=
+\|\boldsymbol{D}_{m} \boldsymbol{W}\|_{1}
++
+\|\boldsymbol{W} \boldsymbol{D}_{n}\|_{1}
+=
+\left\|
+\begin{bmatrix}
+    \boldsymbol{D}_{x} \\
+    \boldsymbol{D}_{y}
+\end{bmatrix}
+\mathrm{vec}(\boldsymbol{W}) \right\|_{1}.
+$$
+These manipulations (a) suggest that one can use any $p$-norm for an anisotropic penalty, and (b) identify a fusion matrix $\boldsymbol{D}$ that can be used in a proximal distance algorithm.
+The remainder of these notes assume the Euclidean norm in the anisotropic penalty.
+
+##### Proximal distance formulation
+
+Instead of the original objective, we pass to a constrained problem
+$$
+\min f(\boldsymbol{U}; \boldsymbol{W})
+\quad
+\text{subject to}
+~\|\boldsymbol{D}~\mathrm{vec}(\boldsymbol{W})\|_{2} \le \epsilon,
+$$
+where $f$ is a general convex function parameterized by the original image $\boldsymbol{W}$.
+Here $\epsilon$ is a regularization parameter that, unlike $\gamma$ in the original formulation, directly quantifies a property of the image.
+The penalty method transforms this problem into an unconstrained one
+$$
+\min ~f(\boldsymbol{U}; \boldsymbol{W})
++
+\rho ~\mathrm{dist}(\boldsymbol{D}~\mathrm{vec}(\boldsymbol{W}), C)^{2},
+$$
+with $C$ denoting the $\epsilon$-ball implied by the level set constraint.
+Solving this problem with a proximal distance algorithm will therefore involve projection onto $C$.
+This approach is straightforward for many $p$-norms and generalizes to their isotropic counterparts provided one can compute the requisite proximity operator.
+
+##### Numerical Example: Camera Man
+
+```{julia}
+using ProximalDistanceAlgorithms
+using Images, TestImages, Plots
+```
+
+We use the standard 512 by 512 test image, *cameraman.tif*:
+
+```{julia}
+img = testimage("cameraman")
+```
+
+First define functions for anisotropic penalties using the $1$-norm and $2$-norm:
+
+```{julia}
+function total_variation_l2(img)
+    m, n = size(img)
+    tv = 0.0
+
+    # derivatives on rows
+    for j in 1:n, i in 1:m-1
+        tv += (Float64(img[i+1,j]) - Float64(img[i,j]))^2
+    end
+
+    # derivatives on columns
+    for j in 1:n-1, i in 1:m
+        tv += (Float64(img[i,j+1]) - Float64(img[i,j]))^2
+    end
+
+    return sqrt(tv)
+end
+
+function total_variation_l1(img)
+    m, n = size(img)
+    tv = 0.0
+
+    # derivatives on rows
+    for j in 1:n, i in 1:m-1
+        tv += abs(Float64(img[i+1,j]) - Float64(img[i,j]))
+    end
+
+    # derivatives on columns
+    for j in 1:n-1, i in 1:m
+        tv += abs(Float64(img[i,j+1]) - Float64(img[i,j]))
+    end
+
+    return tv
+end
+```
+
+Test the penalty funcitons on our image:
+
+```{julia}
+total_variation_l1(img)
+```
+
+```{julia}
+total_variation_l2(img)
+```
+
+Now we define a function that uses our proximal distance algorithm to enforce an `epsilon`-level total variation on a given `img`:
+
+```{julia}
+function denoise(img, epsilon, timing = false; tvnorm = 2)
+    W = Float64.(img)           # convert to a numerical array
+    f(ρ, iteration) = 1.0 + ρ  # sequence of penalty coefficients
+    maxiters = 10^3             # maximum number of iterations
+    h = SDLogger(maxiters, 1)   # convergence information
+
+    if tvnorm == 1
+        proxmap = prox_l1_ball!
+    elseif tvnorm == 2
+        proxmap = prox_l2_ball!
+    else
+        error("Option tvnorm must be set to 1 or 2")
+    end
+
+    # solve the projection problem
+    if timing
+        U = @time image_denoise(SteepestDescent(), W,
+            maxiters = maxiters,
+            penalty  = f,
+            epsilon  = epsilon,
+            history  = h,
+            proxmap  = proxmap)
+    else
+        U = image_denoise(SteepestDescent(), W,
+            maxiters = maxiters,
+            penalty  = f,
+            epsilon  = epsilon,
+            history  = h,
+            proxmap  = proxmap)
+    end
+
+    return Gray.(U), h  # return the denoised image + history
+end
+```
+
+Consider two denoising scenarios on the original image with $\epsilon_{0} = \mathrm{TV}(\boldsymbol{W})$:
+
+1. Case $\epsilon < \epsilon_{0}$: this should sharpen ($1$-norm) or blur ($2$-norm) the image
+2. Case $\epsilon = \epsilon_{0}$: no change
+
+Let's test these cases on our image:
+
+```{julia}
+epsilon0_l1 = total_variation_l1(img)
+epsilon0_l2 = total_variation_l2(img)
+
+img1, _ = denoise(img, epsilon0_l1 - 20, tvnorm = 1)
+img2, _ = denoise(img, epsilon0_l1, tvnorm = 1)
+img3, _ = denoise(img, epsilon0_l2 - 20, tvnorm = 2)
+img4, _ = denoise(img, epsilon0_l2, tvnorm = 2)
+
+[img img1 img2 img3 img4]
+```
+**From left to right**:
+
+1. Original image
+2. Denoised image with $\epsilon < \epsilon_{0}$, $1$-norm
+3. Denoised image with $\epsilon = \epsilon_{0}$, $1$-norm
+4. Denoised image with $\epsilon < \epsilon_{0}$, $2$-norm
+5. Denoised image with $\epsilon = \epsilon_{0}$, $2$-norm
+
+##### Simulated noise: white noise
+
+Simulate noise with variance standard deviation 0.1:
+
+```{julia}
+noisy = Gray.(img .+ 0.1 * randn(size(img)))
+```
+
+Check the total variation of this image:
+
+```{julia}
+epsilon0_l1 = total_variation_l1(noisy)
+```
+
+```{julia}
+epsilon0_l2 = total_variation_l2(noisy)
+```
+
+Apply denoising procedure and show timing results for 1000 iterations.
+We impose a penalty that halves the total variation of the noisy image:
+
+```{julia}
+denoised_l1, history_l1 = denoise(noisy, epsilon0_l1 / 2, true, tvnorm = 1);
+denoised_l2, history_l2 = denoise(noisy, epsilon0_l2 / 2, true, tvnorm = 2);
+```
+
+Compare the denoised image with the input signal:
+
+```{julia}
+[img noisy denoised_l1 denoised_l2]
+```
+
+**Left to Right**:
+
+1. Original image
+2. Original image + white noise
+3. Denoising with $1$-norm
+4. Denoising with $2$-norm
+
+Show convergence history:
+
+```{julia}
+history_l1.loss    .+= eps() # add a small bias in case loss[i] = 0
+history_l1.penalty .+= eps()
+history_l2.loss    .+= eps()
+history_l2.penalty .+= eps()
+
+figA = plot(history_l1,
+    title = "1-norm",
+    grid = false,
+    linetype = :path,
+    linewidth = 3,
+    )
+ylims!(1e-5, 1e5)
+
+figB = plot(history_l2,
+    title = "2-norm",
+    grid = false,
+    linetype = :path,
+    linewidth = 3,
+    )
+ylims!(1e-5, 1e5)
+
+plot(figA, figB, layout = grid(1, 2), size = (800, 600))
+```
+
+**Blue**: The *loss*, $\|\boldsymbol{U} - \boldsymbol{W}\|^{2}$, increases as we move away from the original image to satisfy the level set constraint.
+
+**Green**: The term *penalty* refers to $\mathrm{dist}(\boldsymbol{D} \mathrm{vec}(\boldsymbol{U}), C)^{2}$, the squared distance from the constraint set. Smaller is better.
+
+**Orange**: The *objective* is defined as $\frac{1}{2} (\text{loss} + \rho ~\text{penalty})$.
+
+**Purple**: Norm of the gradient, which should stabilize but not necessarily go to $0$.
