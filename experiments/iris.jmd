@@ -1,0 +1,393 @@
+---
+title: Convex clustering applied to iris data set
+options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms
+using LinearAlgebra, Statistics
+using CSV, DataFrames, Plots, Plots.PlotMeasures
+
+gr(legend = false, c = :balance)
+```
+
+```{julia}
+"""
+Plot data `X` as a heatmap assuming cases are scaled to have unit norm.
+The x-axis corresponds to cases that have been grouped into `classes` in contiguous blocks.
+The y-axis corresponds to a `feature_set` used in classification.
+"""
+function visualize_iris_data(X, feature_set, classes, decorated = true; kwargs...)
+    xtickpos = (25, 75, 125)
+    ytickpos = 1:4
+
+    if decorated
+        heatmap(X,
+            xlabel = "cases",
+            ylabel = "features",
+            xticks = (xtickpos, classes),
+            yticks = (ytickpos, feature_set),
+            clims  = (0, 1),
+            colorbar_title = "rel. magnitude"; kwargs...
+        )
+    else
+        heatmap(X,
+            xlabel = "cases",
+            xticks = (xtickpos, classes),
+            yticks = nothing,
+            clims = (0, 1),
+            colorbar_title = "rel. magnitude"; kwargs...)
+    end
+end
+
+function distance_matrix(X)
+    n = size(X, 2)
+    A = [norm(X[:, i] - X[:, j]) for j in 1:n, i in 1:n]
+
+    return A
+end
+```
+
+```{julia; results = "hidden"}
+# read in as DataFrame and extract feature data + labels
+iris = CSV.read("data/iris.dat", copycols = true)
+X = iris[!, 1:4] |> Matrix |> transpose |> Matrix
+true_labels = iris[!, 5] |> Vector
+classes = unique(true_labels)
+
+# extract dimensions and feature labels
+nfeatures, nsamples = size(X)
+feature_set = names(iris)[1:4]
+
+# compute true centroids based on the labeled data
+tmp = aggregate(iris, :Species, mean)
+centroid = tmp[!, 2:end] |> Matrix |> transpose |> Matrix
+Y = repeat(centroid, inner = (1, 50))
+
+# compute scaling factors that normalize columns to unit vectors
+Xscaling = [1 / norm(X[:, i]) for i in 1:nsamples]
+Yscaling = [1 / norm(Y[:, i]) for i in 1:nsamples]
+
+# rescale features so we can interpret in terms of relative magnitude
+Xscaled = X * Diagonal(Xscaling)
+Yscaled = Y * Diagonal(Yscaling)
+```
+
+##### Data summary
+
+From [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Iris):
+
+> The data set contains 3 classes of 50 instances each, where each class refers to a type of iris plant.
+> One class is linearly separable from the other 2; the latter are NOT linearly separable from each other.
+
+Features are rescaled so that each sample has unit norm.
+Because features are non-negative quantities and have the same dimension (length), one may interpret rescaled features in terms of relative contributions to a sample.
+
+```{julia}
+figA = visualize_iris_data(Xscaled, feature_set, classes, true, legend = false, title = "data")
+figB = visualize_iris_data(Yscaled, feature_set, classes, false, legend = true, title = "class average")
+
+fig = plot(figA, figB, layout = @layout [a{0.44w} a{0.56w}])
+```
+
+**Left**: Rescaled data with cases on the x-axis and features on the y-axis.
+Cases are arranged in contiguous blocks according to their class; for example, the *setosa* iris plants appear as cases 1 through 50.
+
+**Right**: Cases represented in terms of centroids computed from the labeled data.
+*Setosa* are easy to distinguish from the other two species, but *versicolor* and *virginica* are not linearly separable.
+
+##### Distance matrices
+
+A distance matrix $\Delta$ defined by
+$$
+\Delta_{ij} = ||\boldsymbol{x}_{i} - \boldsymbol{x}_{j}||
+$$
+```{julia}
+annx = [25, 75, 125, 75, 125, 125]
+anny = [25, 75, 125, 25, 25, 75]
+anncolor = :white
+annsize  = 8
+
+annotations = [
+    text("setosa", anncolor, annsize),
+    text("versicolor", anncolor, annsize),
+    text("virginica", anncolor, annsize),
+    text("setosa\nvs\nversicolor",    anncolor, annsize),
+    text("setosa\nvs\nvirginica",     anncolor, annsize),
+    text("versicolor\nvs\nvirginica", anncolor, annsize)
+]
+
+figA = heatmap(distance_matrix(Xscaled),
+    ticks = 0:25:150,
+    title = "data",
+    clims = (0, 1))
+annotate!(annx, anny, annotations)
+
+figB = heatmap(distance_matrix(Yscaled),
+    ticks = 0:25:150,
+    title = "class average",
+    clims = (0, 1),
+    legend = true)
+annotate!(annx, anny, annotations)
+
+fig = plot(figA, figB, layout = @layout [a{0.44w} a{0.56w}])
+```
+
+Annotations along the diagonal mark distances between cases within the same group.
+Off-diagonal labels correspond to distances between clusters.
+
+**Left**: Rescaled data.
+**Right**: Centroids based on ground truth.
+This is the pattern that our block sparsity projection *should* recover under the correct value for $K$, our discrete regularization parameter.
+Note that each off-diagonal block has $50 \times 50 = 2500$ non-zero entries, which means there are $K = 7500$ non-zero distances $||\boldsymbol{x}_{i} - \boldsymbol{x}_{j}||$ based on the unique comparisons.
+
+##### Penalty coefficient
+
+The function `convex_clustering` accepts a keyword argument `penalty` and is used to compute a penalty coefficient $\rho_{n+1}$ from $\rho_{n}$ at iteration $n$.
+We will use an aggressive schedule which increments $\rho$ by 10 at each step.
+
+```{julia}
+f(ρ, iteration) = 10.0 + ρ
+```
+
+##### Clustering with uniform weights
+
+Here we compare clustering using $K = 2500$, $5000$, and $7500$ which ought to recover $1$, $2$, and $3$ clusters, respectively.
+In each scenario, we run our clustering procedure for 500 iterations.
+We ignore the class assignments for the time being.
+Each weight is set to $W_{ij} = 1$.
+
+```{julia}
+solution = Matrix{Float64}[]
+h = SDLogger[]
+K = [50*50, 2*50*50, 3*50*50]
+W = ones(nsamples, nsamples)
+maxiters = 500
+
+for k in K
+    history = SDLogger(100, 1)
+    U, _, _ = convex_clustering(SteepestDescent(), W, Xscaled,
+        maxiters = maxiters,
+        penalty = f,
+        history = history,
+        K = k)
+
+    push!(solution, U)
+    push!(h, history)
+end
+```
+
+```{julia}
+# centroid matrices
+figA = visualize_iris_data(solution[1], feature_set, classes, true, legend = false, title = "K = $(K[1])")
+figB = visualize_iris_data(solution[2], feature_set, classes, false, legend = false, title = "K = $(K[2])")
+figC = visualize_iris_data(solution[3], feature_set, classes, false, legend = true, title = "K = $(K[3])")
+
+# distance matrices
+figD = heatmap(distance_matrix(solution[1]), legend = false, clim = (0, 1), left_margin = 20mm)
+xticks!(0:25:150)
+yticks!(0:25:150)
+figE = heatmap(distance_matrix(solution[2]), legend = false, clim = (0, 1), left_margin = 0mm)
+xticks!(0:25:150)
+yticks!(:none)
+figF = heatmap(distance_matrix(solution[3]), legend = true, clim = (0, 1))
+xticks!(0:25:150)
+yticks!(:none)
+
+# convergence check: norm(step size × gradient)
+z1 = h[1].g .* sqrt.(h[1].γ) .+ eps()
+z2 = h[2].g .* sqrt.(h[2].γ) .+ eps()
+z3 = h[3].g .* sqrt.(h[3].γ) .+ eps()
+
+figG = plot(legend = true, grid = false)
+plot!(z1, lw = 3, label = "K = $(K[1])", linestyle = :solid, color = :black)
+plot!(z2, lw = 3, label = "K = $(K[2])", linestyle = :dash, color = :red)
+plot!(z3, lw = 3, label = "K = $(K[3])", linestyle = :dot, color = :blue)
+plot!(yscale = :log10)
+xlabel!("iteration")
+ylabel!("norm(step size × gradient)")
+
+l = @layout [a{0.30w} a{0.30w} a{0.40w}
+             a{0.30w} a{0.30w} a{0.40w}
+             a{1.0w}]
+
+fig = plot(figA, figB, figC, figD, figE, figF, figG, layout = l, colorbar_title = ["rel. magnitude" "distance"], size = (1200, 900))
+```
+
+**Top**: Visual representation of the solution `U` containing assigned centroids for each case.
+True class labels are given along the x-axis for reference.
+
+**Middle**: Distance matrices based on the solution `U` in each scenario.
+
+**Bottom**: Norm of the gradient update $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n})$ at iteration $n$.
+This quantity will converge to some "small" value as our algorithm converges.
+The case $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n}) = 0$ occurs precisely when the distance penalty is $0$.
+
+##### Clustering with a Gaussian kernel
+
+Here we compare clustering using $K = 2500$, $5000$, and $7500$ which ought to recover $1$, $2$, and $3$ clusters, respectively.
+In each scenario, we run our clustering procedure for 500 iterations.
+We ignore the class assignments for the time being.
+Each weight is set to $W_{ij} = e^{-\phi ||\boldsymbol{x}_{i} - \boldsymbol{x}_{j}||}$, with $\phi = 10$.
+
+```{julia}
+solution = Matrix{Float64}[]
+h = SDLogger[]
+K = [50*50, 2*50*50, 3*50*50]
+W = gaussian_weights(Xscaled, phi = 10.0)
+maxiters = 500
+
+for k in K
+    history = SDLogger(100, 1)
+    U, _, _ = convex_clustering(SteepestDescent(), W, Xscaled,
+        maxiters = maxiters,
+        penalty = f,
+        history = history,
+        K = k)
+
+    push!(solution, U)
+    push!(h, history)
+end
+```
+
+```{julia}
+fig = heatmap(W, clim = (0, 1), legend = true)
+yticks!(:none)
+xticks!(:none)
+title!("Gaussian kernel")
+```
+
+Gaussian weights correctly identify some of the structure in the data.
+
+```{julia}
+# centroid matrices
+figA = visualize_iris_data(solution[1], feature_set, classes, true, legend = false, title = "K = $(K[1])")
+figB = visualize_iris_data(solution[2], feature_set, classes, false, legend = false, title = "K = $(K[2])")
+figC = visualize_iris_data(solution[3], feature_set, classes, false, legend = true, title = "K = $(K[3])")
+
+# distance matrices
+figD = heatmap(distance_matrix(solution[1]), legend = false, clim = (0, 1), left_margin = 20mm)
+xticks!(0:25:150)
+yticks!(0:25:150)
+figE = heatmap(distance_matrix(solution[2]), legend = false, clim = (0, 1), left_margin = 0mm)
+xticks!(0:25:150)
+yticks!(:none)
+figF = heatmap(distance_matrix(solution[3]), legend = true, clim = (0, 1))
+xticks!(0:25:150)
+yticks!(:none)
+
+# convergence check: norm(step size × gradient)
+z1 = h[1].g .* sqrt.(h[1].γ) .+ eps()
+z2 = h[2].g .* sqrt.(h[2].γ) .+ eps()
+z3 = h[3].g .* sqrt.(h[3].γ) .+ eps()
+
+figG = plot(legend = true, grid = false)
+plot!(z1, lw = 3, label = "K = $(K[1])", linestyle = :solid, color = :black)
+plot!(z2, lw = 3, label = "K = $(K[2])", linestyle = :dash, color = :red)
+plot!(z3, lw = 3, label = "K = $(K[3])", linestyle = :dot, color = :blue)
+plot!(yscale = :log10)
+xlabel!("iteration")
+ylabel!("norm(step size × gradient)")
+
+l = @layout [a{0.30w} a{0.30w} a{0.40w}
+             a{0.30w} a{0.30w} a{0.40w}
+             a{1.0w}]
+
+fig = plot(figA, figB, figC, figD, figE, figF, figG, layout = l, colorbar_title = ["rel. magnitude" "distance"], size = (1200, 900))
+```
+
+Note that the scenario with $K = 7500$ improved a bit, but still loses information about the third cluster.
+
+**Top**: Visual representation of the solution `U` containing assigned centroids for each case.
+True class labels are given along the x-axis for reference.
+
+**Middle**: Distance matrices based on the solution `U` in each scenario.
+
+**Bottom**: Norm of the gradient update $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n})$ at iteration $n$.
+This quantity will converge to some "small" value as our algorithm converges.
+The case $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n}) = 0$ occurs precisely when the distance penalty is $0$.
+
+##### k-nearest neighbors
+
+We repeat the same procedure but modify the Gaussian weights by keeping $90$ of the nearest neighbors for each point.
+
+```{julia}
+solution = Matrix{Float64}[]
+h = SDLogger[]
+K = [50*50, 2*50*50, 3*50*50]
+W = gaussian_weights(Xscaled, phi = 10.0)
+W = knn_weights(W, 90)
+maxiters = 500
+
+for k in K
+    history = SDLogger(100, 1)
+    U, _, _ = convex_clustering(SteepestDescent(), W, Xscaled,
+        maxiters = maxiters,
+        penalty = f,
+        history = history,
+        K = k)
+
+    push!(solution, U)
+    push!(h, history)
+end
+```
+
+```{julia}
+fig = heatmap(W, clim = (0, 1), legend = true)
+yticks!(:none)
+xticks!(:none)
+title!("k-nearest neighbor weights")
+```
+
+Nearest neighbors filter eliminates nuisance weights close to zero.
+The graph is still connected.
+
+```{julia}
+# centroid matrices
+figA = visualize_iris_data(solution[1], feature_set, classes, true, legend = false, title = "K = $(K[1])")
+figB = visualize_iris_data(solution[2], feature_set, classes, false, legend = false, title = "K = $(K[2])")
+figC = visualize_iris_data(solution[3], feature_set, classes, false, legend = true, title = "K = $(K[3])")
+
+# distance matrices
+figD = heatmap(distance_matrix(solution[1]), legend = false, clim = (0, 1), left_margin = 20mm)
+xticks!(0:25:150)
+yticks!(0:25:150)
+figE = heatmap(distance_matrix(solution[2]), legend = false, clim = (0, 1), left_margin = 0mm)
+xticks!(0:25:150)
+yticks!(:none)
+figF = heatmap(distance_matrix(solution[3]), legend = true, clim = (0, 1))
+xticks!(0:25:150)
+yticks!(:none)
+
+# convergence check: norm(step size × gradient)
+z1 = h[1].g .* sqrt.(h[1].γ) .+ eps()
+z2 = h[2].g .* sqrt.(h[2].γ) .+ eps()
+z3 = h[3].g .* sqrt.(h[3].γ) .+ eps()
+
+figG = plot(legend = true, grid = false)
+plot!(z1, lw = 3, label = "K = $(K[1])", linestyle = :solid, color = :black)
+plot!(z2, lw = 3, label = "K = $(K[2])", linestyle = :dash, color = :red)
+plot!(z3, lw = 3, label = "K = $(K[3])", linestyle = :dot, color = :blue)
+plot!(yscale = :log10)
+xlabel!("iteration")
+ylabel!("norm(step size × gradient)")
+
+l = @layout [a{0.30w} a{0.30w} a{0.40w}
+             a{0.30w} a{0.30w} a{0.40w}
+             a{1.0w}]
+
+fig = plot(figA, figB, figC, figD, figE, figF, figG, layout = l, colorbar_title = ["rel. magnitude" "distance"], size = (1200, 900))
+```
+
+We now recover all three clusters in each scenario.
+However, note that the assigned centroids for *veriscolor* and *virginica* are close together.
+
+**Top**: Visual representation of the solution `U` containing assigned centroids for each case.
+True class labels are given along the x-axis for reference.
+
+**Middle**: Distance matrices based on the solution `U` in each scenario.
+
+**Bottom**: Norm of the gradient update $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n})$ at iteration $n$.
+This quantity will converge to some "small" value as our algorithm converges.
+The case $\gamma_{n} \nabla g_{\rho}(\boldsymbol{x}_{n} \mid \boldsymbol{x}_{n}) = 0$ occurs precisely when the distance penalty is $0$.
