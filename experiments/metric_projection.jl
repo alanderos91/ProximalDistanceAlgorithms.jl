@@ -37,7 +37,7 @@ end
 
 function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     # create a sample convergence history
-    W, D = metric_example(n)
+    W, D = metric_example(n, weighted = true)
     sample_log = initialize_log(algorithm, maxiters, sample_rate)
     @timed metric_projection(algorithm, W, D,
         maxiters = maxiters,
@@ -56,7 +56,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     # create and benchmark multiple problem instances in the same class
     for k = 1:ntrials
         # simulate data
-        W, D = metric_example(n)
+        W, D = metric_example(n, weighted = true)
 
         # create convergence log
         history = initialize_log(algorithm, maxiters, sample_rate)
@@ -120,8 +120,7 @@ figure_file = joinpath("metric", "figures",
 
 # print benchmark parameters
 println("""
-[Problem Parameters]
-    nodes = $(n)
+\n########## nodes = $(n) ##########
 
 [Benchmark Settings]
     algorithm   = $(algorithm)
