@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/usr/bin/env bash
 
 dest="alandero@hoffman2.idre.ucla.edu"
 localdir="~/Projects/ProximalDistanceAlgorithms/experiments"

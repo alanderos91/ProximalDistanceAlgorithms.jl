@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 parent=$(basename "$(dirname "$PWD")")
 dir=$(basename "$PWD")

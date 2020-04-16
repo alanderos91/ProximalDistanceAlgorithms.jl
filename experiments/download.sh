@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/usr/bin/env bash
 
 src="alandero@hoffman2.idre.ucla.edu"
 maindir="~/ProximalDistanceAlgorithms/experiments"
