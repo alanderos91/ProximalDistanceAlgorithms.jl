@@ -1,15 +1,15 @@
 function main()
     # job parameters
     cores = 2
-    time_alloc = "1:00:00"
-    mem_alloc  = 2
-    logfile = "metric/logs/\$JOB_ID"
+    time_alloc = "24:00:00" # hr:min:sec
+    mem_alloc  = 16        # GB
+    logfile = "metric/logs/$(basename(tempname()))"
+    compute_node = ENV["HOSTNAME"]
 
     # benchmark parameters
     seed = 1776
     algorithms = (:SD,)
-    # nodes = (2^k for k in 4:13)
-    nodes = (2^k for k in 4:4)
+    nodes = (2^k for k in 4:13)
     acceleration = (:none,)
     m = 10^3
     r = 10
@@ -45,8 +45,8 @@ function main()
     end
 
     # generate header for log
-    run(`echo "[ Metric Projection @ $(ENV['HOSTNAME'])\n" >> $(logfile)`)
-    run(`lscpu >> $(logfile)`)
+    run(pipeline(`printf "[ Metric Projection @ $(compute_node) ]\n"`, stdout="$(logfile)"))
+    run(pipeline(`lscpu`, stdout="$(logfile)", append=true))
 
     # append each of the individual julia commands, one for each scenario
     for key in algorithms, n in nodes, strategy in acceleration
@@ -73,6 +73,8 @@ function main()
     open("tmp.sh", "a") do io
         println(io)
         println(io, "wait")
+		# rename file
+		println(io, "mv $(logfile) $(dirname(logfile))/\$JOB_ID")
     end
 
     # schedule the job

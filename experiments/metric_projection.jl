@@ -7,6 +7,7 @@
 # ntrials: number of times to run benchmark
 #
 
+using Dates
 using ProximalDistanceAlgorithms, LinearAlgebra
 using Random, DataFrames, CSV
 
@@ -52,6 +53,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
     gradient  = Vector{Float64}(undef, ntrials)
     cpu_time  = Vector{Float64}(undef, ntrials)
     memory    = Vector{Float64}(undef, ntrials)
+    stepsize  = Vector{Float64}(undef, ntrials)
 
     # create and benchmark multiple problem instances in the same class
     for k = 1:ntrials
@@ -65,14 +67,15 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
         result = @timed metric_projection(algorithm, W, D,
             maxiters = maxiters,
             ρ_init   = 1.0,
-            penalty  = fast_schedule,
+            penalty  = rho_schedule,
             history  = history)
 
         # record benchmark data
         loss[k]      = history.loss[end]
         objective[k] = history.objective[end]
         penalty[k]   = history.penalty[end]
-        gradient[k]  = history.gradient[end]
+        gradient[k]  = history.g[end]
+        stepsize[k]  = history.γ[end]
         cpu_time[k]  = result[2]         # seconds
         memory[k]    = result[3] / 1e6   # MB
     end
@@ -84,6 +87,7 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
             objective  = objective,
             penalty    = penalty,
             gradient   = gradient,
+            stepsize   = stepsize,
             cpu_time   = cpu_time,
             memory     = memory)
 
@@ -92,7 +96,8 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
             loss      = sample_log.loss,
             objective = sample_log.objective,
             penalty   = sample_log.penalty,
-            gradient  = sample_log.g)
+            gradient  = sample_log.g,
+            stepsize  = sample_log.γ)
 
     return df, hf
 end
@@ -120,18 +125,21 @@ figure_file = joinpath("metric", "figures",
 
 # print benchmark parameters
 println("""
-\n########## nodes = $(n) ##########
+########## nodes = $(n) ##########
 
 [Benchmark Settings]
     algorithm   = $(algorithm)
+    accel.      = $(strategy)
     maxiters    = $(maxiters)
     sample_rate = $(sample_rate)
     ntrials     = $(ntrials)
+    seed        = $(seed)
 
 [Output]
     benchmark   = $(benchmark_file)
     figure file = $(figure_file)
-""")
+
+    start_time = $(now())""")
 
 # run the benchmark
 Random.seed!(seed)
@@ -142,3 +150,6 @@ CSV.write(benchmark_file, df)
 
 # save convergence history
 CSV.write(figure_file, hf)
+
+println("""
+    end_time   = $(now())""")
