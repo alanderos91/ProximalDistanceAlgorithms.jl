@@ -45,7 +45,7 @@ function main()
     end
 
     # generate header for log
-    run(`echo "[ Metric Projection @ $HOSTNAME]\n" >> $(logfile)`)
+    run(`echo "[ Metric Projection @ $(ENV['HOSTNAME'])\n" >> $(logfile)`)
     run(`lscpu >> $(logfile)`)
 
     # append each of the individual julia commands, one for each scenario
