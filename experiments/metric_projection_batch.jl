@@ -2,7 +2,7 @@ function main()
     # job parameters
     cores = 2
     time_alloc = "1:00:00"
-    mem_alloc  = "2G"
+    mem_alloc  = 2
     logfile = "metric/logs/\$JOB_ID"
 
     # benchmark parameters
@@ -28,7 +28,7 @@ function main()
         # request multiple cores
         println(io, "#\$ -pe shared $cores")
         # request runtime and memory PER CORE
-        println(io, "#\$ -l h_rt=$(time_alloc),h_data=$(mem_alloc÷cores)")
+        println(io, "#\$ -l h_rt=$(time_alloc),h_data=$(mem_alloc÷cores)G")
         println(io, "# Email address to notify")
         println(io, "#\$ -M \$USER@mail")
         println(io, "# Notify when")
