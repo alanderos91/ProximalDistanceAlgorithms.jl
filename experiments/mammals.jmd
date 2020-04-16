@@ -17,16 +17,6 @@ import ProximalDistanceAlgorithms:
 Plots.reset_defaults()
 gr(format = :png)
 
-function find_large_blocks(W, U, k)
-   Iv = zeros(Int, k)
-   Jv = zeros(Int, k)
-   v  = zeros(k)
-
-   __find_large_blocks!(Iv, Jv, v, W, U)
-
-   return Iv, Jv, v
-end
-
 function count_clusters(Iv, Jv)
    d, n = size(X)
 
@@ -43,18 +33,22 @@ function count_clusters(Iv, Jv)
 end
 
 function count_clusters(W, X, k)
-    # Iv, Jv, _ = find_large_blocks(W, X, k)
-    # return count_clusters(Iv, Jv)
-    d, n = size(X)
-    A = zeros(Int, n, n)
-    for j in 1:n, i in j+1:n
-        if norm(X[:,i] - X[:,j]) < 1e-4
-            A[i,j] = 1
-        end
-    end
+   # Iv, Jv, _ = find_large_blocks(W, X, k)
+   # return count_clusters(Iv, Jv)
+   d, n = size(X)
 
-    nbhood, _ = adjacency_to_neighborhood(A)
-    component, components = connect(nbhood)
+   A = zeros(Bool, n, n)
+   for j in 1:n, i in j+1:n
+      d_ij = distance(W, X, i, j)
+      d_ij = round(d_ij^2, digits = 4)
+      if d_ij^2 == 0
+         A[i,j] = 1
+         A[j,i] = 1
+      end
+   end
+
+   nbhood, _ = adjacency_to_neighborhood(A)
+   component, components = connect(nbhood)
 
    return A, component, components
 end
@@ -153,23 +147,23 @@ yticks!(1:27, mammals.species)
 penalty_sched(ρ, iteration) = min(1e6, iteration % 50 == 0 ? ρ*10.0 : ρ)
 
 # set algorithm parameters
-maxiters = 10
+maxiters = 10^3
 penalty_func = penalty_sched
-K = 330
+K = 10
 
 # convergence history
 history = SDLogger(maxiters, 1)
 
 # run the algorithm with SteepestDescent
-U = @time convex_clustering(SteepestDescent(), W_knn, X,
+U = @time convex_clustering(SteepestDescent(), W, X,
         penalty  = penalty_func,
         maxiters = maxiters,
         K        = K,
         history  = history
     );
-@. history.loss = abs(history.loss) + eps()
-@. history.objective = abs(history.objective) + eps()
-plot(history, linetype = :path, lw = 3, legend = :left)
+# @. history.loss = abs(history.loss) + eps()
+# @. history.objective = abs(history.objective) + eps()
+# plot(history, linetype = :path, lw = 3, legend = :left)
 ```
 
 ```{julia}
@@ -215,8 +209,8 @@ The relationship between $K$ and the number of clusters is non-linear and need n
 
 ```{julia}
 # set algorithm parameters
-maxiters = 2
-penalty_func = penalty_sched
+maxiters = 10^4
+penalty_func = fast_schedule
 ncomparison = binomial(n, 2)
 K_stepsize = 1
 K_path = 1:K_stepsize:ncomparison
@@ -237,8 +231,15 @@ cluster_data = [count_clusters(ones(n,n), U, K) for (U, K) in zip(solpath, K_pat
 assignments = [item[2] for item in cluster_data]
 ncluster    = [item[3] for item in cluster_data]
 
+# for i in 2:length(K_path)
+#    if ncluster[i] < ncluster[i-1]
+#       ncluster[i] = ncluster[i-1]
+#       assignments[i] = assignments[i-1]
+#    end
+# end
+
 # show the relationship between K and clusters
-plot(K_range, ncluster, linetype = :steppre, legend = false)
+plot(K_path, ncluster, linetype = :steppre, legend = false)
 title!("w/ equal weights")
 xlabel!("K (tuning parameter)")
 ylabel!("number of clusters")
@@ -247,9 +248,16 @@ ylabel!("number of clusters")
 Example with $K = 330$:
 
 ```{julia}
-K = 330
+K = 19
 
-scatter(xs, ys, markersize = 8,
+x = transform(M, solpath[K])
+centroids = [tuple(x[:,i]...) for i in 1:n]
+
+xs = x[1,:]
+ys = x[2,:]
+
+# scatter(xs, ys, marker = :star, markersize = 12, color = :blue)
+scatter(xs, ys, markersize = 6,
     color = assignments[K],
     legend = false,
     grid = false)
@@ -266,17 +274,18 @@ This lets us trace coalescence of clusters.
 using Statistics
 
 # replace NaNs with original data
-for i in eachindex(U_list)
-    if any(isnan, U_list[i])
-        U_list[i] = copy(X)
-    end
-end
+# for i in eachindex(solpath)
+#     if any(isnan, U_list[i])
+#         solpath[i] = copy(X)
+#     end
+# end
 
 # map centers to low dimensional representation
-U_pca = map(U -> round.(transform(M, U), digits = 4), U_list)
+U_pca = map(U -> transform(M, U), solpath)
 
 centerT = Tuple{Float64,Float64}    # type for centroids
-solpath = [centerT[] for _ in 1:n]  # assignments for each sample
+# path = [[tuple(U_pca[k][:,i]...) for k in eachindex(K_path)] for i in 1:n]  # assignments for each sample
+path = [centerT[] for _ in 1:n]
 
 for (a, c, U) in zip(assignments, ncluster, U_pca)
     centroids = centerT[]
@@ -293,7 +302,7 @@ for (a, c, U) in zip(assignments, ncluster, U_pca)
 
     # add centers to solution path
     for i in 1:n
-        push!(solpath[i], centroids[a[i]])
+        push!(path[i], centroids[a[i]])
     end
 end
 

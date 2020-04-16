@@ -45,7 +45,6 @@ $$
 =
 \sum_{i,j} \sqrt{|W_{i+1,j} - W_{i,j}|^{2} + |W_{i,j+1} - W_{i,j}|^{2}}.
 $$
-Unfortunately, it is not differentiable.
 The anisotropic version is easier to work with:
 $$
 \mathrm{TV}(\boldsymbol{W})
@@ -91,6 +90,12 @@ $$
 $$
 with $C$ denoting the $\epsilon$-ball implied by the level set constraint.
 Solving this problem with a proximal distance algorithm will therefore involve projection onto $C$.
+Applying a distance majorization yields
+$$
+\min ~f(\boldsymbol{U}; \boldsymbol{W})
++
+\rho ~\|\boldsymbol{D}~\mathrm{vec}(\boldsymbol{W}) + P_{C}(\boldsymbol{D}~\mathrm{vec}(\boldsymbol{W}_{n}))\|^{2}.
+$$
 This approach is straightforward for many $p$-norms and generalizes to their isotropic counterparts provided one can compute the requisite proximity operator.
 
 ##### Numerical Example: Camera Man
@@ -291,3 +296,35 @@ plot(figA, figB, layout = grid(1, 2), size = (800, 600))
 **Orange**: The *objective* is defined as $\frac{1}{2} (\text{loss} + \rho ~\text{penalty})$.
 
 **Purple**: Norm of the gradient, which should stabilize but not necessarily go to $0$.
+
+Each algorithm approaches an equilibrium:
+
+```{julia}
+xs = history_l1.iteration
+ys = sqrt.(history_l1.γ) .* history_l1.g
+
+figA = plot(xs, ys,
+    title = "1-norm",
+    grid = false,
+    linetype = :path,
+    linewidth = 3,
+    yscale = :log10
+    )
+ylabel!("norm(step size × gradient)")
+ylims!(1e-5, 1e5)
+
+xs = history_l2.iteration
+ys = sqrt.(history_l2.γ) .* history_l2.g
+
+figB = plot(xs, ys,
+    title = "2-norm",
+    grid = false,
+    linetype = :path,
+    linewidth = 3,
+    yscale = :log10
+    )
+ylabel!("norm(step size × gradient)")
+ylims!(1e-5, 1e5)
+
+plot(figA, figB, layout = grid(1, 2), size = (800, 600), legend = false)
+```
