@@ -1,0 +1,1 @@
+key=:SD; strategy=:none; seed=1776; maxiters=1000 sample_rate=10 ntrials=10 n=2048; include(\"metric_projection.jl\")

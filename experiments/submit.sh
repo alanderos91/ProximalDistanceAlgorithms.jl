@@ -23,7 +23,7 @@ h_data=$5
 jlproject  = $HOME/ProximalDistanceAlgorithms
 
 # extract name of experiment from job name
-experiment=$(cut -d'_' -f1 <<< $1)
+experiment=$(cut -d'_' -f1 <<< $jobname)
 
 # get host name
 host=$(hostname)

@@ -1,0 +1,3 @@
+metric_SD_small \"intel-E5-*\" 4 8:00:00 8G
+metric_SD_1024 \"intel-E5-*\" 4 12:00:00 8G
+metric_SD_2048 \"intel-E5-*\" 4 24:00:00 8G
