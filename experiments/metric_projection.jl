@@ -1,6 +1,7 @@
 # ----- script arguments -----
 #
 # key: one of :MM or :SD
+# strategy: one of :none or :nesterov
 # n: number of nodes
 # maxiters: maximum number of algorithm iterations
 # sample_rate: number of entries in convergence log
@@ -137,13 +138,13 @@ println("""
 
 [Output]
     benchmark   = $(benchmark_file)
-    figure file = $(figure_file)
-
-    start_time = $(now())""")
+    figure file = $(figure_file)""")
 
 # run the benchmark
 Random.seed!(seed)
-df, hf = run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
+benchmark_time = @elapsed begin
+    df, hf = run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
+end
 
 # save benchmark data
 CSV.write(benchmark_file, df)
@@ -152,4 +153,5 @@ CSV.write(benchmark_file, df)
 CSV.write(figure_file, hf)
 
 println("""
-    end_time   = $(now())""")
+    elapsed     = $(round(benchmark_time, sigdigits=6)) s
+""")
