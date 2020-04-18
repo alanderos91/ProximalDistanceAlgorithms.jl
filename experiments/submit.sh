@@ -1,48 +1,28 @@
 #!/usr/bin/env bash
 
-# input args:
+# input: jobname
 jobname=$1
-arch=$2
-cores=$3
-h_rt=$4
-h_data=$5
-#$ -cwd
-# error = Merged with joblog
-#$ -o $jobname.$JOB_ID
-#$ -j y
-# request multiple cores
-#$ -pe shared $cores
-# request runtime and memory PER CORE
-#$ -l arch=$arch,h_rt=$h_rt,h_data=$h_data
-# Email address to notify
-#$ -M $USER@mail
-# Notify when job ends or aborts
-#$ -m ea
+# set working directory to this script's location
+cd $(dirname $0)
 
-# set Julia package directory
-jlproject  = $HOME/ProximalDistanceAlgorithms
+# retrieve parameters from master list
+params=$(cat joblist | grep $jobname)
+arch=$(cut -d' ' -f2 <<< $params)
+cores=$(cut -d' ' -f3 <<< $params)
+h_rt=$(cut -d' ' -f4 <<< $params)
+h_data=$(cut -d' ' -f5 <<< $params)
 
-# extract name of experiment from job name
-experiment=$(cut -d'_' -f1 <<< $jobname)
+# copy from the template
+cat template.sh > $jobname.sh
 
-# get host name
-host=$(hostname)
+# replace parameters
+# note: cluster uses GNU sed version 4.2.1
+sed -i -e 's/$jobname/'$jobname'/g' $jobname.sh
+sed -i -e 's/$arch/'$arch'/g'       $jobname.sh
+sed -i -e 's/$cores/'$cores'/g'     $jobname.sh
+sed -i -e 's/$h_rt/'$h_rt'/g'       $jobname.sh
+sed -i -e 's/$h_data/'$h_data'/g'   $jobname.sh
 
-# initialize log with information about job, host, and hardware
-echo `date` "       Job $JOB_ID running on host $host..."
-echo `lscpu`
-echo
-
-# load modules needed for the job:
-echo "loading modules..."
-. /u/local/Modules/default/init/modules.sh
-module load julia/1.2.0
-which julia
-
-# read parameters for tasks
-while read jlinput
-    do
-    julia --project=$jlproject -e "$jlinput"
-done < $jlproject/experiments/$experiment/jobs/$1.in
-
-echo `date` "       Job $JOB_ID complete."
+# submit the job and delete the temporary script
+qsub -N $jobname $jobname.sh
+rm $jobname.sh
