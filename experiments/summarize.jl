@@ -14,7 +14,7 @@ function summarize_cvxreg_benchmark(directory)
     for file in readdir(directory)
         if splitext(file)[end] == ".dat"
             df = CSV.read(joinpath(directory, file))
-            
+
             tmp = DataFrame(
                 algorithm  = split(file, "_")[1],
                 covariates = df.covariates[1],
@@ -53,7 +53,7 @@ end
 
 function summarize_metric_benchmark(directory)
     perfcol = map(Symbol, ["Algorithm", "Nodes", "CPU (s)", "Std Dev", "CV", "Memory (MB)"])
-    qualcol = map(Symbol, ["Algorithm", "Nodes", "Loss", "Objective", "Penalty", "Gradient (norm)"])
+    qualcol = map(Symbol, ["Algorithm", "Nodes", "Min. Distance", "Max. Distance", "Min. Descent", "Max. Descent"])
 
     perf = DataFrame()
     qual = DataFrame()
@@ -61,7 +61,7 @@ function summarize_metric_benchmark(directory)
     for file in readdir(directory)
         if splitext(file)[end] == ".dat"
             df = CSV.read(joinpath(directory, file))
-            
+
             tmp = DataFrame(
                 algorithm  = split(file, "_")[1],
                 nodes      = df.nodes[1],
@@ -73,12 +73,12 @@ function summarize_metric_benchmark(directory)
             perf = vcat(perf, tmp)
 
             tmp = DataFrame(
-                algorithm  = split(file, "_")[1],
-                nodes      = df.nodes[1],
-                loss       = mean(df.loss) |> formatter,
-                objective  = mean(df.objective) |> formatter,
-                penalty    = mean(df.penalty) |> formatter,
-                gradient   = mean(df.gradient) |> formatter,
+                algorithm    = split(file, "_")[1],
+                nodes        = df.nodes[1],
+                min_distance = minimum(df.penalty) |> formatter,
+                max_distance = maximum(df.penalty) |> formatter,
+                min_descent  = minimum(df.gradient .* df.stepsize) |> formatter,
+                max_descent  = maximum(df.gradient .* df.stepsize) |> formatter,
             )
 
             qual = vcat(qual, tmp)
@@ -89,7 +89,7 @@ function summarize_metric_benchmark(directory)
     rename!(perf, perfcol)
     rename!(qual, qualcol)
 
-    # sort by algorithm, then samples, then covariates
+    # sort by algorithm, then nodes
     sort!(perf, [:Algorithm, :Nodes])
     sort!(qual, [:Algorithm, :Nodes])
 
@@ -104,5 +104,5 @@ elseif ARGS[1] == "metric"
     perf, qual = summarize_metric_benchmark(directory)
 end
 
-CSV.write("$(ARGS[1])_perf.csv", perf)
-CSV.write("$(ARGS[1])_qual.csv", qual)
+CSV.write(joinpath("$(ARGS[1])", "perf.csv"), perf)
+CSV.write(joinpath("$(ARGS[1])", "qual.csv"), qual)
