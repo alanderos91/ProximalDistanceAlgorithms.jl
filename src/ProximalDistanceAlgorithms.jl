@@ -75,7 +75,8 @@ include("penalty.jl")
 
 # general utilities
 include("utilities.jl")
+include("acceleration.jl")
 
-export slow_schedule, fast_schedule
+export slow_schedule, fast_schedule, get_acceleration_strategy
 
 end # module

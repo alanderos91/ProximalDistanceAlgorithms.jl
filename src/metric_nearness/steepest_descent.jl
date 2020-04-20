@@ -36,7 +36,8 @@ function metric_projection(::SteepestDescent, W, D;
     ρ_init::Real      = 1.0,
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger) where FuncLike
+    history::FuncLike = __default_logger,
+    accel::accelT  = Val(:none)) where {FuncLike, accelT}
     #
     # extract problem dimensions
     n = size(D, 1)
@@ -51,6 +52,9 @@ function metric_projection(::SteepestDescent, W, D;
     # allocate gradient
     Q = similar(X)
 
+    # construct acceleration strategy
+    strategy = get_acceleration_strategy(accel, X)
+
     # initialize penalty coefficient
     ρ = ρ_init
 
@@ -59,10 +63,17 @@ function metric_projection(::SteepestDescent, W, D;
         data = metric_steepest_descent!(X, Q, W_tri, D_tri, ρ)
 
         # check for updates to the penalty coefficient
-        ρ = penalty(ρ, iteration)
+        ρ_new = penalty(ρ, iteration)
+
+        # apply acceleration strategy
+        ρ != ρ_new && restart!(strategy, X)
+        apply_momentum!(X, strategy)
 
         # check for updates to the convergence history
         history(data, iteration)
+
+        # update penalty
+        ρ = ρ_new
     end
 
     return X
