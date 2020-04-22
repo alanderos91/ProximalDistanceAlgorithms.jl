@@ -25,6 +25,9 @@ struct SteepestDescent <: AlgorithmOption end
 """Use algorithm map implied by distance majorization"""
 struct MM <: AlgorithmOption end
 
+"""Use ADMM"""
+struct ADMM <: AlgorithmOption end
+
 """
 Build a portable representation of a problem using Convex.jl.
 The problem can be passed to a supported black-box solver.
@@ -32,7 +35,7 @@ See the Convex.jl documentation for more details.
 """
 struct BlackBox <: AlgorithmOption end
 
-export ProximalPoint, SteepestDescent, MM, BlackBox
+export ProximalPoint, SteepestDescent, MM, BlackBox, ADMM
 
 # example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
@@ -46,6 +49,7 @@ export cvxreg_fit, cvxreg_example, mazumder_standardization
 
 # example: metric nearness problem
 include(joinpath("metric_nearness", "linear_operators.jl"))
+include(joinpath("metric_nearness", "ADMM.jl"))
 include(joinpath("metric_nearness", "steepest_descent.jl"))
 include(joinpath("metric_nearness", "mm.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
