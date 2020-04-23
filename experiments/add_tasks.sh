@@ -24,9 +24,9 @@ params=()
 params[0]="key=$2;"
 params[1]="strategy=$3;"
 params[2]="seed=$4;"
-params[3]="maxiters=$5"
-params[4]="sample_rate=$6"
-params[5]="ntrials=$7"
+params[3]="maxiters=$5;"
+params[4]="sample_rate=$6;"
+params[5]="ntrials=$7;"
 
 # kinda unsafe...?
 while IFS= read -r -p "Additional arguments (end with empty line): " keyval; do

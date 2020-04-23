@@ -37,7 +37,7 @@ function rho_schedule(T, W, n, ρ, iteration)
     return ρ
 end
 
-function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
+function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials, accel)
     # create a sample convergence history
     W, D = metric_example(n, weighted = true)
     sample_log = initialize_log(algorithm, maxiters, sample_rate)
@@ -45,7 +45,8 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
         maxiters = maxiters,
         ρ_init   = 1.0,
         penalty  = rho_schedule,
-        history  = sample_log)
+        history  = sample_log,
+        accel    = accel)
 
     # benchmark data
     loss      = Vector{Float64}(undef, ntrials)
@@ -69,7 +70,8 @@ function run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
             maxiters = maxiters,
             ρ_init   = 1.0,
             penalty  = rho_schedule,
-            history  = history)
+            history  = history,
+            accel    = accel)
 
         # record benchmark data
         loss[k]      = history.loss[end]
@@ -118,11 +120,9 @@ prefix = String(key)
 problem = "nodes_$(n)"
 
 # output files
-benchmark_file = joinpath("metric", "benchmarks",
-    prefix * "_" * problem * ".dat")
-
-figure_file = joinpath("metric", "figures",
-    prefix * "_" * problem * ".dat")
+fname = "$(prefix)_$(problem)_$(strategy).dat"
+benchmark_file = joinpath("metric", "benchmarks", fname)
+figure_file = joinpath("metric", "figures", fname)
 
 # print benchmark parameters
 println("""
@@ -143,7 +143,7 @@ println("""
 # run the benchmark
 Random.seed!(seed)
 benchmark_time = @elapsed begin
-    df, hf = run_benchmark(algorithm, n, maxiters, sample_rate, ntrials)
+    df, hf = run_benchmark(algorithm, n, maxiters, sample_rate, ntrials, Val(strategy))
 end
 
 # save benchmark data

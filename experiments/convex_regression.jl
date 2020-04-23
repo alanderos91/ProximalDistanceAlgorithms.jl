@@ -24,7 +24,7 @@ end
 # Example 1: squared 2-norm
 φ(x) = dot(x, x)
 
-function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
+function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ, accel)
     # create a sample convergence history
     y, y_truth, X = cvxreg_example(φ, d, n, σ)
     y_scaled, X_scaled = mazumder_standardization(y, X)
@@ -33,7 +33,8 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
         maxiters = maxiters,
         ρ_init   = 1.0,
         penalty  = fast_schedule,
-        history  = sample_log)
+        history  = sample_log,
+        accel    = accel)
 
     # benchmark data
     loss      = Vector{Float64}(undef, ntrials)
@@ -59,7 +60,8 @@ function run_benchmark(φ, algorithm, d, n, maxiters, sample_rate, ntrials, σ)
             maxiters = maxiters,
             ρ_init   = 1.0,
             penalty  = fast_schedule,
-            history  = history)
+            history  = history,
+            accel    = accel)
 
         # record benchmark data
         loss[k]      = history.loss[end]
@@ -108,11 +110,9 @@ prefix = String(key)
 problem = "d_$(d)_n_$(n)_sigma_$(σ)"
 
 # output files
-benchmark_file = joinpath("cvxreg", "benchmarks",
-    prefix * "_" * problem * ".dat")
-
-figure_file = joinpath("cvxreg", "figures",
-    prefix * "_" * problem * ".dat")
+fname = "$(prefix)_$(problem)_$(strategy).dat"
+benchmark_file = joinpath("cvxreg", "benchmarks", fname)
+figure_file = joinpath("cvxreg", "figures", fname)
 
 # print benchmark parameters
 println("""

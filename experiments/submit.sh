@@ -2,6 +2,9 @@
 
 # input: jobname
 jobname=$1
+experiment=$(cut -d'_' -f1 <<< $jobname)
+logdir="$HOME/ProximalDistanceAlgorithms/experiments/$experiment/logs"
+
 # set working directory to this script's location
 cd $(dirname $0)
 
@@ -17,11 +20,12 @@ cat template.sh > $jobname.sh
 
 # replace parameters
 # note: cluster uses GNU sed version 4.2.1
-sed -i -e 's/$jobname/'$jobname'/g' $jobname.sh
-sed -i -e 's/$arch/'$arch'/g'       $jobname.sh
-sed -i -e 's/$cores/'$cores'/g'     $jobname.sh
-sed -i -e 's/$h_rt/'$h_rt'/g'       $jobname.sh
-sed -i -e 's/$h_data/'$h_data'/g'   $jobname.sh
+sed -i -e 's|$jobname|'$jobname'|g' $jobname.sh
+sed -i -e 's|$logdir|'$logdir'|g'   $jobname.sh
+sed -i -e 's|$arch|'$arch'|g'       $jobname.sh
+sed -i -e 's|$cores|'$cores'|g'     $jobname.sh
+sed -i -e 's|$h_rt|'$h_rt'|g'       $jobname.sh
+sed -i -e 's|$h_data|'$h_data'|g'   $jobname.sh
 
 # submit the job and delete the temporary script
 qsub -N $jobname $jobname.sh
