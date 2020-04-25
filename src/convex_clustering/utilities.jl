@@ -259,12 +259,12 @@ function visit!(component, A, j::Int)
     end
 end
 
-function assign_classes!(class, A, U)
+function assign_classes!(class, A, U, tol)
     d, n = size(U)
 
     # update adjacency matrix
     for j in 1:n, i in j+1:n
-        if distance(U, i, j) < 5e-4
+        if distance(U, i, j) < tol
             A[i,j] = 1
             A[j,i] = 1
         else
@@ -277,6 +277,13 @@ function assign_classes!(class, A, U)
     class, nclasses = connect!(class, A)
 
     return (A, class, nclasses)
+end
+
+function assign_classes(U, tol = 1e-2)
+    n = size(U, 2)
+    A = zeros(Bool, n, n)
+    class = zeros(Int, n)
+    return assign_classes!(class, A, U, tol)
 end
 
 ##### weights #####
