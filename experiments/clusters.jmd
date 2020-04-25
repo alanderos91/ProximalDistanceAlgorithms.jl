@@ -1,0 +1,94 @@
+---
+title: Convex clustering with a greedy search
+---
+
+```{julia}
+using ProximalDistanceAlgorithms
+using Statistics, Plots
+```
+
+Simulate three clusters with 100 members, then remove members to obtain a sample with 270 cases:
+
+```{julia}
+centers = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
+
+using Random
+
+Random.seed!(5357)
+X = gaussian_clusters(centers, 100)
+
+# remove a few cases to introduce imbalance
+# this will make the search run a little longer in general
+# group 1: 180 cases
+# group 2: 200 cases
+# group 3: 190 cases
+
+X = X[:, 21:end]
+X = X[:, 1:end-10]
+
+xs = X[1, :]
+ys = X[2, :]
+
+d, n = size(X)
+W = gaussian_weights(X, phi = 10)
+
+scatter(xs, ys, xlabel = "feature1", ylabel = "feature2", legend = false)
+```
+
+Find a clustering using a greedy search:
+
+```{julia}
+penalty(ρ, iteration) = iteration % 20 == 0 ? 2*ρ : ρ
+
+result = @time convex_clustering(SteepestDescent(), W, X, maxiters = 1000, penalty = penalty, accel = Val(:nesterov));
+```
+
+Unfortunately, it is easy to get stuck at a local optimum.
+
+```{julia}
+U = result.U[end]
+
+iter = result.iterations[end]
+dist = round(sqrt(result.penalty[end]), sigdigits = 4)
+
+figure_solution = heatmap(U, xlabel = "case", ylabel = "feature", colorbar_title = "feature value", color = :balance)
+title!("iterations = $(iter), distance = $(dist)")
+```
+
+Assign clusters:
+
+```{julia}
+adjacency, class, nclasses = assign_classes(U, 1e-1)
+```
+
+Adjacency matrix:
+
+```{julia}
+heatmap(adjacency)
+```
+
+Clustering:
+
+```{julia}
+figure_clustering = scatter(title = "classes = $(nclasses)", xlabel = "feature1", ylabel = "feature2", legend = :topleft)
+
+for i in 1:nclasses
+    I = findall(isequal(i), class)
+    group_xs = xs[I]
+    group_ys = ys[I]
+    xmean = mean(group_xs)
+    ymean = mean(group_ys)
+    scatter!(group_xs, group_ys, label = "class $(i)")
+    scatter!((xmean, ymean), markershape = :star, markersize = 10, label = nothing)
+end
+
+figure_clustering
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```
+
+```{julia}
+using Pkg; Pkg.status()
+```
