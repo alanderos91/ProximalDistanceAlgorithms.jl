@@ -1,0 +1,358 @@
+---
+title: Block Sparsity Projection
+---
+
+These notes implement an efficient algorithm for block sparsity projection.
+First, we develop the general approach and then apply it to a problem involving
+pairwise distances.
+
+We start with a $d \times n$ matrix $\boldsymbol{U}$ where each column $\boldsymbol{u}_{j}$ is an observation with $d$ features.
+The goal is to project $\boldsymbol{U}$ onto a sparsity set with $K$ non-zero blocks.
+That is, the projection should preserve $K$ samples and zero out the rest.
+If we define the projection in terms of a metric, then block sparsity simply generalizes projection of a vector onto a sparsity set.
+The only computationally demanding step is to identify the largest $K$ blocks with respect to the metric.
+Taking $P_{K}(\cdot)$ as the projection operator, we have in symbols
+$$
+P_{K}(\boldsymbol{u}_{j})
+=
+\begin{cases}
+    \boldsymbol{u}_{j}, & \text{if } \|\boldsymbol{u}_{j}\| \text{ is not in the top } K \text{ blocks}, \\
+    \boldsymbol{0}, & \text{otherwise}
+\end{cases}
+$$
+
+#### Strategy for applying projection
+
+The columns preserved under block sparsity will be random.
+Thus, we cannot take advantage of parallelism from `@simd` instructions.
+Instead, we use `@threads` to delegate the work of copying a column.
+
+**Note**: I expect to see small allocations from this function due to `@threads`, but it will only be the cost of launching the threads.
+The allocations do not scale with input size => no memory leak.
+
+```{julia}
+@show Threads.nthreads()
+
+function apply_projection!(V, index, U, K)
+    fill!(V, 0)     # most entries in V will be 0 when K is small
+    d = size(U, 1)  # number of features
+    Threads.@threads for k in 1:K
+        # delegate column j to available thread
+        @inbounds j = index[Threads.threadid()]
+
+        for i in 1:d
+            @inbounds V[i,j] = U[i,j]
+        end
+    end
+    return nothing
+end
+```
+
+#### Implementation 1: Using BLAS for inner products
+
+I tried using `BLAS.gemm!` but this ended up being slow for $> 10^{3}$ samples.
+Instead, I use `BLAS.nrm2` which computes the 2-norm of a vector.
+This function is slightly faster than the default `norm` due to a small memory leak.
+
+**Note**: `partialsortperm!` will have a small, neglible memory allocation that does not scale with input size.
+
+```{julia}
+using LinearAlgebra
+
+function block_sparsity_BLAS(W, U, K)
+    # allocate memory for data to be used by kernel
+    n = size(U, 2)
+    V = zero(U)                         # projection
+    x = Vector{Float64}(undef, n)       # store norms
+    index = collect(1:n)                # permutation vector
+
+    # delegate to kernel
+    return block_sparsity_BLAS!(V, x, index, W, U, K)
+end
+
+function block_sparsity_BLAS!(V, x, index, W, U, K)
+    # compute the weighted norm of each column using BLAS + loop
+    d = size(U, 1)
+    for i in eachindex(x)
+        u = view(U, :, i)
+        @inbounds x[i] = W[i,i] * BLAS.nrm2(d, u, 1)
+    end
+
+    # use a partial sort to recover the K largest blocks
+    partialsortperm!(index, x, 1:K, rev = true, initialized = true)
+
+    # complete the projection
+    apply_projection!(V, index, U, K)
+
+    return V
+end
+```
+
+#### Implementation 2: Using SIMD for inner products
+
+This is the strategy used in the Distances.jl package.
+SIMD (Single Instruction, Multiple Data) exploits data-level parallelism to compute a reduction in small batches that fit neatly into SIMD registers on modern Intel CPUs.
+This feature is typically advertised as Advanced Vector Extensions (AVX) --- the hardware instruction set that implements the SIMD paradigm.
+
+**Notes**: The implementation in Distances.jl is a bit more clever when it comes to computing pairwise distances.
+
+```{julia}
+function block_sparsity_SIMD(W, U, K)
+    # allocate memory for data to be used by kernel
+    n = size(U, 2)
+    V = zero(U)                         # projection
+    x = Vector{Float64}(undef, n)       # store norms
+    index = collect(1:n)                # permutation vector
+
+    # delegate to kernel
+    return block_sparsity_SIMD!(V, x, index, W, U, K)
+end
+
+function block_sparsity_SIMD!(V, x, index, W, U, K)
+    # compute the weighted norm of each column with SIMD instructions
+    for j in eachindex(x)
+        s = zero(eltype(x))
+        @simd for i in 1:size(U, 1)
+            @inbounds s = s + U[i,j] * U[i,j]
+        end
+        @inbounds x[j] = W[j,j] * sqrt(s)
+    end
+
+    # use a partial sort to recover the K largest blocks
+    partialsortperm!(index, x, 1:K, rev = true, initialized = true)
+
+    # complete the projection
+    apply_projection!(V, index, U, K)
+
+    return V
+end
+```
+
+#### Example
+
+```{julia}
+using LinearAlgebra, Random
+
+Random.seed!(1234)
+
+d, n = 3, 10            # features × samples
+U = randn(d, n)         # simulated data
+W = Diagonal(rand(n))   # random weights
+@. W = sqrt(W)          # take square root to make quadratic form Ut*W*U
+
+# the operation U*W scales each column of U by the weights
+(U * W)[:,1] == U[:,1] * W[1,1]
+```
+
+The largest blocks are given by the 2nd, 7th, and 9th columns:
+
+```{julia}
+# sortperm orders elements smallest to largest by default
+Δ = [norm(W[i,i] * u) for (i, u) in enumerate(eachcol(U))] |> sortperm
+```
+
+Projection onto the 3-sparse set preserves these blocks:
+
+```{julia}
+block_sparsity_BLAS(W, U, 3)
+```
+
+```{julia}
+block_sparsity_SIMD(W, U, 3)
+```
+
+#### Benchmarks
+
+```{julia}
+using BenchmarkTools
+
+function benchmark_block_sparsity(d, n, K)
+    U = randn(d, n)         # simulated data
+    W = Diagonal(rand(n))   # random weights
+    @. W = sqrt(W)          # take square root to make quadratic form Ut*W*U
+
+    # allocate data for in-place versions
+    V = zero(U)
+    x = Vector{Float64}(undef, n)
+    index = collect(1:n)
+
+    println("pre-compile...")
+    @btime block_sparsity_BLAS($W, $U, $K)
+    @btime block_sparsity_SIMD($W, $U, $K)
+    @btime block_sparsity_BLAS!($V, $x, $index, $W, $U, $K)
+    @btime block_sparsity_SIMD!($V, $x, $index, $W, $U, $K)
+    println()
+
+    println("allocating versions")
+    print("  BLAS:")
+    @btime block_sparsity_BLAS($W, $U, $K)
+    print("  SIMD:")
+    @btime block_sparsity_SIMD($W, $U, $K)
+    println()
+
+    println("in-place versions:")
+    print("  BLAS:")
+    @btime block_sparsity_BLAS!($V, $x, $index, $W, $U, $K)
+    print("  SIMD:")
+    @btime block_sparsity_SIMD!($V, $x, $index, $W, $U, $K)
+
+    return nothing
+end
+```
+
+The two implementations are essentially equivalent.
+
+```{julia}
+# 50 features × 10^5 samples; K = 100
+benchmark_block_sparsity(50, 10^5, 100)
+```
+
+#### Application to pairwise distances
+
+Now we apply the projection to $\boldsymbol{V} = \boldsymbol{U} \boldsymbol{D} \boldsymbol{W}$, where $\boldsymbol{D}$ maps its left argument on the left to $\binom{n}{2}$ pairwise column *differences*.
+Here $\boldsymbol{U}$ represents centroids in a clustering problem and $\boldsymbol{W}$ applies a weight to each distance.
+The idea is identify the $K$ largest *distances* between these centroids in order to zero out columns of $\boldsymbol{V}$.
+This maneuver sets $\boldsymbol{u}_{j} = \boldsymbol{u}_{i}$ for different pairs $(i,j)$, effectively assigning points to an unknown number of clusters.
+
+```{julia}
+using Distances
+
+function distance_block_sparsity(W, U, K)
+    d, n = size(U)
+    m = binomial(n, 2)      # number of unique comparisons
+    Z = zeros(d, m)         # encodes differences between columns of U
+    Δ = zeros(n, n)         # encodes pairwise distances
+    index = collect(1:n*n)  # index vector
+
+    # delegate to kernel
+    return distance_block_sparsity!(Z, Δ, index, W, U, K)
+end
+
+function distance_block_sparsity!(Z, Δ, index, W, U, K)
+    d, n = size(U)
+
+    # compute pairwise distances
+    pairwise!(Δ, Euclidean(), U, dims = 2)
+    @. Δ = W * Δ
+
+    # mask upper triangular part to extract unique comparisons
+    for j in 1:n, i in 1:j-1
+        @inbounds Δ[i,j] = 0
+    end
+    δ = vec(Δ)
+
+    # find the K largest distances
+    partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
+
+    # map back to coordinates
+    J = CartesianIndices(Δ)
+
+    # compute differences for non-zero blocks only
+    fill!(Z, 0)
+    Threads.@threads for ix in 1:K
+        l = index[Threads.threadid()]   # retrieve linear index
+        i = J[l][1]                     # coordinate i
+        j = J[l][2]                     # coordinate j
+
+        for m in 1:j
+            l = l - m
+        end
+
+        for k in 1:d
+            Z[k,l] = U[k,i] - U[k,j]
+        end
+    end
+
+    return Z
+end
+```
+
+#### Example
+
+```{julia}
+Random.seed!(1234)
+d, n = 3, 6
+U = randn(d, n)
+W = rand(n, n)
+Z = zeros(d, binomial(n, 2))
+
+function construct_pairwise_differences!(Z, U)
+    d, n = size(U)
+    l = 1
+    for j in 1:n, i in j+1:n # dictionary order; (i,j) with i > j
+        for k in 1:d
+            Z[k,l] = U[k,i] - U[k,j]
+        end
+        l += 1
+    end
+    return Z
+end
+
+construct_pairwise_differences!(Z, U)
+```
+
+The largest distances occur in pairs $(2, 1)$, $(5, 1)$, and $(4, 1)$:
+
+```{julia}
+# compute pairwise distances
+Δ = pairwise(Euclidean(), U, dims = 2)
+@. Δ = W * Δ
+δ = vec(LowerTriangular(Δ))
+Δ
+```
+
+```{julia}
+# extract largest distances
+topK = partialsortperm(δ, 1:3, rev = true)
+map(k -> Tuple(CartesianIndices(Δ)[k]), topK)
+```
+
+Columns are in dictionary order $(2,1), (3,1), \ldots, (n,1), (3,2), \ldots (n, n-1)$:
+```{julia}
+distance_block_sparsity(W, U, 3)
+```
+
+#### Benchmark
+
+```{julia}
+function benchmark_distance_block_sparsity(d, n, K)
+    # inputs
+    U = randn(d, n)                 # data
+    W = rand(n, n)                  # weights
+    Z = zeros(d, binomial(n, 2))    # pairwise differences
+
+    # auxiliary data structures
+    m = binomial(n, 2)      # number of unique comparisons
+    Z = zeros(d, m)         # encodes differences between columns of U
+    Δ = zeros(n, n)         # encodes pairwise distances
+    index = collect(1:n*n)  # index vector
+
+    println("pre-compile...")
+    @btime distance_block_sparsity($W, $U, $K)
+    @btime distance_block_sparsity!($Z, $Δ, $index, $W, $U, $K)
+    println()
+
+    println("allocating version:")
+    @btime distance_block_sparsity($W, $U, $K)
+    println()
+
+    println("in-place version:")
+    @btime distance_block_sparsity!($Z, $Δ, $index, $W, $U, $K)
+
+    return nothing
+end
+```
+
+```{julia}
+benchmark_distance_block_sparsity(50, 5*10^2, 100)
+```
+
+#### Appendix
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```
+
+```{julia}
+using Pkg; Pkg.status()
+```
