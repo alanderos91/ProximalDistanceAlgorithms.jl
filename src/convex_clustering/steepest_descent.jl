@@ -7,69 +7,31 @@ function cvxclst_stepsize(W, Q, ρ)
 end
 
 # used internally
-function cvxclst_evaluate_gradient!(Q, y, p, W, U, X, Iv, Jv, v, ρ)
-    fill!(Iv, 0); fill!(Jv, 0); fill!(v, 0); fill!(Q, 0); fill!(p, 0)
+function cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
+    fill!(Q, 0)
+    fill!(Y, 0)
+    fill!(Δ, 0)
 
-    sparse_fused_block_projection!(p, Iv, Jv, v, W, U)
-    cvxclst_apply_fusion_matrix!(y, W, U)
-    @. y = y - p
-    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+    d, n = size(U)
+    sparse_block_projection!(Y, Δ, index, W, U, K)
+    # compute U - P(U)
+    for j in 1:n, i in j+1:n, k in 1:d
+        l = tri2vec(i, j, n)
+        Y[k,l] = W[i,j]*(U[k,i] - U[k,j]) - Y[k,l]
+    end
+    cvxclst_apply_fusion_matrix_transpose!(Q, W, Y)
 
     for idx in eachindex(Q)
         Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
     end
 end
 
-function cvxclst_evaluate_gradient!(Q, y, p, index, W, U, X, k, ρ)
-    fill!(Q, 0); fill!(p, 0)
-
-    cvxclst_apply_fusion_matrix!(y, W, U)
-    sparse_fused_block_projection!(p, y, index, k)
-    @. y = y - p
-    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
-
-    for idx in eachindex(Q)
-        Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
-    end
-end
-
-# for testing
-function cvxclst_evaluate_gradient(W, U, X, ρ, k)
-    p, Iv, Jv, v = sparse_fused_block_projection(W, U, k)
-    y = cvxclst_apply_fusion_matrix(W, U)
-    @. y = y - p
-    Q = cvxclst_apply_fusion_matrix_transpose(W, y)
-    for idx in eachindex(Q)
-        Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
-    end
-
-    return Q
-end
-
-# function cvxclst_steepest_descent!(Q, U, y, p, X, W, ρ, Iv, Jv, v)
-#     # 1a. form the gradient:
-#     cvxclst_evaluate_gradient!(Q, y, p, W, U, X, Iv, Jv, v, ρ)
-#
-#     # 1b. evaluate loss, penalty, and objective:
-#     loss, penalty, objective = cvxclst_evaluate_objective(U, X, y, ρ)
-#
-#     # 2. compute stepsize
-#     γ, normgrad = cvxclst_stepsize(W, Q, ρ)
-#
-#     # 3. apply the update
-#     for idx in eachindex(U)
-#         U[idx] = U[idx] - γ*Q[idx]
-#     end
-#
-#     return γ, normgrad, loss, objective, penalty
-# end
-
-function cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
+function cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
     # 1a. form the gradient:
-    cvxclst_evaluate_gradient!(Q, y, p, index, W, U, X, K, ρ)
+    cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
 
     # 1b. evaluate loss, penalty, and objective:
-    loss, penalty, objective = cvxclst_evaluate_objective(U, X, y, ρ)
+    loss, penalty, objective = cvxclst_evaluate_objective(U, X, Y, ρ)
 
     # 2. compute stepsize
     γ, normgrad = cvxclst_stepsize(W, Q, ρ)
@@ -82,47 +44,7 @@ function cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
     return γ, normgrad, loss, objective, penalty
 end
 
-# function convex_clustering_path(::SteepestDescent, W, X;
-#     ρ_init::Real          = 1.0,
-#     maxiters::Integer     = 100,
-#     penalty::Function     = __default_schedule,
-#     history::FunctionLike = __default_logger,
-#     K_path::AbstractVector{Int}   = Int[]) where FunctionLike
-#     #
-#     # extract problem dimensions
-#     d, n = size(X)
-#
-#     # allocate optimization variable
-#     U = zero(X)
-#
-#     # allocate gradient and auxilliary variable
-#     Q = similar(X)
-#     y = zeros(eltype(X), d*binomial(n, 2))
-#     p = zero(y)
-#
-#     # allocate solution path
-#     path = [similar(U) for _ in eachindex(K_path)]
-#
-#     for (i, K) in enumerate(K_path)
-#         # initialize data structures for sparsity projection
-#         Iv = zeros(Int, K)
-#         Jv = zeros(Int, K)
-#         v  = zeros(K)
-#
-#         # set the starting value for the penalty coefficient
-#         ρ = ρ_init
-#
-#         # use the old U as a warm-start
-#         convex_clustering!(Q, U, Iv, Jv, v, y, p, X, W, ρ, maxiters, penalty, history)
-#
-#         # save solution for the subproblem
-#         copyto!(path[i], U)
-#     end
-#
-#     return path
-# end
-
-function cvxclst_subproblem!(Q, U, y, p, index, X, W, K, ρ, maxiters, strategy, penalty)
+function cvxclst_subproblem!(Q, Y, Δ, index, W, U, X, K, ρ, maxiters, strategy, penalty)
     iteration = 1
     old_loss = 1.0
     rel = Inf
@@ -132,7 +54,7 @@ function cvxclst_subproblem!(Q, U, y, p, index, X, W, K, ρ, maxiters, strategy,
 
     while iteration ≤ maxiters && (rel > 1e-6 || dist > 1e-4)
         # apply iteration map
-        data = cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
+        data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
 
         # check for updates to the penalty coefficient
         ρ_new = penalty(ρ, iteration)
@@ -153,7 +75,7 @@ function cvxclst_subproblem!(Q, U, y, p, index, X, W, K, ρ, maxiters, strategy,
         iteration = iteration + 1
     end
 
-    data = cvxclst_steepest_descent!(Q, U, y, p, index, X, W, K, ρ)
+    data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
 
     return data[1], data[2], data[3], data[4], data[5], iteration - 1
 end
@@ -169,17 +91,15 @@ function convex_clustering(::SteepestDescent, W, X;
     d, n = size(X)
 
     # allocate optimization variable
-    UL = copy(X)
-    UR = copy(X)
+    UL = zero(X)
+    UR = zero(X)
 
     # allocate gradient and auxiliary variables
-    Kmax = d * binomial(n, 2)
-    Q = similar(X)
-    y = zeros(eltype(X), Kmax)
-    p = zero(y)
-
-    # initialize data structures for sparsity projection
-    index = collect(1:length(y))
+    Kmax = binomial(n, 2)
+    Q = similar(X)          # gradient
+    Y = zeros(d, Kmax)      # encodes differences between columns of U
+    Δ = zeros(n, n)         # encodes pairwise distances
+    index = collect(1:n*n)  # index vector
 
     # construct acceleration strategy
     strategy = get_acceleration_strategy(accel, X)
@@ -203,7 +123,7 @@ function convex_clustering(::SteepestDescent, W, X;
     @show Kmax
     # initialize the search heuristic
     println("Searching with K = $(K)")
-    γ, g, l, o, w, i = cvxclst_subproblem!(Q, UL, y, p, index, X, W, K, ρ_init, maxiters, strategy, penalty)
+    γ, g, l, o, w, i = cvxclst_subproblem!(Q, Y, Δ, index, W, UL, X, K, ρ_init, maxiters, strategy, penalty)
     println("   objective = $(o)")
     push!(Upath, copy(UL))
     push!(Kpath, K)
@@ -213,19 +133,20 @@ function convex_clustering(::SteepestDescent, W, X;
     push!(opath, o)
     push!(dpath, w)
     push!(iters, i)
-    copyto!(UL, X)
+    # copyto!(UL, X)
+    fill!(UL, 0)
 
     opt = o
 
     while searching
         # search left child
-            println("Searching with K = $(KL)")
-        γL, gL, lL, oL, dL, iL = cvxclst_subproblem!(Q, UL, y, p, index, X, W, KL, ρ_init, maxiters, strategy, penalty)
+        println("Searching with K = $(KL)")
+        γL, gL, lL, oL, dL, iL = cvxclst_subproblem!(Q, Y, Δ, index, W, UL, X, K, ρ_init, maxiters, strategy, penalty)
         println("   objective = $(oL)")
 
         # search right child
         println("Searching with K = $(KR)")
-        γR, gR, lR, oR, dR, iR = cvxclst_subproblem!(Q, UR, y, p, index, X, W, KR, ρ_init, maxiters, strategy, penalty)
+        γR, gR, lR, oR, dR, iR = cvxclst_subproblem!(Q, Y, Δ, index, W, UR, X, K, ρ_init, maxiters, strategy, penalty)
         println("   objective = $(oR)")
 
         if opt < oL && opt < oR
@@ -260,8 +181,18 @@ function convex_clustering(::SteepestDescent, W, X;
         # update left and right children
         KL = (K + 1) >> 1
         KR = (Kmax + K + 1) >> 1
-        copyto!(UL, X)
-        copyto!(UR, X)
+        # copyto!(UL, X)
+        # copyto!(UR, X)
+        fill!(UL, 0)
+        fill!(UR, 0)
+
+        x1 = lpath[end]
+        x2 = dpath[end]
+        x3 = opath[end]
+
+        if KL in Kpath || KR in Kpath
+            searching = false
+        end
     end
 
     # package the output

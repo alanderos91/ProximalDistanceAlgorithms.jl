@@ -32,16 +32,21 @@ cvxclst_apply_fusion_matrix!(y, W, U)
 
 Multiply `vec(U)` by `W*D` and store the result in `y`.
 """
-function cvxclst_apply_fusion_matrix!(y, W, U)
+function cvxclst_apply_fusion_matrix!(Y, W, U)
+    # d, n = size(U)
+    #
+    # idx = 1
+    # for j in 1:n, i in j+1:n, k in 1:d
+    #     y[idx] = W[i,j] * (U[k,i] - U[k,j])
+    #     idx += 1
+    # end
     d, n = size(U)
-
-    idx = 1
     for j in 1:n, i in j+1:n, k in 1:d
-        y[idx] = W[i,j] * (U[k,i] - U[k,j])
-        idx += 1
+        l = tri2vec(i, j, n)
+        Y[k,l] = W[i,j] * (U[k,i] - U[k,j])
     end
 
-    return y
+    return Y
 end
 
 """
@@ -53,9 +58,9 @@ Multiply `vec(U)` by `W*D`.
 """
 function cvxclst_apply_fusion_matrix(W, U)
     d, n = size(U)
-    y = zeros(eltype(U), d*binomial(n,2))
+    Y = zeros(d, binomial(n,2))
 
-    cvxclst_apply_fusion_matrix!(y, W, U)
+    cvxclst_apply_fusion_matrix!(Y, W, U)
 
     return y
 end
@@ -67,22 +72,18 @@ cvxclst_apply_fusion_matrix!(Q, W, y)
 
 Multiply `y` by `D'*W` and store the result in `Q`.
 """
-function cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+function cvxclst_apply_fusion_matrix_transpose!(Q, W, Y)
     d, n = size(Q)
 
     for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
-        start = d*(l-1)+1
-        stop  = d*l
-        block = start:stop
-
-        for (k, idx) in enumerate(block)
-            Q[k,i] += W[i,j] * y[idx]
-            Q[k,j] -= W[i,j] * y[idx]
+        for k in 1:d
+            Q[k,i] += W[i,j] * Y[k,l]
+            Q[k,j] -= W[i,j] * Y[k,l]
         end
     end
 
-    return y
+    return Q
 end
 
 """
@@ -116,8 +117,8 @@ function __evaluate_weighted_gradient_norm(W, Q)
     val = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
-        δ_ij = distance(W, Q, i, j)
-        val = val + δ_ij^2
+        @views δ_ij = SqEuclidean(1e-12)(Q[:,i], Q[:,j])
+        val = val + W[i,j] * δ_ij
     end
 
     return val

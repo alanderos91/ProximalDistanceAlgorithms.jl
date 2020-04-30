@@ -1,5 +1,6 @@
 module ProximalDistanceAlgorithms
 
+using Distances
 using LinearAlgebra, Statistics, SparseArrays, IterativeSolvers
 using Convex
 using RecipesBase
