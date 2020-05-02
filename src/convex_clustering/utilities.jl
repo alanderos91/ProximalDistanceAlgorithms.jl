@@ -156,7 +156,7 @@ function assign_classes!(class, A, U, tol)
 
     # update adjacency matrix
     for j in 1:n, i in j+1:n
-        if distance(U, i, j) < tol
+        if Euclidean(1e-12)(U[:,i], U[:,j]) < tol
             A[i,j] = 1
             A[j,i] = 1
         else
@@ -254,19 +254,13 @@ end
 gaussian_clusters(centers, n)
 ```
 
-Simulate Gaussian centroids in 2D with the given `centers`.
-Each cluster is generated with `n` points.
+Simulate a cluster with `n` points centered at the given `centroid`.
 """
-function gaussian_clusters(centers, n)
-    cluster = Matrix{Float64}[]
+function gaussian_cluster(centroid, n)
+    d = length(centroid)
+    cluster = centroid .+ 0.1 * randn(d, n)
 
-    for center in centers
-        d = length(center)
-        data = center .+ 0.1*randn(d, n)
-        push!(cluster, data)
-    end
-
-    return hcat(cluster...)
+    return cluster
 end
 
 function cvxclstr_search(X, maxiters, K)
