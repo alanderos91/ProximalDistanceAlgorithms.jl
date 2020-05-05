@@ -1,0 +1,6 @@
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=16; include(\"metric_projection.jl\")
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=32; include(\"metric_projection.jl\")
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=64; include(\"metric_projection.jl\")
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=128; include(\"metric_projection.jl\")
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=256; include(\"metric_projection.jl\")
+key=:SD; strategy=:nesterov; seed=1776; maxiters=1000; sample_rate=10; ntrials=10; n=512; include(\"metric_projection.jl\")

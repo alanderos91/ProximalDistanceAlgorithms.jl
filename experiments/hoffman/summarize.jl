@@ -52,8 +52,8 @@ function summarize_cvxreg_benchmark(directory)
 end
 
 function summarize_metric_benchmark(directory)
-    perfcol = map(Symbol, ["Algorithm", "Nodes", "CPU (s)", "Std Dev", "CV", "Memory (MB)"])
-    qualcol = map(Symbol, ["Algorithm", "Nodes", "Min. Distance", "Max. Distance", "Min. Descent", "Max. Descent"])
+    perfcol = map(Symbol, ["Algorithm", "Accel?", "Nodes", "CPU (s)", "Std Dev", "CV", "Memory (MB)"])
+    qualcol = map(Symbol, ["Algorithm", "Accel?", "Nodes", "Min. Distance", "Max. Distance", "Min. Descent", "Max. Descent"])
 
     perf = DataFrame()
     qual = DataFrame()
@@ -64,6 +64,7 @@ function summarize_metric_benchmark(directory)
 
             tmp = DataFrame(
                 algorithm  = split(file, "_")[1],
+                accel      = split(file, "_")[4],
                 nodes      = df.nodes[1],
                 cpu_mean   = mean(df.cpu_time) |> formatter,
                 cpu_std    = std(df.cpu_time) |> formatter,
@@ -74,6 +75,7 @@ function summarize_metric_benchmark(directory)
 
             tmp = DataFrame(
                 algorithm    = split(file, "_")[1],
+                accel        = split(file, "_")[4],
                 nodes        = df.nodes[1],
                 min_distance = minimum(df.penalty) |> formatter,
                 max_distance = maximum(df.penalty) |> formatter,
