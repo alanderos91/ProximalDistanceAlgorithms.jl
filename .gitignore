@@ -13,4 +13,4 @@
 Manifest.toml
 
 # Hoffman2 logs
-experiments/*/logs
+experiments/hoffman/*/logs
