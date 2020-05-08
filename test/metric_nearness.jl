@@ -30,11 +30,11 @@ end
             println("$(n) nodes")
 
             # auxiliary variables
-            V  = zero(X)
+            V = zero(X)
             v1 = zeros(binomial(n, 2))  # v = trivec(V)
             v2 = zero(v1)
-            x  = zeros(binomial(n, 2))   # x = trivec(X)
-            y1 = zeros(3*binomial(n, 3))
+            x = zeros(binomial(n, 2))   # x = trivec(X)
+            y1 = zeros(3 * binomial(n, 3))
             y2 = zero(y1)
 
             # initialize variable x
@@ -92,7 +92,7 @@ end
             # test: y = Tt*T * x; y - min(0, y)
             println("  y = Tt*T * x; y - min(0, y)")
             print("    operator:  ")
-            _, penalty = @time metric_apply_operator1!(V, X)
+            penalty = @time metric_apply_operator1!(V, X)
             print("    mul! + @.: ")
             @time begin
                 mul!(y2, T, x)
@@ -115,7 +115,7 @@ end
 
             println("  x - max(0, x)")
             print("    operator: ")
-            _, penalty = @time metric_accumulate_operator2!(V, X)
+            penalty = @time metric_accumulate_operator2!(V, X)
             print("    @.:       ")
             copyto!(v2, x)
             @time begin
