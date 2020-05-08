@@ -1,89 +1,157 @@
 ---
 title: Convex clustering with a greedy search
+options:
+    fig_ext: .svg
 ---
 
 ```{julia}
 using ProximalDistanceAlgorithms
-using Statistics, Plots
+using Statistics, Plots, Random, Distances
 ```
 
-Simulate three clusters with 100 members, then remove members to obtain a sample with 270 cases:
+### Example: $k$ = 3 balanced clusters
+
+We will use the penalty $\rho(n) = \mathrm{max}\{10^{6}, 1.5^{\lfloor{n/50}\rfloor}\}$ throughout the following examples.
 
 ```{julia}
-centers = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
+penalty(ρ, iteration) = min(1e6, iteration % 50 == 0 ? 1.5 * ρ : ρ)
+```
 
-using Random
+```{julia}
+function summarize_clustering(U, X, h)
+    # figure: convergence
+    fig0 = plot(h.g .* h.γ .+ eps(), yscale = :log10, lw = 4, legend = false)
+    xlabel!("iteration")
+    ylabel!("norm of descent direction")
+    display(fig0)
 
+    # figure: pairwise distances of centroids
+    ΔU = pairwise(Euclidean(1e-12), U, dims = 2)
+    @. ΔU = log(10, ΔU)
+
+    fig1 = heatmap(ΔU, c = :balance, legend = true)
+    title!("log distances")
+    xlabel!("sample")
+    xlabel!("sample")
+
+    # figure: centroid matrix
+    fig2 = heatmap(U, c = :balance, yrot = 90, legend = false)
+    title!("centroid assignments")
+    xlabel!("samples")
+    ylabel!("features")
+    yticks!([1.0, 2.0], ["feature1", "feature2"])
+
+    fig_result = plot(fig1, fig2)
+    display(fig_result)
+
+    # retrieve clusters from adjacency matrix
+    adjacency, class, nclasses = assign_classes(U)
+
+    # figure: clustering
+    xs = X[1, :]
+    ys = X[2, :]
+
+    figure_clustering = scatter(title = "classes = $(nclasses)", xlabel = "feature1", ylabel = "feature2", legend = :topleft)
+
+    for i in 1:nclasses
+        I = findall(isequal(i), class)
+        group_xs = xs[I]
+        group_ys = ys[I]
+        xmean = mean(group_xs)
+        ymean = mean(group_ys)
+        scatter!(group_xs, group_ys, label = "class $(i)")
+        scatter!((xmean, ymean), markershape = :star, markersize = 10, label = nothing)
+    end
+
+    display(figure_clustering)
+end
+
+function cluster_uniform_weights(X, K, maxiters)
+    # solve the problem
+    n = size(X, 2)
+    W = ones(n, n)
+    h = SDLogger(maxiters, 1)
+    U = @time convex_clustering(SteepestDescent(), W, X, maxiters = maxiters, penalty = penalty, accel = Val(:nesterov), K = K, history = h, dtol = 1e-5);
+
+    summarize_clustering(U, X, h)
+end
+
+function cluster_gaussian_weights(X, K, maxiters)
+    # solve the problem
+    n = size(X, 2)
+    W = gaussian_weights(X, phi = 0.1)
+    h = SDLogger(maxiters, 1)
+    U = @time convex_clustering(SteepestDescent(), W, X, maxiters = maxiters, penalty = penalty, accel = Val(:nesterov), K = K, history = h, dtol = 1e-5);
+
+    summarize_clustering(U, X, h)
+end
+```
+
+```{julia}
 Random.seed!(5357)
-X = gaussian_clusters(centers, 100)
 
-# remove a few cases to introduce imbalance
-# this will make the search run a little longer in general
-# group 1: 180 cases
-# group 2: 200 cases
-# group 3: 190 cases
+# simulate three clusters, each with 10 members
+centroid = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
+nclass = [10, 10, 10]
 
-X = X[:, 21:end]
-X = X[:, 1:end-10]
+# true centroid assignment
+Y1 = repeat(centroid[1], outer = (1, nclass[1]))
+Y2 = repeat(centroid[2], outer = (1, nclass[2]))
+Y3 = repeat(centroid[3], outer = (1, nclass[3]))
+Y = [Y1 Y2 Y3]
+
+# simulated data
+X1 = gaussian_cluster(centroid[1], nclass[1])
+X2 = gaussian_cluster(centroid[2], nclass[2])
+X3 = gaussian_cluster(centroid[3], nclass[3])
+X = [X1 X2 X3]
+d, n = size(X)
+
+# μ = mean(X, dims = 2)
+# σ = std(X, dims = 2)
+#
+# @. X = (X - μ) / σ
+# α = colwise(Euclidean(1e-12), X, zero(X))
+# X .= X * Diagonal(1 ./ α)
 
 xs = X[1, :]
 ys = X[2, :]
 
-d, n = size(X)
-W = gaussian_weights(X, phi = 10)
-
-scatter(xs, ys, xlabel = "feature1", ylabel = "feature2", legend = false)
+fig = scatter(xs, ys, xlabel = "feature1", ylabel = "feature2")
+title!("3 clusters, $(n) samples", legend = false)
+display(fig)
 ```
 
-Find a clustering using a greedy search:
-
 ```{julia}
-penalty(ρ, iteration) = iteration % 20 == 0 ? 2*ρ : ρ
-
-result = @time convex_clustering(SteepestDescent(), W, X, maxiters = 1000, penalty = penalty, accel = Val(:nesterov));
+maxiters = 5*10^3
+K = 400
 ```
 
-Unfortunately, it is easy to get stuck at a local optimum.
-
 ```{julia}
-U = result.U[end]
-
-iter = result.iterations[end]
-dist = round(sqrt(result.penalty[end]), sigdigits = 4)
-
-figure_solution = heatmap(U, xlabel = "case", ylabel = "feature", colorbar_title = "feature value", color = :balance)
-title!("iterations = $(iter), distance = $(dist)")
+cluster_uniform_weights(X, K, maxiters)
 ```
 
-Assign clusters:
-
 ```{julia}
-adjacency, class, nclasses = assign_classes(U, 1e-1)
+cluster_gaussian_weights(X, K, maxiters)
 ```
 
-Adjacency matrix:
-
 ```{julia}
-heatmap(adjacency)
-```
+function count_satisfied_constraints(U, tol = 3.0)
+    d, n = size(U)
+    Δ = pairwise(Euclidean(1e-12), U, dims = 2)
+    @. Δ = log(10, Δ)
 
-Clustering:
+    nconstraint = 0
 
-```{julia}
-figure_clustering = scatter(title = "classes = $(nclasses)", xlabel = "feature1", ylabel = "feature2", legend = :topleft)
+    for j in 1:n, i in j+1:n
+        nconstraint += (Δ[i,j] <= -tol)
+    end
 
-for i in 1:nclasses
-    I = findall(isequal(i), class)
-    group_xs = xs[I]
-    group_ys = ys[I]
-    xmean = mean(group_xs)
-    ymean = mean(group_ys)
-    scatter!(group_xs, group_ys, label = "class $(i)")
-    scatter!((xmean, ymean), markershape = :star, markersize = 10, label = nothing)
+    return nconstraint
 end
-
-figure_clustering
 ```
+
+##### Appendix
 
 ```{julia}
 using InteractiveUtils; versioninfo()
