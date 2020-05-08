@@ -36,7 +36,7 @@ blocks within the projection.
 function sparse_block_projection(W, U, K = 1)
     d, n = size(U)
     K_max = binomial(n, 2)  # number of unique comparisons
-    Y = zeros(d, m)         # encodes differences between columns of U
+    Y = zeros(d, K_max)     # encodes differences between columns of U
     Δ = zeros(n, n)         # encodes pairwise distances
     index = collect(1:n*n)  # index vector
 
@@ -94,7 +94,7 @@ function sparse_block_projection!(Y, Δ, index, W, U, K)
             if i > j
                 l = tri2vec(i,j,n)
                 for k in 1:d
-                    Y[k,l] = W[i,j] * (U[k,i] - U[k,j])
+                    Y[k,l] = U[k,i] - U[k,j]
                 end
             end
         end
@@ -151,12 +151,16 @@ function visit!(component, A, j::Int)
     end
 end
 
-function assign_classes!(class, A, U, tol)
-    d, n = size(U)
+function assign_classes!(class, A, Δ, U, tol)
+    n = size(Δ, 1)
+
+    Δ = pairwise(Euclidean(1e-12), U, dims = 2)
 
     # update adjacency matrix
     for j in 1:n, i in j+1:n
-        if Euclidean(1e-12)(U[:,i], U[:,j]) < tol
+        abs_dist = log(10, Δ[i,j])
+
+        if (abs_dist < -tol)
             A[i,j] = 1
             A[j,i] = 1
         else
@@ -171,11 +175,13 @@ function assign_classes!(class, A, U, tol)
     return (A, class, nclasses)
 end
 
-function assign_classes(U, tol = 1e-2)
+function assign_classes(U, tol = 3.0)
     n = size(U, 2)
     A = zeros(Bool, n, n)
+    Δ = zeros(n, n)
     class = zeros(Int, n)
-    return assign_classes!(class, A, U, tol)
+
+    return assign_classes!(class, A, Δ, U, tol)
 end
 
 ##### weights #####
@@ -190,15 +196,15 @@ The parameter `phi` scales the influence of the distance `norm(X[:,i] - X[:,j])^
 
 **Note**: Samples are assumed to be given in columns.
 """
-function gaussian_weights(X; phi = 1.0)
+function gaussian_weights(X; phi = 0.5)
     d, n = size(X)
 
     T = eltype(X)
     W = zeros(n, n)
 
     for j in 1:n, i in j+1:n
-        @views δ_ij = Euclidean(1e-12)(X[:,i], X[:,j])
-        w_ij = exp(-phi*δ_ij^2)
+        @views δ_ij = SqEuclidean(1e-12)(X[:,i], X[:,j])
+        w_ij = exp(-phi*δ_ij)
 
         W[i,j] = w_ij
         W[j,i] = w_ij
@@ -261,21 +267,4 @@ function gaussian_cluster(centroid, n)
     cluster = centroid .+ 0.1 * randn(d, n)
 
     return cluster
-end
-
-function cvxclstr_search(X, maxiters, K)
-    d, n = size(X)
-    α = [1 / norm(X[:, i]) for i in 1:n]
-    Y = X * Diagonal(α)
-    W = gaussian_weights(Y)
-
-    history = SDLogger(length(K), maxiters)
-
-    result = Vector{Int}[]
-    for k in K
-        _, class, _ = @time convex_clustering(SteepestDescent(), W, Y, maxiters = maxiters, penalty = fast_schedule, K = k, history = history)
-        push!(result, class)
-    end
-
-    return result, history
 end

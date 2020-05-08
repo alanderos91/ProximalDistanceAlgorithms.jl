@@ -27,23 +27,14 @@ end
 
 """
 ```
-cvxclst_apply_fusion_matrix!(y, W, U)
+cvxclst_apply_fusion_matrix!(Y, U)
 ```
-
-Multiply `vec(U)` by `W*D` and store the result in `y`.
 """
-function cvxclst_apply_fusion_matrix!(Y, W, U)
-    # d, n = size(U)
-    #
-    # idx = 1
-    # for j in 1:n, i in j+1:n, k in 1:d
-    #     y[idx] = W[i,j] * (U[k,i] - U[k,j])
-    #     idx += 1
-    # end
+function cvxclst_apply_fusion_matrix!(Y, U)
     d, n = size(U)
     for j in 1:n, i in j+1:n, k in 1:d
         l = tri2vec(i, j, n)
-        Y[k,l] = W[i,j] * (U[k,i] - U[k,j])
+        Y[k,l] = U[k,i] - U[k,j]
     end
 
     return Y
@@ -51,35 +42,31 @@ end
 
 """
 ```
-cvxclst_apply_fusion_matrix(W, U)
-
-Multiply `vec(U)` by `W*D`.
+cvxclst_apply_fusion_matrix(U)
 ```
 """
-function cvxclst_apply_fusion_matrix(W, U)
+function cvxclst_apply_fusion_matrix(U)
     d, n = size(U)
     Y = zeros(d, binomial(n,2))
 
-    cvxclst_apply_fusion_matrix!(Y, W, U)
+    cvxclst_apply_fusion_matrix!(Y, U)
 
     return y
 end
 
 """
 ```
-cvxclst_apply_fusion_matrix!(Q, W, y)
+cvxclst_apply_fusion_matrix!(Q, Y)
 ```
-
-Multiply `y` by `D'*W` and store the result in `Q`.
 """
-function cvxclst_apply_fusion_matrix_transpose!(Q, W, Y)
+function cvxclst_apply_fusion_matrix_transpose!(Q, Y)
     d, n = size(Q)
 
     for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
         for k in 1:d
-            Q[k,i] += W[i,j] * Y[k,l]
-            Q[k,j] -= W[i,j] * Y[k,l]
+            Q[k,i] += Y[k,l]
+            Q[k,j] -= Y[k,l]
         end
     end
 
@@ -88,37 +75,33 @@ end
 
 """
 ```
-cvxclst_apply_fusion_matrix!(W, y)
+cvxclst_apply_fusion_matrix(Y)
 ```
-
-Multiply `y` by `D'*W` and return the result in matrix form.
 """
-function cvxclst_apply_fusion_matrix_transpose(W, y)
+function cvxclst_apply_fusion_matrix_transpose(Y)
     n = size(W, 1)
     m = length(y)
     d = m ÷ binomial(n, 2)
 
     Q = zeros(d, n)
 
-    cvxclst_apply_fusion_matrix_transpose!(Q, W, y)
+    cvxclst_apply_fusion_matrix_transpose!(Q, Y)
 
     return Q
 end
 
 """
 ```
-__evaluate_weighted_gradient_norm(W, Q)
+__evaluate_weighted_gradient_norm(Q)
 ```
-
-Evaluate the norm squared of `W*D*vec(Q)`.
 """
-function __evaluate_weighted_gradient_norm(W, Q)
+function __evaluate_weighted_gradient_norm(Q)
     d, n = size(Q)
     val = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
         @views δ_ij = SqEuclidean(1e-12)(Q[:,i], Q[:,j])
-        val = val + W[i,j] * δ_ij
+        val = val + δ_ij
     end
 
     return val

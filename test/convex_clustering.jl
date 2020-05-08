@@ -2,11 +2,8 @@ import ProximalDistanceAlgorithms:
     cvxclst_fusion_matrix,
     cvxclst_apply_fusion_matrix!,
     cvxclst_apply_fusion_matrix_transpose!,
-    cvxclst_evaluate_gradient,
     cvxclst_stepsize,
     cvxclst_evaluate_objective,
-    distance,
-    sparse_fused_block_projection,
     tri2vec
 
 function cvxcluster_initialize(d, n)
@@ -35,23 +32,22 @@ function cvxcluster_initialize(d, n)
     end
 
     # W*D and transpose(W*D)
-    Wdiag = Diagonal(w)
-    WD    = Wdiag*D
-    WDt   = transpose(WD)
+    W = Diagonal(w)
+    Dt = transpose(D)
 
-    return W, U, D, WD, WDt
+    return W, U, D, Dt
 end
 
 @testset "Convex Clustering" begin
     # simulated examples for testing
     features = (2, 10)
-    samples  = (50, 100)
+    samples  = (50, 100, 512)
 
     examples = [cvxcluster_initialize(d, n) for d in features, n in samples]
 
     @testset "linear operators" begin
         for example in examples
-            W, U, D, WD, WDt = example
+            W, U, D, Dt = example
 
             d, n = size(U)
             m = binomial(n, 2)
@@ -65,10 +61,10 @@ end
             yproj = zero(Y1)         # for projection of y
 
             println("  warm-up:")
-            @time cvxclst_apply_fusion_matrix!(Y1, W, U)
-            @time cvxclst_apply_fusion_matrix_transpose!(V, W, Y1)
-            @time mul!(vec(Y2), WD, vec(U))
-            @time mul!(v, WDt, vec(Y2))
+            @time cvxclst_apply_fusion_matrix!(Y1, U)
+            @time cvxclst_apply_fusion_matrix_transpose!(V, Y1)
+            @time mul!(vec(Y2), D, vec(U))
+            @time mul!(v, Dt, vec(Y2))
             println()
 
             # reset
@@ -76,20 +72,20 @@ end
             fill!(V, 0)
 
             # test: (W*D)*u
-            println("  (W*D) * u:")
+            println("  D*u:")
             print("    operator: ")
-            @time cvxclst_apply_fusion_matrix!(Y1, W, U) # observed
+            @time cvxclst_apply_fusion_matrix!(Y1, U) # observed
             print("    mul!:     ")
-            @time mul!(vec(Y2), WD, vec(U))              # expected
+            @time mul!(vec(Y2), D, vec(U))            # expected
             @test Y1 ≈ Y2
             println()
 
             # test: (WD)t(WD) * vec(U)
-            println("  (W*D)t * y:")
+            println("  Dt*y:")
             print("    operator: ")
-            @time cvxclst_apply_fusion_matrix_transpose!(V, W, Y1) # observed
+            @time cvxclst_apply_fusion_matrix_transpose!(V, Y1) # observed
             print("    mul!:     ")
-            @time mul!(v, WDt, vec(Y2))
+            @time mul!(v, Dt, vec(Y2))
             @test vec(V) ≈ v
             println()
         end
