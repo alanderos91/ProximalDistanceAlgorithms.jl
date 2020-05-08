@@ -59,8 +59,8 @@ function sparse_block_projection!(Y, Δ, index, W, U, K)
 
     if K > 0
         # compute pairwise distances
-        pairwise!(Δ, Euclidean(1e-12), U, dims = 2)
-        @. Δ = W * Δ
+        pairwise!(Δ, Euclidean(), U, dims = 2)
+        Δ .= Δ .* W
 
         # mask upper triangular part to extract unique comparisons
         for j in 1:n, i in 1:j-1
@@ -71,21 +71,6 @@ function sparse_block_projection!(Y, Δ, index, W, U, K)
         # find the K largest distances
         J = partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
 
-        # # compute Y - P(Y)
-        # for j in 1:n, i in j+1:n # dictionary order, (i,j) with i > j
-        #     l = tri2vec(i, j, n)
-        #     ix = (j-1)*n + i
-        #
-        #     if ix in J # block is preserved in projection
-        #         for k in 1:d
-        #             Y[k,l] = 0
-        #         end
-        #     else
-        #         for k in 1:d
-        #             Y[k,l] = W[i,j] * (U[k,i] - U[k,j])
-        #         end
-        #     end
-        # end
         ix2coord = CartesianIndices(Δ)
         for ix in J
             i = ix2coord[ix][1]
@@ -154,7 +139,7 @@ end
 function assign_classes!(class, A, Δ, U, tol)
     n = size(Δ, 1)
 
-    Δ = pairwise(Euclidean(1e-12), U, dims = 2)
+    Δ = pairwise(Euclidean(), U, dims = 2)
 
     # update adjacency matrix
     for j in 1:n, i in j+1:n
@@ -203,7 +188,7 @@ function gaussian_weights(X; phi = 0.5)
     W = zeros(n, n)
 
     for j in 1:n, i in j+1:n
-        @views δ_ij = SqEuclidean(1e-12)(X[:,i], X[:,j])
+        @views δ_ij = SqEuclidean()(X[:,i], X[:,j])
         w_ij = exp(-phi*δ_ij)
 
         W[i,j] = w_ij

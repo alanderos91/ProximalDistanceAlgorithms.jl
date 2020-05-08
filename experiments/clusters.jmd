@@ -9,7 +9,7 @@ using ProximalDistanceAlgorithms
 using Statistics, Plots, Random, Distances
 ```
 
-### Example: $k$ = 3 balanced clusters
+### Example: $k$ = 3 unbalanced clusters
 
 We will use the penalty $\rho(n) = \mathrm{max}\{10^{6}, 1.5^{\lfloor{n/50}\rfloor}\}$ throughout the following examples.
 
@@ -18,81 +18,11 @@ penalty(ρ, iteration) = min(1e6, iteration % 50 == 0 ? 1.5 * ρ : ρ)
 ```
 
 ```{julia}
-function summarize_clustering(U, X, h)
-    # figure: convergence
-    fig0 = plot(h.g .* h.γ .+ eps(), yscale = :log10, lw = 4, legend = false)
-    xlabel!("iteration")
-    ylabel!("norm of descent direction")
-    display(fig0)
-
-    # figure: pairwise distances of centroids
-    ΔU = pairwise(Euclidean(1e-12), U, dims = 2)
-    @. ΔU = log(10, ΔU)
-
-    fig1 = heatmap(ΔU, c = :balance, legend = true)
-    title!("log distances")
-    xlabel!("sample")
-    xlabel!("sample")
-
-    # figure: centroid matrix
-    fig2 = heatmap(U, c = :balance, yrot = 90, legend = false)
-    title!("centroid assignments")
-    xlabel!("samples")
-    ylabel!("features")
-    yticks!([1.0, 2.0], ["feature1", "feature2"])
-
-    fig_result = plot(fig1, fig2)
-    display(fig_result)
-
-    # retrieve clusters from adjacency matrix
-    adjacency, class, nclasses = assign_classes(U)
-
-    # figure: clustering
-    xs = X[1, :]
-    ys = X[2, :]
-
-    figure_clustering = scatter(title = "classes = $(nclasses)", xlabel = "feature1", ylabel = "feature2", legend = :topleft)
-
-    for i in 1:nclasses
-        I = findall(isequal(i), class)
-        group_xs = xs[I]
-        group_ys = ys[I]
-        xmean = mean(group_xs)
-        ymean = mean(group_ys)
-        scatter!(group_xs, group_ys, label = "class $(i)")
-        scatter!((xmean, ymean), markershape = :star, markersize = 10, label = nothing)
-    end
-
-    display(figure_clustering)
-end
-
-function cluster_uniform_weights(X, K, maxiters)
-    # solve the problem
-    n = size(X, 2)
-    W = ones(n, n)
-    h = SDLogger(maxiters, 1)
-    U = @time convex_clustering(SteepestDescent(), W, X, maxiters = maxiters, penalty = penalty, accel = Val(:nesterov), K = K, history = h, dtol = 1e-5);
-
-    summarize_clustering(U, X, h)
-end
-
-function cluster_gaussian_weights(X, K, maxiters)
-    # solve the problem
-    n = size(X, 2)
-    W = gaussian_weights(X, phi = 0.1)
-    h = SDLogger(maxiters, 1)
-    U = @time convex_clustering(SteepestDescent(), W, X, maxiters = maxiters, penalty = penalty, accel = Val(:nesterov), K = K, history = h, dtol = 1e-5);
-
-    summarize_clustering(U, X, h)
-end
-```
-
-```{julia}
 Random.seed!(5357)
 
 # simulate three clusters, each with 10 members
 centroid = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
-nclass = [10, 10, 10]
+nclass = [50, 20, 30]
 
 # true centroid assignment
 Y1 = repeat(centroid[1], outer = (1, nclass[1]))
@@ -107,13 +37,6 @@ X3 = gaussian_cluster(centroid[3], nclass[3])
 X = [X1 X2 X3]
 d, n = size(X)
 
-# μ = mean(X, dims = 2)
-# σ = std(X, dims = 2)
-#
-# @. X = (X - μ) / σ
-# α = colwise(Euclidean(1e-12), X, zero(X))
-# X .= X * Diagonal(1 ./ α)
-
 xs = X[1, :]
 ys = X[2, :]
 
@@ -123,32 +46,100 @@ display(fig)
 ```
 
 ```{julia}
-maxiters = 5*10^3
-K = 400
-```
+function plot_clustering(U, X, ν)
+    adjacency, class, nclasses = assign_classes(U)
 
-```{julia}
-cluster_uniform_weights(X, K, maxiters)
-```
+    xs = X[1, :]
+    ys = X[2, :]
 
-```{julia}
-cluster_gaussian_weights(X, K, maxiters)
-```
+    figure_clustering = scatter(
+        title  = "classes = $(nclasses) (nu = $(ν))",
+        xlabel = "feature1",
+        ylabel = "feature2",
+        legend = nothing)
 
-```{julia}
-function count_satisfied_constraints(U, tol = 3.0)
-    d, n = size(U)
-    Δ = pairwise(Euclidean(1e-12), U, dims = 2)
-    @. Δ = log(10, Δ)
-
-    nconstraint = 0
-
-    for j in 1:n, i in j+1:n
-        nconstraint += (Δ[i,j] <= -tol)
+    for i in 1:nclasses
+        I = findall(isequal(i), class)
+        group_xs = xs[I]
+        group_ys = ys[I]
+        xmean = mean(group_xs)
+        ymean = mean(group_ys)
+        scatter!(group_xs, group_ys, label = "class $(i)")
+        scatter!((xmean, ymean), markershape = :star, markersize = 10, label = nothing)
     end
 
-    return nconstraint
+    display(figure_clustering)
 end
+```
+
+##### Solution path (no weights)
+
+The search heuristic is as follows:
+
+1. Let $\nu_{\mathrm{max}} = \binom{n}{2}$ and set $\nu = \nu_{\mathrm{max}}$, the putative number of violations in constraints $\boldsymbol{u}_{i} = \boldsymbol{u}_{j}$.
+
+2. Solve the clustering problem using parameter $\nu$ in the sparse projection.
+
+3. Save the solution $\boldsymbol{U}(\nu)$ and $\nu$.
+
+4. Set $s$ equal to the number of satisfied constraints in $\boldsymbol{U}(\nu)$.
+
+5. Set $\nu = \min\{\nu - 1, \nu_{\mathrm{max}} - s - 1\}$.
+
+6. If $\nu \ge 0$, go to (2).
+
+```{julia}
+maxiters = 2 * 10^3
+W = ones(n, n)
+
+solution_path = @time convex_clustering_path(SteepestDescent(), W, X,
+    maxiters = maxiters,
+    penalty = penalty,
+    accel = Val(:nesterov))
+
+path_length = length(solution_path.ν)
+search_space = binomial(n, 2) + 1
+
+println("""
+number of values checked: $(path_length)
+size of search space:     $(search_space)
+% of space covered:       $(100 * path_length / search_space)
+""")
+```
+
+##### A few examples of the clusterings
+
+Colors indicate distinct classes, stars indicate centroids.
+
+**Early (many clusters)**
+
+```{julia}
+ix = 1
+plot_clustering(solution_path.U[ix], X, solution_path.ν[ix])
+```
+
+**Halfway**
+
+```{julia}
+ix = path_length ÷ 2
+plot_clustering(solution_path.U[ix], X, solution_path.ν[ix])
+```
+
+**Late (few clusters)**
+
+```{julia}
+ix = path_length - 10
+plot_clustering(solution_path.U[ix], X, solution_path.ν[ix])
+```
+
+```{julia}
+ix = path_length - 1
+plot_clustering(solution_path.U[ix], X, solution_path.ν[ix])
+```
+
+```{julia}
+ix = path_length
+plot_clustering(solution_path.U[ix], X, solution_path.ν[ix])
 ```
 
 ##### Appendix

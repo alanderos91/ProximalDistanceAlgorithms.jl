@@ -1,7 +1,7 @@
 function cvxclst_stepsize(Q, ρ)
     a = dot(Q, Q)                            # norm^2 of gradient
     b = __evaluate_weighted_gradient_norm(Q) # norm^2 of W*D*gradient
-    γ = a / a + ρ*b + eps())
+    γ = a / (a + ρ*b + eps())
 
     return γ, sqrt(a)
 end
@@ -15,9 +15,11 @@ function cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
     d, n = size(U)
     sparse_block_projection!(Y, Δ, index, W, U, K)
     # compute U - P(U)
-    for j in 1:n, i in j+1:n, k in 1:d
+    for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
-        Y[k,l] = (U[k,i] - U[k,j]) - Y[k,l]
+        for k in 1:d
+            Y[k,l] = (U[k,i] - U[k,j]) - Y[k,l]
+        end
     end
     cvxclst_apply_fusion_matrix_transpose!(Q, Y)
 
@@ -165,4 +167,54 @@ function convex_clustering(::SteepestDescent, W, X;
     end
 
     return U
+end
+
+function convex_clustering_path(::SteepestDescent, W, X;
+    ρ_init::Real          = 1.0,
+    maxiters::Integer     = 100,
+    penalty::Function     = __default_schedule,
+    ftol::Real            = 1e-6,
+    dtol::Real            = 1e-4,
+    accel::accelT         = Val(:none)) where {accelT}
+    #
+    # initialize
+    n = size(X, 2)
+    ν_max = binomial(n, 2)
+    ν = ν_max
+
+    # solution path
+    U_path = typeof(X)[]
+    ν_path = Int[]
+
+    while ν ≥ 0
+        # solve problem with ν violated constraints
+        solution = convex_clustering(SteepestDescent(), W, X, K = ν,
+            maxiters = maxiters, penalty = penalty, accel = accel,
+            ftol = ftol, dtol = dtol)
+
+        # add to solution path
+        push!(U_path, solution)
+        push!(ν_path, ν)
+
+        # decrease ν with a heuristic that guarantees descent
+        ν = min(ν - 1, ν_max - count_satisfied_constraints(solution) - 1)
+    end
+
+    solution_path = (U = U_path, ν = ν_path)
+
+    return solution_path
+end
+
+function count_satisfied_constraints(U, tol = 3.0)
+    d, n = size(U)
+    Δ = pairwise(Euclidean(), U, dims = 2)
+    @. Δ = log(10, Δ)
+
+    nconstraint = 0
+
+    for j in 1:n, i in j+1:n
+        nconstraint += (Δ[i,j] ≤ -tol)
+    end
+
+    return nconstraint
 end

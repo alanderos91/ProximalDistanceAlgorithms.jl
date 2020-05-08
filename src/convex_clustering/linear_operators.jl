@@ -32,9 +32,11 @@ cvxclst_apply_fusion_matrix!(Y, U)
 """
 function cvxclst_apply_fusion_matrix!(Y, U)
     d, n = size(U)
-    for j in 1:n, i in j+1:n, k in 1:d
+    for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
-        Y[k,l] = U[k,i] - U[k,j]
+        for k in 1:d
+            Y[k,l] = U[k,i] - U[k,j]
+        end
     end
 
     return Y
@@ -100,7 +102,7 @@ function __evaluate_weighted_gradient_norm(Q)
     val = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
-        @views δ_ij = SqEuclidean(1e-12)(Q[:,i], Q[:,j])
+        @views δ_ij = SqEuclidean()(Q[:,i], Q[:,j])
         val = val + δ_ij
     end
 
