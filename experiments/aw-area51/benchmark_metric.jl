@@ -89,7 +89,7 @@ function metric_save_results(file, problem, problem_size, solution, cpu_time, me
 
     # save input
     save_array(basefile * ".in", problem.D)
-    
+
     # save solution
     save_array(basefile * ".out", solution)
 
