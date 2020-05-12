@@ -38,10 +38,10 @@ while read probsize
     n=$(cut -d',' -f2 <<< ${probsize})
 
     # no acceleration
-    FNAME=SD_${n}_none
+    FNAME=SD_${d}_${n}_none
     jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     # Nesterov acceleration
-    FNAME=SD_${n}_nesterov
+    FNAME=SD_${d}_${n}_nesterov
     jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/cvxreg/jobs/${JOBNAME}.in
