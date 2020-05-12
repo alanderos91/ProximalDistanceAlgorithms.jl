@@ -68,17 +68,17 @@ function convex_clustering(::SteepestDescent, W, X;
 
     # packing
     solution   = (Q = Q, U = U)
-    projection = (Y = Y, Δ = Δ, index = index, K = K)
+    projection = (Y = Y, Δ = Δ, index = index)
     inputs     = (W = W, X = X, ρ_init = ρ_init, penalty = penalty)
     settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
 
-    convex_clustering!(solution, projection, inputs, settings, true)
+    convex_clustering!(solution, projection, inputs, settings, K, true)
 
     return U
 end
 
 # for data structure re-use in convex_clustering_path
-function convex_clustering!(solution, projection, inputs, settings, trace)
+function convex_clustering!(solution, projection, inputs, settings, K, trace)
     # centroids and gradient
     U = solution.U
     Q = solution.Q
@@ -87,7 +87,6 @@ function convex_clustering!(solution, projection, inputs, settings, trace)
     Y     = projection.Y
     Δ     = projection.Δ
     index = projection.index
-    K     = projection.K
 
     # input data
     W       = inputs.W
@@ -182,38 +181,33 @@ function convex_clustering_path(::SteepestDescent, W, X;
 
     # packing
     solution   = (Q = Q, U = U)
+    projection = (Y = Y, Δ = Δ, index = index)
     inputs     = (W = W, X = X, ρ_init = ρ_init, penalty = penalty)
     settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
 
     # each instance uses the previous solution as the starting point
     while ν ≥ 0
         # solve problem with ν violated constraints
-        projection = (Y = Y, Δ = Δ, index = index, K = ν)
-        result = convex_clustering!(solution, projection, inputs, settings, false)
+        result = convex_clustering!(solution, projection, inputs, settings, ν, false)
 
         # add to solution path
         push!(U_path, copy(result))
         push!(ν_path, ν)
 
+        # count satisfied constraints
+        Δ = pairwise!(Δ, Euclidean(), result, dims = 2)
+        @. Δ = log(10, Δ)
+
+        nconstraint = 0
+        for j in 1:n, i in j+1:n
+            nconstraint += (Δ[i,j] ≤ -3) # distances within 10^-3 are 0
+        end
+
         # decrease ν with a heuristic that guarantees descent
-        ν = min(ν - 1, ν_max - count_satisfied_constraints(result) - 1)
+        ν = min(ν - 1, ν_max - nconstaint - 1)
     end
 
     solution_path = (U = U_path, ν = ν_path)
 
     return solution_path
-end
-
-function count_satisfied_constraints(U, tol = 3.0)
-    d, n = size(U)
-    Δ = pairwise(Euclidean(), U, dims = 2)
-    @. Δ = log(10, Δ)
-
-    nconstraint = 0
-
-    for j in 1:n, i in j+1:n
-        nconstraint += (Δ[i,j] ≤ -tol)
-    end
-
-    return nconstraint
 end

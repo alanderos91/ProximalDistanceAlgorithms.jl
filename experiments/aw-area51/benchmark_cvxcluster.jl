@@ -60,7 +60,7 @@ end
 function cvxcluster_instance(options)
     # read in data as a matrix
     file = options["data"]
-    X = cvxcluster_load_data(file)
+    X, classes, k = convex_clustering_data(file)
 
     # problem dimensions
     d, n = size(X)
@@ -68,27 +68,48 @@ function cvxcluster_instance(options)
     # create weights
     W = ones(n, n)
 
-    problem = (W = W, X = X)
-    problem_size = (d, n,)
+    problem = (W = W, X = X, classes = classes)
+    problem_size = (d = d, n = n, k = k)
 
     println("    Convex Clustering; $(d) features, $(n) samples\n")
 
     return problem, problem_size
 end
 
-function cvxcluster_load_data(file)
-    df = CSV.read(joinpath("data", file), copycols = true)
-    
+function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time, memory)
+    # save benchmark results
+    df = DataFrame(
+            features = problem_size.d,
+            samples  = problem_size.n,
+            cpu_time = cpu_time,
+            memory   = memory
+        )
+    CSV.write(file, df)
+
+    # get filename without extension
+    basefile = splitext(file)[1]
+
+    # save input
+    save_array(basefile * ".in", problem.D)
+
+    # save solution
+    save_array(basefile * ".out", solution)
+
+    return nothing
 end
 
 # inlined wrapper
 @inline function run_cvxcluster(algorithm, problem; kwargs...)
-    convex_clustering_path(algorithm, problem.W, problem.X; kwargs...)
+    # min(1e4, ρ_init * (1.25)^(floor(50 / n)))
+    rho_schedule(ρ, iteration) = min(1e4, iteration % 50 == 0 ? 1.5*ρ : ρ)
+
+    convex_clustering_path(algorithm, problem.W, problem.X; penalty = rho_schedule, kwargs...)
 end
 
 # run the benchmark
 interface     = cvxcluster_interface
 run_solver    = run_cvxcluster
 make_instance = cvxcluster_instance
+save_results  = cvxcluster_save_results
 
-run_benchmark(interface, run_solver, make_instance, ARGS)
+run_benchmark(interface, run_solver, make_instance, save_results, ARGS)
