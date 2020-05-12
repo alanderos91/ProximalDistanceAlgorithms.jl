@@ -11,14 +11,8 @@ import IterativeSolvers: CGStateVariables
 __default_schedule(ρ::Real, iteration::Integer) = ρ
 __default_schedule(T, W, n::Integer, ρ::Real, iteration::Integer) = ρ
 
-# default logging behavior
-__default_logger(data, iteration) = nothing
-
 # algorithm types
 abstract type AlgorithmOption end
-
-"""Use proximal point iteration."""
-struct ProximalPoint <: AlgorithmOption end
 
 """Use steepest descent iteration."""
 struct SteepestDescent <: AlgorithmOption end
@@ -36,7 +30,7 @@ See the Convex.jl documentation for more details.
 """
 struct BlackBox <: AlgorithmOption end
 
-export ProximalPoint, SteepestDescent, MM, BlackBox, ADMM
+export SteepestDescent, MM, BlackBox, ADMM
 
 # example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
@@ -70,18 +64,15 @@ include(joinpath("image_denoising", "steepest_descent.jl"))
 
 export image_denoise, prox_l1_ball!, prox_l2_ball!
 
-# convergence metrics
-include("logging.jl")
-
-export MMLogger, SDLogger
-
 # suggested penalty schedules
 include("penalty.jl")
 
-# general utilities
-include("utilities.jl")
+export slow_schedule, fast_schedule,
+
+# convergence metrics + common operations
+include("common.jl")
 include("acceleration.jl")
 
-export slow_schedule, fast_schedule, get_acceleration_strategy
+export initialize_history, get_acceleration_strategy
 
 end # module
