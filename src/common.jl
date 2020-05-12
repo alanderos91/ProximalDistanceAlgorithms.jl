@@ -74,8 +74,8 @@ function not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol)
     diff2 = abs(dist_new - dist_old)
 
     flag = diff1 > ftol * (loss_old + 1)
-    flag = not_converged || (diff2 > ftol * (dist_old + 1))
-    flag = not_converged || (dist_new > dtol)
+    flag = flag || (diff2 > ftol * (dist_old + 1))
+    flag = flag || (dist_new > dtol)
 
     return flag
 end

@@ -14,13 +14,12 @@ function metric_evaluate!(Q, W, D, X, ρ)
     end
 
     penalty = penalty1 + penalty2
-    objective = 0.5 * (loss + ρ*penalty)
     gradient = dot(Q, Q)
 
-    return loss, penalty, objective, gradient
+    return loss, penalty, gradient
 end
 
-function metric_steepest_descent(X, Q, W, D, ρ, gradient)
+function metric_steepest_descent!(X, Q, W, D, ρ, gradient)
     # evaluate stepsize
     a = gradient                               # norm^2 of gradient
     b = __apply_T_evaluate_norm_squared(Q)     # norm^2 of T*gradient
@@ -28,6 +27,7 @@ function metric_steepest_descent(X, Q, W, D, ρ, gradient)
     γ = a / (c + ρ*(a + b))
 
     # move in the direction of steepest descent
+    n = size(X, 1)
     for j in 1:n, i in j+1:n
         X[i,j] = X[i,j] - γ*Q[i,j]
     end
@@ -59,8 +59,8 @@ function metric_projection(::SteepestDescent, W, D;
     # initialize
     ρ = ρ_init
 
-    loss, distance, objective, gradient = metric_evaluate!(Q, W, D, X, ρ)
-    data = package_data(loss, distance, ρ, gradient, stepsize)
+    loss, distance, gradient = metric_evaluate!(Q, W, D, X, ρ)
+    data = package_data(loss, distance, ρ, gradient, zero(loss))
     update_history!(history, data, 0)
 
     loss_old = loss
@@ -71,7 +71,7 @@ function metric_projection(::SteepestDescent, W, D;
 
     while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
-        γ = metric_steepest_descent!(X, Q, W, D, ρ, gradient)
+        stepsize = metric_steepest_descent!(X, Q, W, D, ρ, gradient)
         
         # penalty schedule + acceleration
         ρ_new = penalty(ρ, iteration)       # check for updates to the penalty coefficient
@@ -79,8 +79,8 @@ function metric_projection(::SteepestDescent, W, D;
         apply_momentum!(X, strategy)        # apply acceleration strategy
         ρ = ρ_new                           # update penalty
 
-        # evaluate convergence metrics with new penalty
-        loss, distance, objective, gradient = metric_evaluate!(Q, W, D, X, ρ)
+        # convergence history
+        loss, distance, gradient = metric_evaluate!(Q, W, D, X, ρ)
         data = package_data(loss, distance, ρ, gradient, stepsize)
         update_history!(history, data, iteration)
 
@@ -89,6 +89,11 @@ function metric_projection(::SteepestDescent, W, D;
         dist_old = dist_new
         dist_new = distance
         iteration += 1
+    end
+
+    # symmetrize
+    for j in 1:n, i in j+1:n
+        X[j,i] = X[i,j]
     end
 
     return X

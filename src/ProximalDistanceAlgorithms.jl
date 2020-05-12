@@ -36,7 +36,6 @@ export SteepestDescent, MM, BlackBox, ADMM
 include(joinpath("convex_regression", "linear_operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))
 include(joinpath("convex_regression", "mm.jl"))
-include(joinpath("convex_regression", "proximal_point.jl"))
 include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
@@ -67,7 +66,7 @@ export image_denoise, prox_l1_ball!, prox_l2_ball!
 # suggested penalty schedules
 include("penalty.jl")
 
-export slow_schedule, fast_schedule,
+export slow_schedule, fast_schedule
 
 # convergence metrics + common operations
 include("common.jl")
