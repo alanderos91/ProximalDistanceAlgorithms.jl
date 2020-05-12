@@ -11,7 +11,7 @@ DIR=${PKG}/experiments/aw-area51
 
 # function for running benchmark
 jlbenchmark () {
-    julia --project=${PKG} ${DIR}/metric_benchmark.jl "$@";
+    julia --project=${PKG} ${DIR}/benchmark_metric.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
