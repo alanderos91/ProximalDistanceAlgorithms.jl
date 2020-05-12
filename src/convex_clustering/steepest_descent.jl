@@ -1,19 +1,11 @@
-function cvxclst_stepsize(Q, ρ)
-    a = dot(Q, Q)                            # norm^2 of gradient
-    b = __evaluate_weighted_gradient_norm(Q) # norm^2 of W*D*gradient
-    γ = a / (a + ρ*b + eps())
-
-    return γ, sqrt(a)
-end
-
-# used internally
-function cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
+function cvxclst_evaluate!(Q, Y, Δ, index, W, U, X, K, ρ)
     fill!(Q, 0)
     fill!(Y, 0)
     fill!(Δ, 0)
 
     d, n = size(U)
     sparse_block_projection!(Y, Δ, index, W, U, K)
+
     # compute U - P(U)
     for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
@@ -21,72 +13,39 @@ function cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
             Y[k,l] = (U[k,i] - U[k,j]) - Y[k,l]
         end
     end
-    cvxclst_apply_fusion_matrix_transpose!(Q, Y)
 
+    # finish forming the gradient
+    cvxclst_apply_fusion_matrix_transpose!(Q, Y)
     for idx in eachindex(Q)
         Q[idx] = (U[idx] - X[idx]) + ρ*Q[idx]
     end
+
+    loss = SqEuclidean()(U, X)
+    penalty = dot(Y, Y)
+    gradient = dot(Q, Q)
+
+    return loss, penalty, gradient
 end
 
-function cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
-    # 1a. form the gradient:
-    cvxclst_evaluate_gradient!(Q, Y, Δ, index, W, U, X, K, ρ)
+function cvxclst_steepest_descent!(U, Q, ρ, gradient)
+    # evaluate stepsize
+    a = gradient                             # norm^2 of gradient
+    b = __evaluate_weighted_gradient_norm(Q) # norm^2 of D*gradient
+    γ = a / (a + ρ*b + eps())
 
-    # 1b. evaluate loss, penalty, and objective:
-    loss, penalty, objective = cvxclst_evaluate_objective(U, X, Y, ρ)
-
-    # 2. compute stepsize
-    γ, normgrad = cvxclst_stepsize(Q, ρ)
-
-    # 3. apply the update
+    # move in the direction of steepest descent
     for idx in eachindex(U)
         U[idx] = U[idx] - γ*Q[idx]
     end
 
-    return γ, normgrad, loss, objective, penalty
-end
-
-function cvxclst_subproblem!(Q, Y, Δ, index, W, U, X, K, ρ, maxiters, strategy, penalty)
-    iteration = 1
-    old_loss = 1.0
-    rel = Inf
-    dist = Inf
-
-    data = (0.0, 0.0, 0.0, 0.0, 0.0)
-
-    while iteration ≤ maxiters && (rel > 1e-6 || dist > 1e-4)
-        # apply iteration map
-        data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
-
-        # check for updates to the penalty coefficient
-        ρ_new = penalty(ρ, iteration)
-
-        # apply acceleration strategy
-        ρ != ρ_new && restart!(strategy, U)
-        apply_momentum!(U, strategy)
-
-        # update penalty
-        ρ = ρ_new
-
-        # convergence checks
-        loss = sqrt(data[3])
-        dist = sqrt(data[5])
-
-        rel = abs(loss - old_loss) / (old_loss + 1)
-        old_loss = loss
-        iteration = iteration + 1
-    end
-
-    data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
-
-    return data[1], data[2], data[3], data[4], data[5], iteration - 1
+    return γ
 end
 
 function convex_clustering(::SteepestDescent, W, X;
     ρ_init::Real          = 1.0,
     maxiters::Integer     = 100,
     penalty::Function     = __default_schedule,
-    history::FunctionLike = __default_logger,
+    history::FunctionLike = nothing,
     K::Integer            = 0,
     ftol::Real            = 1e-6,
     dtol::Real            = 1e-4,
@@ -107,78 +66,101 @@ function convex_clustering(::SteepestDescent, W, X;
     # construct type for acceleration strategy
     strategy = get_acceleration_strategy(accel, U)
 
-    # initialize penalty coefficient
+    # packing
+    solution   = (Q = Q, U = U)
+    projection = (Y = Y, Δ = Δ, index = index, K = K)
+    inputs     = (W = W, X = X, ρ_init = ρ_init, penalty = penalty)
+    settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
+
+    convex_clustering!(solution, projection, inputs, settings, true)
+
+    return U
+end
+
+# for data structure re-use in convex_clustering_path
+function convex_clustering!(solution, projection, inputs, settings, trace)
+    # centroids and gradient
+    U = solution.U
+    Q = solution.Q
+
+    # data structures for projection
+    Y     = projection.Y
+    Δ     = projection.Δ
+    index = projection.index
+    K     = projection.K
+
+    # input data
+    W       = inputs.W
+    X       = inputs.X
+    ρ_init  = inputs.ρ_init
+    penalty = inputs.penalty
+
+    # settings
+    maxiters = settings.maxiters
+    history  = settings.history
+    ftol     = settings.ftol
+    dtol     = settings.dtol
+    strategy = settings.strategy
+
+    # initialize
     ρ = ρ_init
 
-    data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
+    loss, distance, gradient = cvxclst_evaluate!(Q, Y, Δ, index, W, U, X, K, ρ)
+    data = package_data(loss, distance, ρ, gradient, zero(loss))
 
-    # check for updates to the penalty coefficient
-    ρ_new = penalty(ρ, 1)
+    if trace # only record outside clustering path algorithm
+        update_history!(history, data, 0)
+    end
 
-    # apply acceleration strategy
-    ρ != ρ_new && restart!(strategy, U)
-    apply_momentum!(U, strategy)
-
-    # update penalty
-    ρ = ρ_new
-
-    # check for updates to the convergence history
-    history(data, 1)
-
-    iteration = 2
-    not_converged = true
-    loss_old = data[3]
+    loss_old = loss
     loss_new = Inf
-    dist_old = sqrt(data[5])
+    dist_old = distance
     dist_new = Inf
+    iteration = 1
 
-    while not_converged && iteration ≤ maxiters
+    while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
-        data = cvxclst_steepest_descent!(Q, Y, Δ, index, W, U, X, K, ρ)
+        stepsize = cvxclst_steepest_descent!(U, Q, ρ, gradient)
 
-        # check for updates to the penalty coefficient
-        ρ_new = penalty(ρ, iteration)
+        # penalty schedule + acceleration
+        ρ_new = penalty(ρ, iteration)       # check for updates to the penalty coefficient
+        ρ != ρ_new && restart!(strategy, U) # check for restart due to changing objective
+        apply_momentum!(U, strategy)        # apply acceleration strategy
+        ρ = ρ_new                           # update penalty
 
-        # apply acceleration strategy
-        ρ != ρ_new && restart!(strategy, U)
-        apply_momentum!(U, strategy)
+        # convergence history
+        loss, distance, gradient = cvxclst_evaluate!(Q, Y, Δ, index, W, U, X, K, ρ)
+        data = package_data(loss, distance, ρ, gradient, stepsize)
 
-        # update penalty
-        ρ = ρ_new
-
-        # check for updates to the convergence history
-        history(data, iteration)
-
-        # check for convergence
-        loss_new = data[3]
-        dist_new = sqrt(data[5])
-
-        diff1 = abs(loss_new - loss_old)
-        diff2 = abs(dist_new - dist_old)
-        not_converged = diff1 > ftol * (loss_old + 1)
-        not_converged = not_converged || (diff2 > ftol * (dist_old + 1))
-        not_converged = not_converged || (dist_new > dtol)
+        if trace # only record outside clustering path algorithm
+            update_history!(history, data, iteration)
+        end
 
         loss_old = loss_new
+        loss_new = loss
         dist_old = dist_new
-
-        # increment iteration count
+        dist_new = distance
         iteration += 1
+    end
+
+    if !trace # record history only at the end for path algorithm
+        update_history!(history, data, iteration-1)
     end
 
     return U
 end
 
 function convex_clustering_path(::SteepestDescent, W, X;
-    ρ_init::Real          = 1.0,
-    maxiters::Integer     = 100,
-    penalty::Function     = __default_schedule,
-    ftol::Real            = 1e-6,
-    dtol::Real            = 1e-4,
-    accel::accelT         = Val(:none)) where {accelT}
+    ρ_init::Real      = 1.0,
+    maxiters::Integer = 100,
+    penalty::Function = __default_schedule,
+    history::histT    = nothing,
+    ftol::Real        = 1e-6,
+    dtol::Real        = 1e-4,
+    accel::accelT     = Val(:none)) where {histT, accelT}
     #
     # initialize
-    n = size(X, 2)
+    d, n = size(X)
     ν_max = binomial(n, 2)
     ν = ν_max
 
@@ -186,18 +168,35 @@ function convex_clustering_path(::SteepestDescent, W, X;
     U_path = typeof(X)[]
     ν_path = Int[]
 
+    # allocate optimization variable
+    U = copy(X)
+
+    # allocate gradient and auxiliary variables
+    Q = similar(X)
+    Y = zeros(d, binomial(n, 2))
+    Δ = zeros(n, n)
+    index = collect(1:n*n)
+
+    # construct type for acceleration strategy
+    strategy = get_acceleration_strategy(accel, U)
+
+    # packing
+    solution   = (Q = Q, U = U)
+    inputs     = (W = W, X = X, ρ_init = ρ_init, penalty = penalty)
+    settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
+
+    # each instance uses the previous solution as the starting point
     while ν ≥ 0
         # solve problem with ν violated constraints
-        solution = convex_clustering(SteepestDescent(), W, X, K = ν,
-            maxiters = maxiters, penalty = penalty, accel = accel,
-            ftol = ftol, dtol = dtol)
+        projection = (Y = Y, Δ = Δ, index = index, K = ν)
+        result = convex_clustering!(solution, projection, inputs, settings, false)
 
         # add to solution path
-        push!(U_path, solution)
+        push!(U_path, copy(result))
         push!(ν_path, ν)
 
         # decrease ν with a heuristic that guarantees descent
-        ν = min(ν - 1, ν_max - count_satisfied_constraints(solution) - 1)
+        ν = min(ν - 1, ν_max - count_satisfied_constraints(result) - 1)
     end
 
     solution_path = (U = U_path, ν = ν_path)

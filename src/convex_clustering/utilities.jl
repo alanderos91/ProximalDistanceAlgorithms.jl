@@ -1,22 +1,3 @@
-##### penalized optimization
-"""
-```
-cvxclst_evaluate_objective(U, X, y, ρ)
-```
-
-Evaluate the penalized objective with coefficient `ρ` based on centroid matrix `U` and data `X`.
-The variable `y` represents the vector pointing towards the projection of `W*D*vec(U)`.
-"""
-function cvxclst_evaluate_objective(U, X, Y, ρ)
-    loss = dot(U, U) - 2*dot(U, X) + dot(X, X)
-    loss = abs(loss)
-    # loss = SqEuclidean(1e-12)(U, X)
-    penalty = dot(Y, Y)
-    objective = 0.5 * (loss + ρ*penalty)
-
-    return loss, penalty, objective
-end
-
 ##### sparse fused block projection #####
 
 """
@@ -169,6 +150,21 @@ function assign_classes(U, tol = 3.0)
     return assign_classes!(class, A, Δ, U, tol)
 end
 
+function var_information(a, b)
+    C = counts(a, b)
+    isempty(C) && return 0.0
+    countsA = a isa ClusteringResult ? counts(a) : sum(C, dims=2)
+    countsB = b isa ClusteringResult ? counts(b) : sum(C, dims=1)
+    VI = 0.0
+    @inbounds for (i, ci) in enumerate(countsA), (j, cj) in enumerate(countsB)
+        cij = C[i,j]
+        if cij > 0.0
+            VI += cij * log(cij*cij / (ci*cj))
+        end
+    end
+    return -VI/sum(countsA)
+end
+
 ##### weights #####
 
 """
@@ -252,4 +248,32 @@ function gaussian_cluster(centroid, n)
     cluster = centroid .+ 0.1 * randn(d, n)
 
     return cluster
+end
+
+##### example data sets #####
+function convex_clustering_data(file)
+    dir = dirname(@__DIR__) # should point to src
+    dir = dirname(dir)      # should point to top-level directory
+
+    df = CSV.read(joinpath(dir, "data", file), copycols = true)
+
+    if basename(file) == "mammals.dat" # classes in column 2
+        # extract data as features × columns
+        data = convert(Matrix{Float64}, df[:, 3:end-1])
+        X = copy(transpose(data))
+
+        # retrieve class assignments
+        class_name = unique(df[:,2])
+        classes = convert(Vector{Int}, indexin(df[:,2], class_name))
+    else # classes in last column
+        # extract data as features × columns
+        data = convert(Matrix{Float64}, df[:,1:end-1])
+        X = copy(transpose(data))
+
+        # retrieve class assignments
+        class_name = unique(df[:,end])
+        classes = convert(Vector{Int}, indexin(df[:,end], class_name))
+    end
+
+    return X, classes, length(class_name)
 end

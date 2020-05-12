@@ -1,9 +1,10 @@
 module ProximalDistanceAlgorithms
 
-using Distances
+using Distances, Clustering
 using LinearAlgebra, Statistics, SparseArrays, IterativeSolvers
 using Convex
 using RecipesBase
+using CSV, DataFrames
 
 import IterativeSolvers: CGStateVariables
 
@@ -56,7 +57,8 @@ include(joinpath("convex_clustering", "steepest_descent.jl"))
 include(joinpath("convex_clustering", "utilities.jl"))
 
 export convex_clustering, convex_clustering_path,
-    gaussian_weights, knn_weights, gaussian_cluster, assign_classes
+    gaussian_weights, knn_weights, gaussian_cluster, assign_classes,
+    convex_clustering_data
 
 # example: total variation image denoising
 include(joinpath("image_denoising", "steepest_descent.jl"))
