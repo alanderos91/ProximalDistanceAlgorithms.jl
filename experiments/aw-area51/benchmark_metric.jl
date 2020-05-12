@@ -88,10 +88,10 @@ function metric_save_results(file, problem, problem_size, solution, cpu_time, me
     basefile = splitext(file)[1]
 
     # save input
-    CSV.write(basefile * ".in", Tables.table(problem.D))
+    save_array(basefile * ".in", problem.D)
     
     # save solution
-    CSV.write(basefile * ".out", Tables.table(solution))
+    save_array(basefile * ".out", solution)
 
     return nothing
 end

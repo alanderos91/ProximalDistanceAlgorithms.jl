@@ -64,9 +64,9 @@ function cvxreg_instance(options)
     d = options["features"]
     n = options["samples"]
 
-    y, y_truth, X = cvxreg_example(x -> dot(x,x), d, n, 0.1)
-    y, X = mazumder_standardization(y, X)
-    problem = (y = y, X = X)
+    y_orig, y_truth, X_orig = cvxreg_example(x -> dot(x,x), d, n, 0.1)
+    y, X = mazumder_standardization(y_orig, X_orig)
+    problem = (y = y, X = X, y_orig = y_orig, y_truth = y_truth, X_orig = X_orig)
     problem_size = (d = d, n = n,)
 
     println("    Convex Regression; $(d) features, $(n) samples\n")
@@ -96,12 +96,13 @@ function cvxreg_save_results(file, problem, problem_size, solution, cpu_time, me
     basefile = splitext(file)[1]
 
     # save input
-    CSV.write(basefile * "_y.in", Tables.table(problem.y))
-    CSV.write(basefile * "_X.in", Tables.table(problem.y))
+    save_array(basefile * "_y.in", problem.y_orig)
+    save_array(basefile * "_truth.in", problem.y_truth)
+    save_array(basefile * "_X.in", problem.X_orig)
     
     # save solution
-    CSV.write(basefile * "_theta.out", Tables.table(solution[1]))
-    CSV.write(basefile * "_xi.out", Tables.table(solution[2]))
+    save_array(basefile * "_theta.out", solution[1])
+    save_array(basefile * "_xi.out", solution[2])
 
     return nothing
 end

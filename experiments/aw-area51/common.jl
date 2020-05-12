@@ -1,5 +1,11 @@
 using Random
-using CSV, DataFrames, Tables
+using CSV, DataFrames, DelimitedFiles
+
+function save_array(file, data)
+    open(file, "w") do io
+        writedlm(io, data, ',')
+    end
+end
 
 function run_benchmark(interface, run_solver, make_instance, save_results, args)
     println("Processing command line options...\n")
