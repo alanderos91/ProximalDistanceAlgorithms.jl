@@ -1,22 +1,24 @@
 using ArgParse
 using ProximalDistanceAlgorithms
+using LinearAlgebra
+using CSV, DataFrames
 
-global const DIR = joinpath(pwd(), "experiments", "aw-area51", "metric")
+global const DIR = joinpath(pwd(), "experiments", "aw-area51", "cvxcluster")
 
 # loads common interface + packages
 include("common.jl")
 
 # command line interface
-function metric_projection_interface(args)
+function cvxcluster_interface(args)
     options = ArgParseSettings(
-        prog = "Metric Benchmark",
-        description = "Benchmarks proximal distance algorithm on metric projection problem"
+        prog = "Convex Clustering Benchmark",
+        description = "Benchmarks proximal distance algorithm on convex clustering problem"
     )
 
     @add_arg_table! options begin
-        "--nodes"
-            help     = "nodes in dissimilarity matrix"
-            arg_type = Int
+        "--data"
+            help     = "name of file in data/ directory"
+            arg_type = String
             required = true
         "--algorithm"
             help     = "choice of algorithm"
@@ -55,26 +57,38 @@ function metric_projection_interface(args)
 end
 
 # create a problem instance from command-line arguments
-function metric_projection_instance(options)
-    n = options["nodes"]
+function cvxcluster_instance(options)
+    # read in data as a matrix
+    file = options["data"]
+    X = cvxcluster_load_data(file)
 
-    W, D = metric_example(n, weighted = false)
-    problem = (W = W, D = D)
-    problem_size = (n,)
+    # problem dimensions
+    d, n = size(X)
 
-    println("    Metric Projection; $(n) nodes\n")
+    # create weights
+    W = ones(n, n)
+
+    problem = (W = W, X = X)
+    problem_size = (d, n,)
+
+    println("    Convex Clustering; $(d) features, $(n) samples\n")
 
     return problem, problem_size
 end
 
+function cvxcluster_load_data(file)
+    df = CSV.read(joinpath("data", file), copycols = true)
+    
+end
+
 # inlined wrapper
-@inline function run_metric_projection(algorithm, problem; kwargs...)
-    metric_projection(algorithm, problem.W, problem.D; kwargs...)
+@inline function run_cvxcluster(algorithm, problem; kwargs...)
+    convex_clustering_path(algorithm, problem.W, problem.X; kwargs...)
 end
 
 # run the benchmark
-interface     = metric_projection_interface
-run_solver    = run_metric_projection
-make_instance = metric_projection_instance
+interface     = cvxcluster_interface
+run_solver    = run_cvxcluster
+make_instance = cvxcluster_instance
 
 run_benchmark(interface, run_solver, make_instance, ARGS)

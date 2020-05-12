@@ -1,21 +1,26 @@
 using ArgParse
 using ProximalDistanceAlgorithms
+using LinearAlgebra
 
-global const DIR = joinpath(pwd(), "experiments", "aw-area51", "metric")
+global const DIR = joinpath(pwd(), "experiments", "aw-area51", "cvxreg")
 
 # loads common interface + packages
 include("common.jl")
 
 # command line interface
-function metric_projection_interface(args)
+function cvxreg_interface(args)
     options = ArgParseSettings(
-        prog = "Metric Benchmark",
-        description = "Benchmarks proximal distance algorithm on metric projection problem"
+        prog = "Convex Regression Benchmark",
+        description = "Benchmarks proximal distance algorithm on convex regression problem"
     )
 
     @add_arg_table! options begin
-        "--nodes"
-            help     = "nodes in dissimilarity matrix"
+        "--features"
+            help     = "number of features in data"
+            arg_type = Int
+            required = true
+        "--samples"
+            help     = "number of samples in data"
             arg_type = Int
             required = true
         "--algorithm"
@@ -55,26 +60,28 @@ function metric_projection_interface(args)
 end
 
 # create a problem instance from command-line arguments
-function metric_projection_instance(options)
-    n = options["nodes"]
+function cvxreg_instance(options)
+    d = options["features"]
+    n = options["samples"]
 
-    W, D = metric_example(n, weighted = false)
-    problem = (W = W, D = D)
-    problem_size = (n,)
+    y, y_truth, X = cvxreg_example(x -> dot(x,x), d, n, 0.1)
+    y, X = mazumder_standardization(y, X)
+    problem = (y = y, X = X)
+    problem_size = (d, n,)
 
-    println("    Metric Projection; $(n) nodes\n")
+    println("    Convex Regression; $(d) features, $(n) samples\n")
 
     return problem, problem_size
 end
 
 # inlined wrapper
-@inline function run_metric_projection(algorithm, problem; kwargs...)
-    metric_projection(algorithm, problem.W, problem.D; kwargs...)
+@inline function run_cvxreg(algorithm, problem; kwargs...)
+    cvxreg_fit(algorithm, problem.y, problem.X; kwargs...)
 end
 
 # run the benchmark
-interface     = metric_projection_interface
-run_solver    = run_metric_projection
-make_instance = metric_projection_instance
+interface     = cvxreg_interface
+run_solver    = run_cvxreg
+make_instance = cvxreg_instance
 
 run_benchmark(interface, run_solver, make_instance, ARGS)
