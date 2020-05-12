@@ -35,7 +35,7 @@ function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
     apply_D_plus_H!(U, X, ∇θ, ∇ξ)
     c = dot(U, U)
 
-    γ = (a + b) / (a + ρ*c)
+    γ = (a + b) / (a + ρ*c + eps())
 
     # apply the steepest descent update
     @. θ = θ - γ*∇θ
@@ -90,7 +90,7 @@ function cvxreg_fit(::SteepestDescent, y, X;
     while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
         stepsize = cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
-        
+
         # penalty schedule + acceleration
         ρ_new = penalty(ρ, iteration)             # check for updates to the penalty coefficient
         ρ != ρ_new && restart!(strategy, optvars) # check for restart due to changing objective

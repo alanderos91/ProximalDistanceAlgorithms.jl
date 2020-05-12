@@ -24,7 +24,7 @@ function metric_steepest_descent!(X, Q, W, D, ρ, gradient)
     a = gradient                               # norm^2 of gradient
     b = __apply_T_evaluate_norm_squared(Q)     # norm^2 of T*gradient
     c = __evaulate_weighted_norm_squared(W, Q) # norm^2 of W^1/2*gradient
-    γ = a / (c + ρ*(a + b))
+    γ = a / (c + ρ*(a + b) + eps())
 
     # move in the direction of steepest descent
     n = size(X, 1)
@@ -72,7 +72,7 @@ function metric_projection(::SteepestDescent, W, D;
     while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
         stepsize = metric_steepest_descent!(X, Q, W, D, ρ, gradient)
-        
+
         # penalty schedule + acceleration
         ρ_new = penalty(ρ, iteration)       # check for updates to the penalty coefficient
         ρ != ρ_new && restart!(strategy, X) # check for restart due to changing objective
