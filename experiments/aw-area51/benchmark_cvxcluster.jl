@@ -1,6 +1,6 @@
 using ArgParse
 using ProximalDistanceAlgorithms
-using LinearAlgebra
+using Clustering
 using CSV, DataFrames
 
 global const DIR = joinpath(pwd(), "experiments", "aw-area51", "cvxcluster")
@@ -42,7 +42,7 @@ function cvxcluster_interface(args)
         "--dtol"
             help     = "tolerance for distance"
             arg_type = Float64
-            default  = 1e-5
+            default  = 1e-6
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -89,11 +89,26 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # save input
-    save_array(basefile * ".in", problem.D)
+    # find k-means solution
+    kmeans_clustering = kmeans(problem.X, problem_size.k, maxiter = 2000)
 
-    # save solution
-    save_array(basefile * ".out", solution)
+    # save cluster assignments + validation metrics
+    open(basefile * ".out", "w") do io
+        for (U, ν) in zip(solution.U, solution.ν)
+            # get cluster assignments
+            _, assignment, k = assign_classes(U)
+
+            # compare assignments against truth
+            vi1  = Clustering.varinfo(problem.classes, assignment)
+            ari1 = Clustering.randindex(problem.classes, assignment)[1]
+
+            # compare assignments against k-means
+            vi2  = Clustering.varinfo(kmeans_clustering, assignment)
+            ari2 = Clustering.randindex(kmeans_clustering, assignment)[1]
+
+            writedlm(io, [ν k vi1 ari1 vi2 ari2 assignment...])
+        end
+    end
 
     return nothing
 end
