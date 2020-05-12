@@ -204,7 +204,7 @@ function convex_clustering_path(::SteepestDescent, W, X;
         end
 
         # decrease ν with a heuristic that guarantees descent
-        ν = min(ν - 1, ν_max - nconstaint - 1)
+        ν = min(ν - 1, ν_max - nconstraint - 1)
     end
 
     solution_path = (U = U_path, ν = ν_path)
