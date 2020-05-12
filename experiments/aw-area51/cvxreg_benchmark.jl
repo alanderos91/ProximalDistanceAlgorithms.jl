@@ -45,7 +45,7 @@ function cvxreg_interface(args)
         "--dtol"
             help     = "tolerance for distance"
             arg_type = Float64
-            default  = 1e-5
+            default  = 1e-4
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -67,7 +67,7 @@ function cvxreg_instance(options)
     y, y_truth, X = cvxreg_example(x -> dot(x,x), d, n, 0.1)
     y, X = mazumder_standardization(y, X)
     problem = (y = y, X = X)
-    problem_size = (d, n,)
+    problem_size = (d = d, n = n,)
 
     println("    Convex Regression; $(d) features, $(n) samples\n")
 
@@ -76,12 +76,40 @@ end
 
 # inlined wrapper
 @inline function run_cvxreg(algorithm, problem; kwargs...)
-    cvxreg_fit(algorithm, problem.y, problem.X; kwargs...)
+    # min(1e4, ρ_init * (1.5)^(floor(50 / n)))
+    rho_schedule(ρ, iteration) = min(1e4, iteration % 50 == 0 ? 1.5*ρ : ρ)
+
+    cvxreg_fit(algorithm, problem.y, problem.X; penalty = rho_schedule, kwargs...)
+end
+
+function cvxreg_save_results(file, problem, problem_size, solution, cpu_time, memory)
+    # save benchmark results
+    df = DataFrame(
+            features = problem_size.d,
+            samples  = problem_size.n,
+            cpu_time = cpu_time,
+            memory   = memory
+        )
+    CSV.write(file, df)
+
+    # get filename without extension
+    basefile = splitext(file)[1]
+
+    # save input
+    CSV.write(basefile * "_y.in", Tables.table(problem.y))
+    CSV.write(basefile * "_X.in", Tables.table(problem.y))
+    
+    # save solution
+    CSV.write(basefile * "_theta.out", Tables.table(solution[1]))
+    CSV.write(basefile * "_xi.out", Tables.table(solution[2]))
+
+    return nothing
 end
 
 # run the benchmark
 interface     = cvxreg_interface
 run_solver    = run_cvxreg
 make_instance = cvxreg_instance
+save_results  = cvxreg_save_results
 
-run_benchmark(interface, run_solver, make_instance, ARGS)
+run_benchmark(interface, run_solver, make_instance, save_results, ARGS)

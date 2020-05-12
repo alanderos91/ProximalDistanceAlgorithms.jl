@@ -1,7 +1,7 @@
 using Random
-using CSV, DataFrames, Dates
+using CSV, DataFrames, Tables
 
-function run_benchmark(interface, run_solver, make_instance, args)
+function run_benchmark(interface, run_solver, make_instance, save_results, args)
     println("Processing command line options...\n")
     options = interface(args)
 
@@ -12,21 +12,19 @@ function run_benchmark(interface, run_solver, make_instance, args)
         algorithm = MM()
     end
 
-    # ρ_init * (1.5)^(floor(50 / n))
-    rho_schedule(ρ, iteration) = iteration % 50 == 0 ? 1.5 : ρ
+    # acceleration
+    if options["accel"]
+        accel = Val(:nesterov)
+    else
+        accel = Val(:none)
+    end
 
     # package keyword arguments into NamedTuple
     kwargs = (
-        # maximum iterations
-        maxiters = options["maxiters"],
-        # toggle Nesterov acceleration
-        accel    = options["accel"] ? Val(:nesterov) : Val(:none),
-        # relative tolerance in loss
-        # ftol     = options["ftol"],
-        # absolute tolerance for distance
-        # dtol     = options["dtol"],
-        # penalty schedule
-        penalty  = rho_schedule,
+        maxiters = options["maxiters"], # maximum iterations
+        accel    = accel,               # toggle Nesterov acceleration
+        ftol     = options["ftol"],     # relative tolerance in loss
+        dtol     = options["dtol"],     # absolute tolerance for distance
     )
 
     # benchmark settings
@@ -51,9 +49,9 @@ function run_benchmark(interface, run_solver, make_instance, args)
 
     # generate convergence history
     print("Extracting convergence history...")
-    history = SDLogger(options["maxiters"], 1)
+    history = initialize_history(options["maxiters"], 1)
     other_kwargs = (kwargs..., history = history)
-    @time run_solver(algorithm, problem; other_kwargs...)
+    solution = @time run_solver(algorithm, problem; other_kwargs...)
     println()
 
     # make sure correct method gets pre-compiled (no history kwarg)
@@ -86,20 +84,17 @@ function run_benchmark(interface, run_solver, make_instance, args)
         println("Saving benchmark results to:\n  $(benchmark_file)\n")
 
         # save benchmark results
-        df = DataFrame(
-            size     = problem_size,
-            cpu_time = cpu_time,
-            memory   = memory
-        )
-        CSV.write(benchmark_file, df)
-
+        save_results(benchmark_file, problem, problem_size, solution, cpu_time, memory)
+        
         # save convergence history
         hf = DataFrame(
+            iteration = history.iteration,
             loss      = history.loss,
-            distance  = history.penalty,
+            distance  = history.distance,
             objective = history.objective,
-            gradient  = history.g,
-            stepsize  = history.γ,
+            gradient  = history.gradient,
+            stepsize  = history.stepsize,
+            rho       = history.rho,
         )
         CSV.write(history_file, hf)
     end

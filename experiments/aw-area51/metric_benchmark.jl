@@ -40,7 +40,7 @@ function metric_projection_interface(args)
         "--dtol"
             help     = "tolerance for distance"
             arg_type = Float64
-            default  = 1e-5
+            default  = 1e-4
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -60,7 +60,7 @@ function metric_projection_instance(options)
 
     W, D = metric_example(n, weighted = false)
     problem = (W = W, D = D)
-    problem_size = (n,)
+    problem_size = (n = n,)
 
     println("    Metric Projection; $(n) nodes\n")
 
@@ -69,12 +69,37 @@ end
 
 # inlined wrapper
 @inline function run_metric_projection(algorithm, problem; kwargs...)
-    metric_projection(algorithm, problem.W, problem.D; kwargs...)
+    # min(1e4, ρ_init * (1.25)^(floor(50 / n)))
+    rho_schedule(ρ, iteration) = min(1e4, iteration % 50 == 0 ? 1.25*ρ : ρ)
+
+    metric_projection(algorithm, problem.W, problem.D; penalty = rho_schedule, kwargs...)
+end
+
+function metric_save_results(file, problem, problem_size, solution, cpu_time, memory)
+    # save benchmark results
+    df = DataFrame(
+            nodes    = problem_size.n,
+            cpu_time = cpu_time,
+            memory   = memory
+        )
+    CSV.write(file, df)
+
+    # get filename without extension
+    basefile = splitext(file)[1]
+
+    # save input
+    CSV.write(basefile * ".in", Tables.table(problem.D))
+    
+    # save solution
+    CSV.write(basefile * ".out", Tables.table(solution))
+
+    return nothing
 end
 
 # run the benchmark
 interface     = metric_projection_interface
 run_solver    = run_metric_projection
 make_instance = metric_projection_instance
+save_results  = metric_save_results
 
-run_benchmark(interface, run_solver, make_instance, ARGS)
+run_benchmark(interface, run_solver, make_instance, save_results, ARGS)

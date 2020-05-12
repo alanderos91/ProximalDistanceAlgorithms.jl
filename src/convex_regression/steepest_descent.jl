@@ -1,6 +1,9 @@
-function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, V, y, X, ρ)
+function cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
     θ = optvars.θ
     ξ = optvars.ξ
+
+    # evaluate loss
+    loss = dot(θ,θ) - 2*dot(y, θ) + dot(y,y)
 
     # compute B*z = D*θ + H*ξ
     apply_D_plus_H!(U, X, θ, ξ)
@@ -18,10 +21,17 @@ function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, V, y, X, ρ)
     apply_Ht!(∇ξ, X, U)
     @. ∇ξ = ρ*∇ξ            # ξ blocks
 
-    # compute the step size
     a = dot(∇θ, ∇θ)
     b = dot(∇ξ, ∇ξ)
 
+    return loss, penalty, a, b
+end
+
+function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
+    θ = optvars.θ
+    ξ = optvars.ξ
+
+    # compute the step size
     apply_D_plus_H!(U, X, ∇θ, ∇ξ)
     c = dot(U, U)
 
@@ -31,19 +41,18 @@ function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, V, y, X, ρ)
     @. θ = θ - γ*∇θ
     @. ξ = ξ - γ*∇ξ
 
-    # evaluate loss and objective
-    loss = 0.5 * (dot(θ,θ) - 2*dot(y, θ) + dot(y,y))
-    objective = loss + 0.5*ρ*penalty
-
-    return γ, sqrt(a+b), loss, objective, penalty
+    return γ
 end
 
 function cvxreg_fit(::SteepestDescent, y, X;
     ρ_init::Real      = 1.0,
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger,
-    accel::accelT     = Val(:none)) where {FuncLike, accelT}
+    history::histT    = nothing,
+    ftol::Real        = 1e-6,
+    dtol::Real        = 1e-4,
+    accel::accelT     = Val(:none)) where {histT, accelT}
+    #
     # extract problem information
     d, n = size(X)
 
@@ -65,25 +74,39 @@ function cvxreg_fit(::SteepestDescent, y, X;
     # construct acceleration strategy
     strategy = get_acceleration_strategy(accel, optvars)
 
-    # extras
+    # initialize
     ρ = ρ_init
 
-    for iteration in 1:maxiters
+    loss, distance, a, b = cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
+    data = package_data(loss, distance, ρ, sqrt(a+b), zero(loss))
+    update_history!(history, data, 0)
+
+    loss_old = loss
+    loss_new = Inf
+    dist_old = distance
+    dist_new = Inf
+    iteration = 1
+
+    while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
-        data = cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, V, y, X, ρ)
+        stepsize = cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
+        
+        # penalty schedule + acceleration
+        ρ_new = penalty(ρ, iteration)             # check for updates to the penalty coefficient
+        ρ != ρ_new && restart!(strategy, optvars) # check for restart due to changing objective
+        apply_momentum!(optvars, strategy)        # apply acceleration strategy
+        ρ = ρ_new                                 # update penalty
 
-        # check for updates to the penalty coefficient
-        ρ_new = penalty(ρ, iteration)
+        # convergence history
+        loss, distance, a, b = cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
+        data = package_data(loss, distance, ρ, sqrt(a+b), stepsize)
+        update_history!(history, data, iteration)
 
-        # apply acceleration strategy
-        ρ != ρ_new && restart!(strategy, optvars)
-        apply_momentum!(optvars, strategy)
-
-        # check for updates to the convergence history
-        history(data, iteration)
-
-        # update penalty
-        ρ = ρ_new
+        loss_old = loss_new
+        loss_new = loss
+        dist_old = dist_new
+        dist_new = distance
+        iteration += 1
     end
 
     return θ, ξ

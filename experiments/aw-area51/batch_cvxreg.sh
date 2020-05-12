@@ -11,18 +11,18 @@ DIR=${PKG}/experiments/aw-area51
 
 # function for running benchmark
 jlbenchmark () {
-    julia --project=${PKG} ${DIR}/metric_benchmark.jl "$@";
+    julia --project=${PKG} ${DIR}/cvxreg_benchmark.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
 PREFIX=$(date +"%Y-%m-%d")
-LOG_FILE=$(mktemp ${DIR}/metric/logs/${PREFIX}-XXXXXX)
+LOG_FILE=$(mktemp ${DIR}/cvxreg/logs/${PREFIX}-XXXXXX)
 exec 1>${LOG_FILE} # redirect STDOUT
 exec 2>&1          # redirect STDERR to STDOUT
 
 # add header
 echo $(date)
-echo "Metric Projection Benchmarks"
+echo "Convex Regression Benchmarks"
 echo
 echo "benchmark:        ${JOBNAME}"
 echo "Julia project:    ${PKG}"
@@ -32,13 +32,16 @@ echo
 # set maximum number of iterations
 MAXITERS=2000
 
-while read n
+while read probsize
     do
+    d=$(cut -d',' -f1 <<< ${probsize})
+    n=$(cut -d',' -f2 <<< ${probsize})
+
     # no acceleration
     FNAME=SD_${n}_none
-    jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     # Nesterov acceleration
     FNAME=SD_${n}_nesterov
-    jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-done < ${DIR}/metric/jobs/${JOBNAME}.in
+    jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+done < ${DIR}/cvxreg/jobs/${JOBNAME}.in
