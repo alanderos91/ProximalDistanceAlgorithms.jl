@@ -66,9 +66,11 @@ function cvxclst_apply_fusion_matrix_transpose!(Q, Y)
 
     for j in 1:n, i in j+1:n
         l = tri2vec(i, j, n)
-        for k in 1:d
-            Q[k,i] += Y[k,l]
-            Q[k,j] -= Y[k,l]
+        @simd for k in 1:d
+            @inbounds Q[k,i] += Y[k,l]
+        end
+        @simd for k in 1:d
+            @inbounds Q[k,j] -= Y[k,l]
         end
     end
 
@@ -102,8 +104,11 @@ function __evaluate_weighted_gradient_norm(Q)
     val = zero(eltype(Q))
 
     for j in 1:n, i in j+1:n
-        @views δ_ij = SqEuclidean()(Q[:,i], Q[:,j])
-        val = val + δ_ij
+        # @views δ_ij = SqEuclidean()(Q[:,i], Q[:,j])
+        for k in 1:d
+            δ_ijk = Q[k,i] - Q[k,j]
+            val = val + δ_ijk^2
+        end
     end
 
     return val

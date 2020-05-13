@@ -41,7 +41,7 @@ function sparse_block_projection!(Y, Δ, index, W, U, K)
     if K > 0
         # compute pairwise distances
         pairwise!(Δ, Euclidean(), U, dims = 2)
-        Δ .= Δ .* W
+        # Δ .= Δ .* W
 
         # mask upper triangular part to extract unique comparisons
         for j in 1:n, i in 1:j-1
@@ -50,10 +50,13 @@ function sparse_block_projection!(Y, Δ, index, W, U, K)
         δ = vec(Δ)
 
         # find the K largest distances
-        J = partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
+        # J = partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
+        sortperm!(index, δ, alg = PartialQuickSort(K), rev = true, initialized = true)
 
         ix2coord = CartesianIndices(Δ)
-        for ix in J
+        # for ix in J
+        for l in 1:K
+            ix = index[l]
             i = ix2coord[ix][1]
             j = ix2coord[ix][2]
 

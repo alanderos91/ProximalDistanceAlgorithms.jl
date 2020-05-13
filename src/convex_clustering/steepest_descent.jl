@@ -1,7 +1,6 @@
 function cvxclst_evaluate!(Q, Y, Δ, index, W, U, X, K, ρ)
     fill!(Q, 0)
     fill!(Y, 0)
-    fill!(Δ, 0)
 
     d, n = size(U)
     sparse_block_projection!(Y, Δ, index, W, U, K)
