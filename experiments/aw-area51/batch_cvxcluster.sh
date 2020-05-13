@@ -16,7 +16,7 @@ jlbenchmark () {
 
 # redirect all output to a randomly generated log file
 PREFIX=$(date +"%Y-%m-%d")
-LOG_FILE=$(mktemp ${DIR}/metric/logs/${PREFIX}-XXXXXX)
+LOG_FILE=$(mktemp ${DIR}/cvxcluster/logs/${PREFIX}-XXXXXX)
 exec 1>${LOG_FILE} # redirect STDOUT
 exec 2>&1          # redirect STDERR to STDOUT
 
