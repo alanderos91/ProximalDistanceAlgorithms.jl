@@ -115,8 +115,8 @@ end
 
 # inlined wrapper
 @inline function run_cvxcluster(algorithm, problem; kwargs...)
-    # min(1e4, ρ_init * (1.25)^(floor(50 / n)))
-    rho_schedule(ρ, iteration) = min(1e4, iteration % 50 == 0 ? 1.5*ρ : ρ)
+    # min(1e5, ρ_init * (1.5)^(floor(50 / n)))
+    rho_schedule(ρ, iteration) = min(1e5, iteration % 50 == 0 ? 1.5*ρ : ρ)
 
     convex_clustering_path(algorithm, problem.W, problem.X; penalty = rho_schedule, kwargs...)
 end
