@@ -123,6 +123,12 @@ function algorithm2(y::AVec, a::Real)
 end
 ```
 
+### Algorithm 3: A partition method
+
+```{julia}
+
+```
+
 ## Tests
 
 ```{julia; results = "hidden"}
