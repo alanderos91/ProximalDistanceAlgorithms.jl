@@ -40,7 +40,7 @@ function metric_projection_interface(args)
         "--dtol"
             help     = "tolerance for distance"
             arg_type = Float64
-            default  = 1e-4
+            default  = 1e-6
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -69,8 +69,8 @@ end
 
 # inlined wrapper
 @inline function run_metric_projection(algorithm, problem; kwargs...)
-    # min(1e4, ρ_init * (1.25)^(floor(50 / n)))
-    rho_schedule(ρ, iteration) = min(1e4, iteration % 50 == 0 ? 1.25*ρ : ρ)
+    # ρ_init * (2.0)^(floor(n/250))
+    rho_schedule(ρ, iteration) = iteration % 250 == 0 ? 2.0 * ρ : ρ
 
     metric_projection(algorithm, problem.W, problem.D; penalty = rho_schedule, kwargs...)
 end

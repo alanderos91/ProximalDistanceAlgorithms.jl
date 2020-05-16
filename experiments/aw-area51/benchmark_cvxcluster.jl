@@ -101,12 +101,14 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
             # compare assignments against truth
             vi1  = Clustering.varinfo(problem.classes, assignment)
             ari1 = Clustering.randindex(problem.classes, assignment)[1]
+            nmi1 = Clustering.mutualinfo(problem.classes, assignment, normed = true)
 
             # compare assignments against k-means
             vi2  = Clustering.varinfo(kmeans_clustering, assignment)
             ari2 = Clustering.randindex(kmeans_clustering, assignment)[1]
+            nmi2 = Clustering.mutualinfo(kmeans_clustering, assignment, normed = true)
 
-            writedlm(io, [ν k vi1 ari1 vi2 ari2 assignment...])
+            writedlm(io, [ν k vi1 ari1 nmi1 vi2 ari2 nmi2 assignment...])
         end
     end
 
@@ -115,8 +117,8 @@ end
 
 # inlined wrapper
 @inline function run_cvxcluster(algorithm, problem; kwargs...)
-    # min(1e5, ρ_init * (1.5)^(floor(50 / n)))
-    rho_schedule(ρ, iteration) = min(1e5, iteration % 50 == 0 ? 1.5*ρ : ρ)
+    # ρ_init * (2.0)^(floor(n/250))
+    rho_schedule(ρ, iteration) = iteration % 250 == 0 ? 2.0 * ρ : ρ
 
     convex_clustering_path(algorithm, problem.W, problem.X; penalty = rho_schedule, kwargs...)
 end

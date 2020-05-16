@@ -30,7 +30,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=2000
+MAXITERS=5000
 
 while read probsize
     do

@@ -47,6 +47,8 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     acceleration? $(options["accel"])
     maxiters:     $(options["maxiters"])
     nsamples:     $(options["nsamples"])
+    ftol:         $(options["ftol"])
+    dtol:         $(options["dtol"])
     seed:         $(options["seed"])""")
 
     # benchmark data
