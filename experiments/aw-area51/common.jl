@@ -1,6 +1,8 @@
 using Random
 using CSV, DataFrames, DelimitedFiles
 
+global const STDOUT = Base.stdout
+
 function save_array(file, data)
     open(file, "w") do io
         writedlm(io, data, ',')
@@ -69,6 +71,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
 
     # run the benchmark
     println("Starting benchmark...")
+    flush(STDOUT)
     for k = 1:nsamples
         print("    collecting sample ($(k)/$(nsamples))... ")
         @time begin
@@ -79,6 +82,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
             cpu_time[k] = result[2]       # seconds
             memory[k]   = result[3] / 1e6 # MB
         end
+        flush(STDOUT)
     end
     println()
 
@@ -88,11 +92,12 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         history_file   = joinpath(DIR, "figures", filename)
         benchmark_file = joinpath(DIR, "benchmarks", filename)
 
-        println("Saving convergence history to:\n  $(history_file)\n")
         println("Saving benchmark results to:\n  $(benchmark_file)\n")
 
         # save benchmark results
         save_results(benchmark_file, problem, problem_size, solution, cpu_time, memory)
+
+        println("Saving convergence history to:\n  $(history_file)\n")
         
         # save convergence history
         hf = DataFrame(
