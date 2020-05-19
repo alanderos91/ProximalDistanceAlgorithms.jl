@@ -1,3 +1,6 @@
+"""
+Update `X` by taking a step in Newton's method.
+"""
 function metric_admm_update_x!(optvars, linsys, ρ, μ)
     X = optvars.X
     x = optvars.x
@@ -12,10 +15,10 @@ function metric_admm_update_x!(optvars, linsys, ρ, μ)
     n = size(X, 1)
 
     # set up RHS of Ax = b
-    b .= transpose(T) * y - transpose(T) * λ
+    b .= transpose(T) * (T*x - y + λ)
     t = 1
     for j in 1:n, i in j+1:n
-        b[t] = b[t] + D[i,j] / μ
+        b[t] = b[t] + (X[i,j] - D[i,j]) / μ
         t += 1
     end
 
@@ -23,10 +26,11 @@ function metric_admm_update_x!(optvars, linsys, ρ, μ)
     __trivec_copy!(x, X)
     __do_linear_solve!(cg_iterator, b)
 
-    # apply the update
+    # apply the update:
+    # x_new = x_old - Newton direction
     for j in 1:n, i in j+1:n
         k = trivec_index(n, i, j)
-        X[i,j] = x[k]
+        X[i,j] = X[i,j] - x[k]
     end
 
     return nothing
