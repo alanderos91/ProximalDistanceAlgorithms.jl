@@ -62,6 +62,7 @@ export convex_clustering, convex_clustering_path,
 
 # example: total variation image denoising
 include(joinpath("image_denoising", "steepest_descent.jl"))
+include(joinpath("image_denoising", "linear_operators.jl"))
 
 export image_denoise, prox_l1_ball!, prox_l2_ball!
 
