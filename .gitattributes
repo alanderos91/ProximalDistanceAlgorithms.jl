@@ -1,7 +1,6 @@
 # Weave and LaTeX output
 *.pdf filter=lfs diff=lfs merge=lfs -text
 *.html filter=lfs diff=lfs merge=lfs -text
-
 # benchmark data and results
 data/*.dat filter=lfs diff=lfs merge=lfs -text
 experiments/aw-area51/*/benchmarks/*.in filter=lfs diff=lfs merge=lfs -text
@@ -9,3 +8,10 @@ experiments/aw-area51/*/benchmarks/*.out filter=lfs diff=lfs merge=lfs -text
 experiments/aw-area51/*/benchmarks/*.dat filter=lfs diff=lfs merge=lfs -text
 experiments/aw-area51/*/figures/*.dat filter=lfs diff=lfs merge=lfs -text
 figures/*/ filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_iris_none.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_seeds_nesterov.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_simulated_nesterov.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_simulated_none.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_zoo_nesterov.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_zoo_none.out filter=lfs diff=lfs merge=lfs -text
+experiments/aw-area51/cvxcluster/benchmarks/SD_iris_nesterov.out filter=lfs diff=lfs merge=lfs -text
