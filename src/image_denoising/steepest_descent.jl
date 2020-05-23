@@ -1,3 +1,58 @@
+function imgtvd_evaluate!(Q, z, dx, dy, index, U, W, ν, ρ)
+    m, n = size(U) # m rows, n columns
+
+    # apply the fusion matrix
+    imgtvd_apply_D!(z, dx, dy, U)
+
+    # apply sparse projection
+    L = length(z)
+    if ν ≤ (L >> 1) # P(z) is highly sparse
+        # find large entries for projection
+        sortperm!(index, z,
+            alg = PartialQuickSort(ν), rev = true, initialized = true)
+
+        # compute z - P(z)
+        for ix in 1:ν
+            k = index[ix]
+            z[k] = 0
+        end
+    else # z - P(z) is highly sparse
+        # find small entries for projection
+        sortperm!(index, z,
+            alg = PartialQuickSort(L-ν), rev = false, initialized = true)
+
+        # compute z - P(z)
+        for ix in (L-ν+1):L
+            k = index[ix]
+            z[k] = 0
+        end
+    end
+
+    unsafe_copyto!(dx, 1, z, 1, length(dx))
+    unsafe_copyto!(dy, 1, z, length(dx) + 1, length(dy))
+
+    fill!(Q, 0)
+    # mul. by tranpose: Dx
+    imgtvd_apply_Dx_transpose!(Q, dx)
+
+    # mul. by transpose: Dy
+    imgtvd_apply_Dy_transpose!(Q, dy)
+
+    # add contribution from extra row
+    Q[end] += z[end]
+
+    # finish forming the gradient
+    for idx in eachindex(Q)
+        Q[idx] = U[idx] - W[idx] + ρ*Q[idx]
+    end
+
+    loss = SqEuclidean()(U, W)
+    penalty = dot(z, z)
+    gradient = dot(Q, Q)
+
+    return loss, penalty, gradient
+end
+
 function prox_l2_ball!(dx, dy, z, epsilon)
     norm_d = sqrt(dot(dx, dx) + dot(dy, dy))
     c = epsilon / norm_d
@@ -38,105 +93,131 @@ function prox_l1_ball!(dx, dy, z, epsilon)
     return nothing
 end
 
-function imgtvd_steepest_descent!(Q, dx, dy, z, U, W, ρ, epsilon, prox!)
-    m, n = size(U) # m rows, n columns
-
-    # compute derivatives on columns, dx = Dx * U
-    for j in 1:n, i in 1:m-1
-        dx[i,j] = U[i+1,j] - U[i,j]
-    end
-
-    # compute derivatives on rows, dy = Dy * u
-    for j in 1:n-1, i in 1:m
-        dy[i,j] = U[i,j+1] - U[i,j] # TODO: do this by fixing a column
-    end
-
-    # compute proximal map
-    prox!(dx, dy, z, epsilon)
-
-    # evaluate loss, penalty, and objective
-    loss      = dot(U, U) - 2*dot(U, W) + dot(W, W)
-    penalty   = dot(dx, dx) + dot(dy, dy)
-    objective = 0.5 * (loss + ρ*penalty)
-
-    # mul. by tranpose: Dx
-    for j in 1:n
-        Q[1,j] = -dx[1,j]
-    end
-
-    for j in 1:n, i in 2:m-1
-        Q[i,j] = dx[i-1,j] - dx[i,j]
-    end
-
-    for j in 1:n
-        Q[m,j] = dx[m-1,j]
-    end
-
-    # mul. by transpose: Dy
-    for i in 1:m
-        Q[i,1] += -dy[i,1]
-    end
-
-    for j in 2:n-1, i in 1:m
-        Q[i,j] += dy[i,j-1] - dy[i,j]
-    end
-
-    for i in 1:m
-        Q[i,n] += dy[i,n-1]
-    end
-
-    # complete the gradient
-    for idx in eachindex(Q)
-        Q[idx] = U[idx] - W[idx] + ρ*Q[idx]
-    end
-
+function imgtvd_steepest_descent!(U, Q, ρ, gradient)
+    m, n = size(U)
     # compute step size
-    a = dot(Q, Q)
+    a = gradient
     b = zero(a)
     for j in 1:n, i in 1:m-1
-        b = b + (Q[i+1,j] - Q[i,j])^2
+        @inbounds b = b + (Q[i+1,j] - Q[i,j])^2
     end
     for j in 1:n-1, i in 1:m
-        b = b + (Q[i,j+1] - Q[i,j])^2
+        @inbounds b = b + (Q[i,j+1] - Q[i,j])^2
     end
+    b += Q[end]^2
     γ = a / (a + ρ*b + eps())
-    normgrad = sqrt(a)
 
-    # apply the update
+    # move in the direction of steepest descent
     for idx in eachindex(U)
-        U[idx] = U[idx] - γ*Q[idx]
+        @inbounds U[idx] = U[idx] - γ*Q[idx]
     end
 
-    return γ, normgrad, loss, objective, penalty
+    return γ
 end
 
 function image_denoise(::SteepestDescent, W;
     ρ_init::Real      = 1.0,
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger,
-    epsilon::Real     = 1.0,
-    proxmap::Function = prox_l2_ball!) where FuncLike
+    history::histT    = nothing,
+    ν::Integer        = 0,
+    ftol::Real        = 1e-6,
+    dtol::Real        = 1e-4,
+    accel::accelT     = Val(:none)) where {histT, accelT}
     #
+    # extract problem dimensions
     m, n = size(W)   # m pixels by n pixels
-    T = eltype(W)    # element type
 
-    U  = copy(W)            # solution
-    Q  = zero(W)            # gradient
-    dx = zeros(T, m-1, n)   # derivatives along rows
-    dy = zeros(T, m, n-1)   # derivatives along cols
-    z  = zeros(T, length(dx) + length(dy)) # for l1 projection
+    # allocate optimization variable
+    U  = copy(W)
+
+    # allocate gradient and auxiliary variables
+    Q  = zero(W)         # gradient
+    dx = zeros(m-1, n)   # derivatives along rows
+    dy = zeros(m, n-1)   # derivatives along cols
+    z  = zeros(length(dx) + length(dy) + 1) # for projection
+    index = collect(1:length(z))
+
+    # construct type for acceleration strategy
+    strategy = get_acceleration_strategy(accel, U)
+
+    # packing
+    solution   = (Q = Q, U = U)
+    projection = (z = z, dx = dx, dy = dy, index = index)
+    inputs     = (W = W, ρ_init = ρ_init, penalty = penalty)
+    settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
+
+    image_denoise!(solution, projection, inputs, settings, ν, true)
+
+    return U
+end
+
+function image_denoise!(solution, projection, inputs, settings, ν, trace)
+    # image and gradient
+    U = solution.U
+    Q = solution.Q
+
+    # data structures for projection
+    z     = projection.z
+    dx    = projection.dx
+    dy    = projection.dy
+    index = projection.index
+
+    # input data
+    W       = inputs.W
+    ρ_init  = inputs.ρ_init
+    penalty = inputs.penalty
+
+    # settings
+    maxiters = settings.maxiters
+    history  = settings.history
+    ftol     = settings.ftol
+    dtol     = settings.dtol
+    strategy = settings.strategy
+
+    # initialize
     ρ = ρ_init
 
-    for iteration in 1:maxiters
+    loss, distance, gradient = imgtvd_evaluate!(Q, z, dx, dy, index, U, W, ν, ρ)
+    data = package_data(loss, distance, ρ, gradient, zero(loss))
+
+    if trace
+        update_history!(history, data, 0)
+    end
+
+    loss_old = loss
+    loss_new = Inf
+    dist_old = distance
+    dist_new = Inf
+    iteration = 1
+
+    while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
         # iterate the algorithm map
-        data = imgtvd_steepest_descent!(Q, dx, dy, z, U, W, ρ, epsilon, proxmap)
+        stepsize = imgtvd_steepest_descent!(U, Q, ρ, gradient)
 
-        # check for updates to the penalty coefficient
-        ρ = penalty(ρ, iteration)
+        # penalty schedule + acceleration
+        ρ_new = penalty(ρ, iteration)       # check for updates to the penalty coefficient
+        ρ != ρ_new && restart!(strategy, U) # check for restart due to changing objective
+        apply_momentum!(U, strategy)        # apply acceleration strategy
+        ρ = ρ_new                           # update penalty
 
-        # check for updates to the convergence history
-        history(data, iteration)
+        # convergence history
+        loss, distance, gradient = imgtvd_evaluate!(Q, z, dx, dy, index, U, W, ν, ρ)
+        data = package_data(loss, distance, ρ, gradient, stepsize)
+
+        if trace # only record outside clustering path algorithm
+            update_history!(history, data, iteration)
+        end
+
+        loss_old = loss_new
+        loss_new = loss
+        dist_old = dist_new
+        dist_new = distance
+        iteration += 1
+    end
+
+    if !trace
+        update_history!(history, data, iteration-1)
     end
 
     return U

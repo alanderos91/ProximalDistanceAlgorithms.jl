@@ -1,308 +1,308 @@
 using CSV, Plots, DataFrames, LaTeXStrings
 using Statistics
-pgfplotsx(grid = false, linewidth = 1, markeralpha = 0.0, markerstrokealpha = 1.0)
+pgfplotsx(grid = false, legend = false,
+    linewidth = 4,
+    markeralpha = 0.0, markerstrokealpha = 1.0, markersize = 8,
+    legendfontsize = 12, titlefontsize = 16, tickfontsize = 12, guidefontsize = 16)
 
 global const OBJECTIVE = L"$\log[h_{\rho}(x_{k})]$"
 global const DESCENT_DIRECTION = L"$\log[\gamma_{k} \|\nabla h_{\rho}(x_{k})\|]$"
 global const DISTANCE = L"$\log[$dist$(Dx_{k},S)]$"
 global const EXPERIMENTS = "experiments/aw-area51/"
 
-function plot_history(benchmark, input; kwargs...)
-    # generate filename for figure
-    output = splitext(input)[1] * ".pdf"
-    output = joinpath("figures", benchmark, output)
-    @show output
+function make_file_tuple(problem, files)
+    matched = filter(x -> occursin(problem, x), files)
+    ix1 = findfirst(x -> occursin("none", x), matched)
+    ix2 = findfirst(x -> occursin("nesterov", x), matched)
 
-    panel_objv = plot()
-    panel_dist = plot()
-    panel_desc = plot()
+    return (matched[ix1], matched[ix2])
+end
 
-    for accel in ("none", "nesterov")
-        # build relative path
-        tmp = input * "_$(accel).dat"
-        tmp = joinpath(EXPERIMENTS, benchmark, "figures", tmp)
-        @show tmp
+function aggregate_files(experiment)
+    # read in data files
+    benchmarks_dir = joinpath(EXPERIMENTS, experiment, "benchmarks")
+    benchmark_files = readdir(benchmarks_dir, join = true)
+    figures_dir = joinpath(EXPERIMENTS, experiment, "figures")
+    figures_files = readdir(figures_dir, join = true)
 
-        df = CSV.read(tmp) # read in data
+    # split files into .in, .out, and .dat files
+    input_files = filter(x -> occursin(".in", x), benchmark_files)
+    output_files = filter(x -> occursin(".out", x), benchmark_files)
+    perf_files = filter(x -> occursin(".dat", x), benchmark_files)
+    hist_files = filter(x -> occursin(".dat", x), figures_files)
 
-        ix = zeros(Bool, nrow(df))
-        for k in 2:nrow(df)
-            modulus = min(10^(ndigits(k) - 1), 5*10^1)
-            ix[k] = (k % modulus == 0)
-        end
-
-        xs = df.iteration[ix]           # iteration number on x-axis
-        y1 = df.objective[ix]           # objective on y-axis
-        y2 = df.gradient .* df.stepsize # norm of descent direction
-        y2 = y2[ix]                     # --> should go to 0
-        y3 = df.distance[ix]            # distance
-
-        accelstr    = accel == "none" ? accel : uppercasefirst(accel)
-        markershape = accel == "none" ? :cross : :circle
-        linestyle   = accel == "none" ? :solid : :dash
-
-        plot!(panel_objv, xs, y1,
-            label  = accelstr,
-            ylabel = OBJECTIVE,
-            xscale = :log10,
-            yscale = :log10,
-            linestyle = linestyle,
-            markershape = markershape,
-            legend = false,
-        )
-
-        plot!(panel_dist, xs, y2,
-            label  = accelstr,
-            ylabel = DESCENT_DIRECTION,
-            xscale = :log10,
-            yscale = :log10,
-            linestyle = linestyle,
-            markershape = markershape,
-            legend = true,
-        )
-
-        label = latexstring(DISTANCE, " ", accelstr)
-        plot!(panel_desc, xs, y3,
-            label  = accelstr,
-            ylabel = DISTANCE,
-            xscale = :log10,
-            yscale = :log10,
-            linestyle = linestyle,
-            markershape = markershape,
-            legend = false,
-        )
+    # group files by problem size
+    if experiment == "metric"
+        pattern = r"\w{2}_[\d]+"
+    elseif experiment == "cvxreg"
+        pattern = r"\w{2}_[\d]+_[\d]+"
+    elseif experiment == "cvxcluster"
+        pattern = r"\w{2}_[alnum]+"
+    # elseif experiment == "denoise"
+    else
+        error("Unrecognized experiment: $(experiment)")
     end
 
-    figure = plot(panel_objv, panel_dist, panel_desc,
-            title   = ["$(benchmark)/$(basename(input))" "" ""],
-            xlabel  = ["" "" L"$\log($iteration $k)$"],
-            layout  = grid(3, 1),
-            size    = (800, 800))
+    problems = map(x -> string(match(pattern, x).match), perf_files)
+    problems = unique(problems)
 
-    savefig(figure, output)
+    # put everything into a tuple
+    file_summary = (
+        experiment = experiment,
+        problems = problems,
+        input = input_files,
+        output = output_files,
+        benchmark = perf_files,
+        history = hist_files,
+    )
+
+    return file_summary
+end
+
+function get_kwargs(accel; options...)
+    if accel # Nesterov acceleration
+        kwargs = (
+            linestyle = :dash,
+            markershape = :circle,
+            color = palette(:default)[1],
+            options...
+        )
+    else # no acceleration
+        kwargs = (
+            linestyle = :solid,
+            markershape = :cross,
+            color = palette(:default)[2],
+            options...
+        )
+    end
+    return kwargs
+end
+
+function plot_history_file(panel, tmp, accel; options...)
+    # read in data
+    df = CSV.read(tmp)
+
+    # thin out data points according to logarithmic scale
+    ix = zeros(Bool, nrow(df))
+    for k in 2:nrow(df)
+        modulus = min(10^(ndigits(k) - 1), 2.5 * 10^2)
+        ix[k] = (k % modulus == 0)
+    end
+
+    xs = df.iteration[ix]           # iteration number on x-axis
+    y1 = df.objective[ix]           # objective on y-axis
+    y2 = df.gradient .* df.stepsize # norm of descent direction
+    y2 = y2[ix]                     # --> should go to 0
+    y3 = df.distance[ix]            # distance
+
+    kwargs = get_kwargs(accel; options...)
+
+    # objective
+    plot!(panel[1], xs, y1; ylabel = OBJECTIVE, kwargs...)
+
+    # descent direction
+    plot!(panel[2], xs, y2; ylabel = DESCENT_DIRECTION, kwargs...)
+
+    # distance
+    plot!(panel[3], xs, y3; ylabel = DISTANCE, kwargs...)
 
     return nothing
 end
 
-function plot_performance(benchmark; kwargs...)
-    if benchmark == "metric"
-        figure = summarize_metric_performance(benchmark)
-    elseif benchmark == "cvxreg"
-        figure = summarize_cvxreg_performance(benchmark)
+function make_history_plots(summary)
+    experiment = summary.experiment
+
+    if experiment == "cvxcluster"
+        options = (yscale = :log10)
+    else
+        options = (xscale = :log10, yscale = :log10)
+    end
+
+    for problem in summary.problems
+        file = joinpath("figures", experiment, problem * ".pdf")
+        println("Processing convergence history:\n\t$(file)\n")
+
+        # create empty plots
+        panel = [plot(), plot(), plot()]
+
+        # add trajectories to panels
+        no_accel, nesterov = make_file_tuple(problem, summary.history)
+        plot_history_file(panel, no_accel, false; options...)
+        plot_history_file(panel, nesterov, true; options...)
+
+        # put everything together
+        figure = plot(panel...,
+                title   = ["$(experiment)/$(problem)" "" ""],
+                xlabel  = ["" "" L"$\log($iteration $k)$"],
+                layout  = grid(3, 1),
+                size    = (800, 800))
+
+        savefig(figure, file)
+    end
+
+    return nothing
+end
+
+function plot_cpu_time(panel, xs, ys, accel; options...)
+    kwargs = get_kwargs(accel; options...)
+    plot!(panel, xs, ys;
+        ylabel = "CPU time (s)",
+        kwargs...
+    )
+end
+
+function plot_memory_use(panel, xs, ys, accel; options...)
+    kwargs = get_kwargs(accel; options...)
+    plot!(panel, xs, ys;
+        ylabel = "Memory (MB)",
+        kwargs...
+    )
+end
+
+function make_performance_plots(summary)
+    experiment = summary.experiment
+    file = joinpath("figures", experiment, "performance.pdf")
+    println("Processing benchmark data:\n\t$(file)\n")
+
+    if experiment == "metric"
+        figure = summarize_metric_performance(summary, xscale = :log2, yscale = :log10)
+    elseif experiment == "cvxreg"
+        figure = summarize_cvxreg_performance(summary, yscale = :log10)
     else
         error("")
     end
 
+    savefig(figure, file)
+
     return figure
 end
 
-function summarize_metric_performance(benchmark)
-    # generate filename for figure
-    output = "$(benchmark)_performance.pdf"
-    output = joinpath("figures", benchmark, output)
-    @show output
+function summarize_metric_performance(summary; options...)
+    experiment = summary.experiment
 
-    panel_cpu_time = plot()
-    panel_memory   = plot()
+    panel = [plot(), plot()]
 
-    folder = joinpath(EXPERIMENTS, benchmark, "benchmarks")
-
-    problem_size = Int[]
-    cpu_time_none = Float64[]
-    cpu_time_nesterov = Float64[]
-    memory_none = Float64[]
+    nodes = Int[]
+    cpu_no_accel = Float64[]
+    cpu_nesterov = Float64[]
+    memory_no_accel = Float64[]
     memory_nesterov = Float64[]
 
-    xscale = :log2
-    yscale = :log10
+    for problem in summary.problems
+        no_accel, nesterov = make_file_tuple(problem, summary.benchmark)
 
-    for input in readdir(folder)
-        if splitext(input)[2] != ".dat" continue end
+        df = CSV.read(no_accel)
+        push!(cpu_no_accel, mean(df.cpu_time))
+        push!(memory_no_accel, mean(df.memory))
+        push!(nodes, df.nodes[1])
 
-        # build relative path
-        tmp = joinpath(folder, input)
-        @show tmp
-
-        df = CSV.read(tmp) # read in data
-
-        push!(problem_size, df.nodes[1])
-
-        if occursin("none", input)
-            push!(cpu_time_none, mean(df.cpu_time))
-            push!(memory_none, mean(df.memory))
-        else
-            push!(cpu_time_nesterov, mean(df.cpu_time))
-            push!(memory_nesterov, mean(df.memory))
-        end
+        df = CSV.read(nesterov)
+        push!(cpu_nesterov, mean(df.cpu_time))
+        push!(memory_nesterov, mean(df.memory))
     end
 
-    problem_size = unique(problem_size)
-    ix = sortperm(problem_size)
+    ix = sortperm(nodes)
 
-    problem_size = problem_size[ix]
-    cpu_time_none = cpu_time_none[ix]
-    cpu_time_nesterov = cpu_time_nesterov[ix]
-    memory_none = memory_none[ix]
+    nodes = nodes[ix]
+    cpu_no_accel = cpu_no_accel[ix]
+    cpu_nesterov = cpu_nesterov[ix]
+    memory_no_accel = memory_no_accel[ix]
     memory_nesterov = memory_nesterov[ix]
 
-    plot!(panel_cpu_time, problem_size, cpu_time_none,
-        label  = "none",
-        ylabel = "CPU time (s)",
-        xscale = xscale,
-        yscale = yscale,
-        linestyle = :solid,
-        markershape = :cross,
-        legend = false,
-    )
+    # no acceleration
+    plot_cpu_time(panel[1], nodes, cpu_no_accel, false; options...)
+    plot_memory_use(panel[2], nodes, memory_no_accel, false; options...)
 
-    plot!(panel_cpu_time, problem_size, cpu_time_nesterov,
-        label  = "Nesterov",
-        ylabel = "CPU time (s)",
-        xscale = xscale,
-        yscale = yscale,
-        linestyle = :dash,
-        markershape = :circle,
-        legend = false,
-    )
+    # Nesterov acceleration
+    plot_cpu_time(panel[1], nodes, cpu_nesterov, true; options...)
+    plot_memory_use(panel[2], nodes, memory_nesterov, true; options...)
 
-    plot!(panel_memory, problem_size, memory_none,
-        label  = "none",
-        ylabel = "Memory (MB)",
-        xscale = xscale,
-        yscale = yscale,
-        linestyle = :solid,
-        markershape = :cross,
-        legend = true,
-    )
-
-    plot!(panel_memory, problem_size, memory_nesterov,
-        label  = "Nesterov",
-        ylabel = "Memory (MB)",
-        xscale = xscale,
-        yscale = yscale,
-        linestyle = :dash,
-        markershape = :circle,
-        legend = true,
-    )
-
-    figure = plot(panel_cpu_time, panel_memory,
-            title   = ["$(benchmark)" ""],
-            xlabel  = "problem size (nodes)",
+    figure = plot(panel...,
+            title   = ["$(experiment)" ""],
+            xlabel  = ["" "problem size (nodes)"],
             layout  = grid(2, 1),
             size    = (800, 800))
 
-    savefig(figure, output)
-
     return figure
 end
 
-function summarize_cvxreg_performance(benchmark)
-    # generate filename for figure
-    output = "$(benchmark)_performance.pdf"
-    output = joinpath("figures", benchmark, output)
-    @show output
+function summarize_cvxreg_performance(summary; options...)
+    experiment = summary.experiment
 
-    panel_cpu_none      = plot()
-    panel_cpu_nest      = plot()
-    panel_memory_none   = plot()
-    panel_memory_nest   = plot()
+    panel = [plot(), plot(), plot(), plot()]
 
-    folder = joinpath(EXPERIMENTS, benchmark, "benchmarks")
+    # group problems by number of features
+    problems = summary.problems
+    problems = map(x -> Regex(join(split(x, "_")[[1,3]], "_[\\d]+_")), problems)
 
     features = Int[]
     samples = Int[]
-    cpu_none = Float64[]
+    cpu_no_accel = Float64[]
     cpu_nesterov = Float64[]
-    memory_none = Float64[]
+    memory_no_accel = Float64[]
     memory_nesterov = Float64[]
 
-    xscale = :identity
-    yscale = :log10
+    for problem in problems
+        subset = filter(x -> occursin(problem, x), summary.problems)
 
-    for input in readdir(folder)
-        if splitext(input)[2] != ".dat" continue end
+        for file in subset
+            no_accel, nesterov = make_file_tuple(file, summary.benchmark)
 
-        # build relative path
-        tmp = joinpath(folder, input)
-        @show tmp
-
-        df = CSV.read(tmp) # read in data
-
-        if occursin("none", input)
-            push!(cpu_none, mean(df.cpu_time))
-            push!(memory_none, mean(df.memory))
-
+            df = CSV.read(no_accel)
+            push!(cpu_no_accel, mean(df.cpu_time))
+            push!(memory_no_accel, mean(df.memory))
             push!(features, df.features[1])
             push!(samples, df.samples[1])
-        else
+
+            df = CSV.read(nesterov)
             push!(cpu_nesterov, mean(df.cpu_time))
             push!(memory_nesterov, mean(df.memory))
         end
     end
 
-    J = sortperm(samples)
-    features = features[J]
-    samples  = samples[J]
+    ix = sortperm(samples)
+    features = features[ix]
+    samples  = samples[ix]
 
-    cpu_none = cpu_none[J]
-    cpu_nesterov = cpu_nesterov[J]
-    memory_none = cpu_none[J]
-    memory_nesterov = cpu_nesterov[J]
+    cpu_no_accel = cpu_no_accel[ix]
+    cpu_nesterov = cpu_nesterov[ix]
+    memory_no_accel = memory_no_accel[ix]
+    memory_nesterov = memory_nesterov[ix]
 
-    for d in sort(unique(features))
+    for (k, d) in enumerate(sort(unique(features)))
         ix = findall(isequal(d), features)
+        label = "$(d) features"
 
-        plot!(panel_cpu_none, samples[ix], cpu_none[ix],
-            label  = "$(d) features",
-            ylabel = "CPU time (s)",
-            xscale = xscale,
-            yscale = yscale,
-            linestyle = :dash,
-            markershape = :circle,
-            legend = false,
-        )
+        xs = samples[ix]
+        y1 = cpu_no_accel[ix]
+        y2 = cpu_nesterov[ix]
+        y3 = memory_no_accel[ix]
+        y4 = memory_nesterov[ix]
 
-        plot!(panel_cpu_nest, samples[ix], cpu_nesterov[ix],
-            label  = "$(d) features",
-            ylabel = "CPU time (s)",
-            xscale = xscale,
-            yscale = yscale,
-            linestyle = :dash,
-            markershape = :circle,
-            legend = false,
-        )
+        colors = palette(:default)[k]
 
-        plot!(panel_memory_none, samples[ix], memory_none[ix],
-            label  = "$(d) features",
-            ylabel = "Memory (MB)",
-            xscale = xscale,
-            yscale = yscale,
-            linestyle = :dash,
-            markershape = :circle,
-            legend = false,
-        )
+        # no acceleration
+        plot_cpu_time(panel[1], xs, y1, false; label = label, color = colors, options...)
+        plot_memory_use(panel[3], xs, y3, false; label = label, color = colors, options...)
 
-        plot!(panel_memory_nest, samples[ix], memory_nesterov[ix],
-            label  = "$(d) features",
-            ylabel = "Memory (MB)",
-            xscale = xscale,
-            yscale = yscale,
-            linestyle = :dash,
-            markershape = :circle,
-            legend = true,
-        )
+        # Nesterov acceleration
+        plot_cpu_time(panel[2], xs, y2, true; label = label, color = colors, options...)
+        plot_memory_use(panel[4], xs, y4, true; label = label, color = colors, options...)
     end
 
-    figure = plot(panel_cpu_none, panel_cpu_nest,
-                panel_memory_none, panel_memory_nest,
+    ylims1 = extrema([cpu_no_accel; cpu_nesterov])
+    ylims2 = extrema([memory_no_accel; memory_nesterov])
+
+    figure = plot(panel...,
             title   = ["none" "Nesterov" "" ""],
             xlabel  = ["" "" "samples" "samples"],
+            ylims   = [ylims1 ylims1 ylims2 ylims2],
             layout  = grid(2, 2),
-            size    = (800, 800))
+            size    = (800, 800),
+            linewidth = 3,
+            legend  = [false false false true])
 
-    savefig(figure, output)
-
-    return nothing
+    return figure
 end
 
 function cvxcluster_clustering(input)
