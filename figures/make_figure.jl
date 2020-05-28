@@ -335,6 +335,10 @@ function cvxcluster_clustering(input)
         k_true = 3
     elseif occursin("zoo", input)
         k_true = 7
+    elseif occursin("iris", input)
+        k_true = 3
+    elseif occursin("seeds", input)
+        k_true = 3
     else
         k_true = 0
     end
@@ -395,6 +399,10 @@ function cvxcluster_history(input)
         k_true = 3
     elseif input == "zoo"
         k_true = 7
+    elseif input == "iris"
+        k_true = 3
+    elseif input == "seeds"
+        k_true = 3
     else
         k_true = 0
     end
@@ -459,3 +467,11 @@ function cvxcluster_history(input)
 
     return nothing
 end
+
+# metric = aggregate_files("metric")
+# make_history_plots(metric)
+# make_performance_plots(metric)
+#
+# cvxreg = aggregate_files("cvxreg")
+# make_history_plots(cvxreg)
+# make_performance_plots(cvxreg)
