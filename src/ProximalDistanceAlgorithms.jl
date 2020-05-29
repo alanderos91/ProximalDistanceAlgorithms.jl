@@ -7,6 +7,8 @@ using RecipesBase
 using CSV, DataFrames
 
 import IterativeSolvers: CGStateVariables
+import LinearMaps
+import LinearMaps: LinearMap, AdjointMap, TransposeMap
 
 # default penalty schedule
 __default_schedule(ρ::Real, iteration::Integer) = ρ
@@ -32,6 +34,17 @@ See the Convex.jl documentation for more details.
 struct BlackBox <: AlgorithmOption end
 
 export SteepestDescent, MM, BlackBox, ADMM
+
+# suggested penalty schedules
+include("penalty.jl")
+
+export slow_schedule, fast_schedule
+
+# convergence metrics + common operations
+include("common.jl")
+include("acceleration.jl")
+
+export initialize_history
 
 # example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
@@ -65,16 +78,5 @@ include(joinpath("image_denoising", "steepest_descent.jl"))
 include(joinpath("image_denoising", "linear_operators.jl"))
 
 export image_denoise, prox_l1_ball!, prox_l2_ball!
-
-# suggested penalty schedules
-include("penalty.jl")
-
-export slow_schedule, fast_schedule
-
-# convergence metrics + common operations
-include("common.jl")
-include("acceleration.jl")
-
-export initialize_history, get_acceleration_strategy
 
 end # module

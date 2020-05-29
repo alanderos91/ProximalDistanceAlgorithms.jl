@@ -105,3 +105,152 @@ function __do_linear_solve!(cg_iterator, b)
 
     return nothing
 end
+
+##### linear operators #####
+
+abstract type FusionMatrix{T} <: LinearMap{T} end
+
+# LinearAlgebra traits
+LinearAlgebra.issymmetric(D::FusionMatrix) = false
+LinearAlgebra.ishermitian(D::FusionMatrix) = false
+LinearAlgebra.isposdef(D::FusionMatrix)    = false
+
+# matrix-vector multiplication
+function Base.:(*)(D::FusionMatrix, x::AbstractVector)
+    M, N = size(D)
+    length(x) == N || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(D), eltype(x)), M)
+    apply_fusion_matrix!(y, D, x)
+
+    return y
+end
+
+function Base.:(*)(D::AdjointMap{<:Any,<:FusionMatrix}, x::AbstractVector)
+    throw(ArgumentError("Operation not implemented for FusionMatrix"))
+end
+
+function Base.:(*)(D::TransposeMap{<:Any,<:FusionMatrix}, x::AbstractVector)
+    Dt = D.lmap
+    M, N = size(Dt)
+    length(x) == M || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(Dt), eltype(x)), N)
+    apply_fusion_matrix_transpose!(y, Dt, x)
+
+    return y
+end
+
+function LinearMaps.A_mul_B!(y::AbstractVector, D::FusionMatrix, x::AbstractVector)
+    M, N = size(D)
+    (length(x) == N && length(y) == M) || throw(DimensionMismatch("A_mul_B!"))
+    apply_fusion_matrix!(y, D, x)
+
+    return y
+end
+
+function LinearMaps.At_mul_B!(y::AbstractVector, D::FusionMatrix, x::AbstractVector)
+    M, N = size(D)
+    (length(x) == M && length(y) == N) || throw(DimensionMismatch("At_mul_B!"))
+    apply_fusion_matrix_transpose!(y, D, x)
+
+    return y
+end
+
+function LinearMaps.Ac_mul_B!(y::AbstractVector, D::FusionMatrix, x::AbstractVector)
+    M, N = size(D)
+    (length(x) == M && length(y) == N) || throw(DimensionMismatch("Ac_mul_B!"))
+    apply_fusion_matrix_conjugate!(y, D, x)
+
+    return y
+end
+
+# internal API
+
+apply_fusion_matrix!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+
+apply_fusion_matrix_transpose!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+
+apply_fusion_matrix_conjugate!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+
+abstract type ProxDistHessian{T} <: LinearMap{T} end
+
+# LinearAlgebra traits
+LinearAlgebra.issymmetric(H::ProxDistHessian) = true
+LinearAlgebra.ishermitian(H::ProxDistHessian) = false
+LinearAlgebra.isposdef(H::ProxDistHessian)    = false
+
+# matrix-vector multiplication
+function Base.:(*)(H::ProxDistHessian, x::AbstractVector)
+    N = size(H, 1)
+    length(x) == N || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(H), eltype(x)), N)
+    apply_hessian!(y, H, x)
+
+    return y
+end
+
+function Base.:(*)(H::AdjointMap{<:Any,<:ProxDistHessian}, x::AbstractVector)
+    throw(ArgumentError("Operation not implemented for ProxDistHessian"))
+end
+
+function Base.:(*)(H::TransposeMap{<:Any,<:ProxDistHessian}, x::AbstractVector)
+    return
+end
+
+function LinearMaps.A_mul_B!(y::AbstractVector, H::ProxDistHessian, x::AbstractVector)
+    N = size(H, 1)
+    (length(x) == N && length(y) == N) || throw(DimensionMismatch("A_mul_B!"))
+    apply_hessian!(y, H, x)
+
+    return y
+end
+
+function LinearMaps.At_mul_B!(y::AbstractVector, H::ProxDistHessian, x::AbstractVector)
+    A_mul_B!(y, H, x)
+end
+
+function LinearMaps.Ac_mul_B!(y::AbstractVector, H::ProxDistHessian, x::AbstractVector)
+    A_mul_B!(y, H, x)
+end
+
+# internal API
+
+apply_hessian!(y, H::ProxDistHessian, x) = error("not implemented for $(typeof(A))")
+
+##### trivec
+
+trivec_index(n, i, j) = (i-j) + n*(j-1) - (j*(j-1))>>1
+
+function trivec_view(X)
+    n = size(X, 1)
+    inds = sizehint!(Int[], binomial(n,2))
+    mapping = LinearIndices((1:n, 1:n))
+    for j in 1:n, i in j+1:n
+        push!(inds, mapping[i,j])
+    end
+    x = view(X, inds)
+    return x
+end
+
+function trivec_parent(x::AbstractVector, n::Int)
+    p = parent(x)
+    x === p && throw(ArgumentError("input may not be a trivec view"))
+    X = reshape(p, (n, n))
+    return X
+end
+
+struct TriVecIndices <: AbstractArray{Int,2}
+    n::Int
+end
+
+import Base: IndexStyle, axes, size, getindex, @_inline_meta
+
+# AbstractArray implementation
+Base.IndexStyle(::Type{<:TriVecIndices}) = IndexLinear()
+Base.axes(iter::TriVecIndices) = (Base.OneTo(iter.n), Base.OneTo(iter.n))
+Base.size(iter::TriVecIndices) = (iter.n, iter.n)
+function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
+    @_inline_meta
+    @boundscheck checkbounds(iter, i, j)
+    j, i = extrema((i, j))
+    l = (i == j) ? 0 : trivec_index(iter.n, i, j)
+end
