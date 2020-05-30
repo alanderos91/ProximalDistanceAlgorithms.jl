@@ -265,6 +265,19 @@ function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
     l = (i == j) ? 0 : trivec_index(iter.n, i, j)
 end
 
+##### remaking named tuples
+function remake_operators(::AlgorithmOption, x, ρ) = x
+
+function remake_operators(::ADMM, x, ρ)
+    H = typeof(x.H)(x.H, ρ)
+    return (x..., H = H)
+end
+
+function remake_operators(::MM, x, ρ)
+    H = typeof(x.H)(x.H, ρ)
+    return (x..., H = H)
+end
+
 ##### common solution interface #####
 
 function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, operators, buffers;
@@ -296,7 +309,10 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
 
         # penalty schedule + acceleration
         ρ_new = penalty(ρ, iteration)
-        ρ != ρ_new && restart!(strategy, optvars)
+        if ρ != ρ_new
+            restart!(strategy, optvars)
+            operators = remake_operators(algorithm, operators, ρ_new)
+        end
         apply_momentum!(optvars, strategy)
         ρ = ρ_new
 
