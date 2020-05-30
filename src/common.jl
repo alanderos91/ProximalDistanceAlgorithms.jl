@@ -177,7 +177,7 @@ apply_fusion_matrix_transpose!(y, D::FusionMatrix, x) = error("not implemented f
 
 apply_fusion_matrix_conjugate!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(D))")
 
-apply_gram_matrix!(y, D::Fusionmatrix, x) = error("not implemented for $(typeof(D))")
+apply_gram_matrix!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(D))")
 
 instantiate_fusion_matrix(D::FusionMatrix) = error("not implemented for $(typeof(D))")
 
@@ -266,7 +266,7 @@ function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
 end
 
 ##### remaking named tuples
-function remake_operators(::AlgorithmOption, x, ρ) = x
+remake_operators(::AlgorithmOption, x, ρ) = x
 
 function remake_operators(::ADMM, x, ρ)
     H = typeof(x.H)(x.H, ρ)

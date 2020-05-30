@@ -48,7 +48,7 @@ include(joinpath("convex_regression", "utilities.jl"))
 export cvxreg_fit, cvxreg_example, mazumder_standardization
 
 # example: metric nearness problem
-include(joinpath("metric_nearness", "linear_operators.jl"))
+include(joinpath("metric_nearness", "operators.jl"))
 include(joinpath("metric_nearness", "ADMM.jl"))
 include(joinpath("metric_nearness", "steepest_descent.jl"))
 include(joinpath("metric_nearness", "mm.jl"))
