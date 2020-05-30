@@ -282,7 +282,7 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
     # initialize
     ρ = ρ_init
 
-    f_loss, h_dist, h_ngrad = eval_h(optvars, gradients, operators, buffers, ρ)
+    f_loss, h_dist, h_ngrad = eval_h(algorithm, optvars, gradients, operators, buffers, ρ)
     data = package_data(f_loss, h_dist, h_ngrad, one(f_loss), ρ)
     update_history!(history, data, 0)
 
@@ -301,7 +301,7 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
         ρ = ρ_new
 
         # convergence history
-        f_loss, h_dist, h_ngrad = eval_h(optvars, gradients, operators, buffers, ρ)
+        f_loss, h_dist, h_ngrad = eval_h(algorithm, optvars, gradients, operators, buffers, ρ)
         data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
         update_history!(history, data, iteration)
 

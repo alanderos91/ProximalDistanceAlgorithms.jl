@@ -1,8 +1,8 @@
-function metric_eval(optvars, gradients, operators, buffers, ρ)
+function metric_eval(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
     x = optvars.x
-    ∇f = gradients.∇f
-    ∇d = gradients.∇d
-    ∇h = gradients.∇h
+    ∇f = derivs.∇f
+    ∇d = derivs.∇d
+    ∇h = derivs.∇h
     D = operators.D
     P = operators.P
     y = operators.y
@@ -14,16 +14,16 @@ function metric_eval(optvars, gradients, operators, buffers, ρ)
     mul!(∇d, D', z)
     @. ∇h = ∇f + ρ * ∇d
 
-    loss = SqEuclidean()(x, y) / 2    # 1/2 * ||W^1/2 * (x-y)||^2
+    loss = SqEuclidean()(x, y) / 2  # 1/2 * ||W^1/2 * (x-y)||^2
     penalty = dot(z, z)             # D*x - P(D*x)
     normgrad = dot(∇h, ∇h)          # ||∇h(x)||^2
 
     return loss, penalty, normgrad
 end
 
-function metric_iter(::SteepestDescent, optvars, gradients, operators, buffers, ρ)
+function metric_iter(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
     x = optvars.x
-    ∇h = gradients.∇h
+    ∇h = derivs.∇h
     D = operators.D
     z = buffers.z
 
@@ -54,11 +54,11 @@ function metric_projection(algorithm::SteepestDescent, W, Y; kwargs...)
     x = trivec_view(X)
     optvars = (x = x,)
 
-    # allocate gradients
+    # allocate derivatives
     ∇f = trivec_view(zero(X))    # loss
     ∇d = trivec_view(zero(X))    # distance
     ∇h = trivec_view(zero(X))    # objective
-    gradients = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
+    derivs = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
 
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
@@ -70,7 +70,7 @@ function metric_projection(algorithm::SteepestDescent, W, Y; kwargs...)
     z = zeros(M)
     buffers = (z = z,)
 
-    optimize!(algorithm, metric_eval, metric_iter, optvars, gradients, operators, buffers; kwargs...)
+    optimize!(algorithm, metric_eval, metric_iter, optvars, derivs, operators, buffers; kwargs...)
 
     # symmetrize solution
     for j in 1:n, i in j+1:n
