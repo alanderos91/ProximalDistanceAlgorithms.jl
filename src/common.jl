@@ -266,11 +266,16 @@ function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
 end
 
 ##### remaking named tuples
-remake_operators(::AlgorithmOption, x, ρ) = x
+remake_operators(::AlgorithmOption, x, y, ρ) = (x, y)
 
-function remake_operators(::MM, x, ρ)
+function remake_operators(::MM, x, y, ρ)
     H = typeof(x.H)(x.H, ρ)
-    return (x..., H = H)
+    x1 = (x..., H = H)
+    s = y.cg_iterator
+    cg_iterator = CGIterable(H, s.x, s.r, s.c, s.u, s.reltol, s.residual, s.prev_residual, s.maxiter, s.mv_products)
+    y1 = (y..., cg_iterator = cg_iterator)
+
+    return (x1, y1)
 end
 
 ##### common solution interface #####
@@ -306,7 +311,7 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
         ρ_new = penalty(ρ, iteration)
         if ρ != ρ_new
             restart!(strategy, optvars)
-            operators = remake_operators(algorithm, operators, ρ_new)
+            operators, buffers = remake_operators(algorithm, operators, buffers, ρ_new)
         end
         apply_momentum!(optvars, strategy)
         ρ = ρ_new
