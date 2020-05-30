@@ -21,3 +21,26 @@ function metric_example(n; weighted = false)
 
     return W, D
 end
+
+function metric_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ)
+    x = optvars.x
+    ∇f = derivs.∇f
+    ∇d = derivs.∇d
+    ∇h = derivs.∇h
+    D = operators.D
+    P = operators.P
+    a = operators.a
+    z = buffers.z
+
+    mul!(z, D, x)
+    @. z = z - P(z)
+    @. ∇f = x - a
+    mul!(∇d, D', z)
+    @. ∇h = ∇f + ρ * ∇d
+
+    loss = SqEuclidean()(x, a) / 2  # 1/2 * ||W^1/2 * (x-y)||^2
+    penalty = dot(z, z)             # D*x - P(D*x)
+    normgrad = dot(∇h, ∇h)          # ||∇h(x)||^2
+
+    return loss, penalty, normgrad
+end

@@ -1,26 +1,3 @@
-function metric_eval(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
-    x = optvars.x
-    ∇f = derivs.∇f
-    ∇d = derivs.∇d
-    ∇h = derivs.∇h
-    D = operators.D
-    P = operators.P
-    y = operators.y
-    z = buffers.z
-
-    mul!(z, D, x)
-    @. z = z - P(z)
-    @. ∇f = x - y
-    mul!(∇d, D', z)
-    @. ∇h = ∇f + ρ * ∇d
-
-    loss = SqEuclidean()(x, y) / 2  # 1/2 * ||W^1/2 * (x-y)||^2
-    penalty = dot(z, z)             # D*x - P(D*x)
-    normgrad = dot(∇h, ∇h)          # ||∇h(x)||^2
-
-    return loss, penalty, normgrad
-end
-
 function metric_iter(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
     x = optvars.x
     ∇h = derivs.∇h
@@ -40,17 +17,17 @@ function metric_iter(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
     return γ
 end
 
-function metric_projection(algorithm::SteepestDescent, W, Y; kwargs...)
+function metric_projection(algorithm::SteepestDescent, W, A; kwargs...)
     #
     # extract problem dimensions
-    n = size(Y, 1)      # number of nodes
+    n = size(A, 1)      # number of nodes
     m1 = binomial(n, 2) # number of unique non-negativity constraints
     m2 = m1*(n-2)       # number of unique triangle edges
     N = m1              # total number of optimization variables
     M = m1 + m2         # total number of constraints
 
     # allocate optimization variable
-    X = copy(Y)
+    X = copy(A)
     x = trivec_view(X)
     optvars = (x = x,)
 
@@ -63,8 +40,8 @@ function metric_projection(algorithm::SteepestDescent, W, Y; kwargs...)
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
-    y = trivec_view(Y)
-    operators = (D = D, P = P, y = y)
+    a = trivec_view(A)
+    operators = (D = D, P = P, a = a)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
