@@ -191,7 +191,7 @@ function MetricHessian{T}(n::Integer, ρ, ∇²f::matT) where {T<:Number,matT}
 end
 
 # remake with different ρ
-MetricHessian{T}(H::MetricHessian{T}, ρ) where {T<:Number} = MetricHessian{T}(H.n, H.N, ρ, H.∇²f, H.indices)
+MetricHessian{T,matT}(H::MetricHessian{T,matT}, ρ) where {T<:Number,matT} = MetricHessian{T,matT}(H.n, H.N, ρ, H.∇²f, H.indices)
 
 # default to Float64
 MetricHessian(n::Integer, ρ, ∇²f) = MetricHessian{Float64}(n, ρ, ∇²f)
