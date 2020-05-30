@@ -31,16 +31,12 @@ struct BlackBox <: AlgorithmOption end
 
 export SteepestDescent, MM, BlackBox, ADMM
 
-# suggested penalty schedules
-include("penalty.jl")
-
-export slow_schedule, fast_schedule
-
 # convergence metrics + common operations
 include("common.jl")
 include("acceleration.jl")
 
 export initialize_history, instantiate_fusion_matrix
+export slow_schedule, fast_schedule
 
 # example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
