@@ -1,45 +1,3 @@
-function instantiate_fusion_matrix(D::MetricFM)
-    n = D.n
-    nrows = D.M
-    ncols = D.N
-
-    I = zeros(nrows)
-    J = zeros(nrows)
-    V = zeros(nrows)
-
-    edge = 0
-    for j in 1:n-2, i in j+1:n-1, k in i+1:n
-        # map to linear indices
-        s1 = trivec_index(n, i, j)
-        s2 = trivec_index(n, k, i)
-        s3 = trivec_index(n, k, j)
-
-        __set_row!(I, J, V, s1, s2, s3, edge += 1) # T_ijk
-        __set_row!(I, J, V, s2, s1, s3, edge += 1) # T_jik
-        __set_row!(I, J, V, s3, s1, s2, edge += 1) # T_kij
-    end
-
-    return [sparse(I, J, V); I]
-end
-
-function __set_row!(I, J, V, s1, s2, s3, t)
-    z = 3*(t-1)+1
-
-    I[z] = t
-    J[z] = s1
-    V[z] = -1
-
-    I[z+1] = t
-    J[z+1] = s2
-    V[z+1] = 1
-
-    I[z+2] = t
-    J[z+2] = s3
-    V[z+2] = 1
-
-    return nothing
-end
-
 struct MetricFM{T} <: FusionMatrix{T}
     n::Int # nodes in dissimilarity matrix
     M::Int # rows implied by n
@@ -175,65 +133,98 @@ function apply_fusion_matrix_transpose!(x::AbstractVector, D::MetricFM, z)
     return z
 end
 
-# for testing: Tt*T * trivec(X)
-@inbounds function metric_apply_gram_matrix!(Q, X)
-    n = size(X, 1)
-    unsafe_copyto!(Q, 1, X, 1, length(X))
-    for j in 1:n-2, i in j+1:n-1
-        a = X[i,j]  # fix one edge
+function instantiate_fusion_matrix(D::MetricFM{T}) where {T<:Number}
+    n = D.n
+    nrows = D.M
+    ncols = D.N
 
-        @simd for k in i+1:n
-            b = X[k,i]
-            c = X[k,j]
+    I = zeros(Int, nrows)
+    J = zeros(Int, nrows)
+    V = zeros(T, nrows)
 
-            # TtT*x
-            Q_ij = 3*a - b - c
-            Q_ki = 3*b - a - c
-            Q_kj = 3*c - a - b
+    edge = 0
+    for j in 1:n-2, i in j+1:n-1, k in i+1:n
+        # map to linear indices
+        s1 = trivec_index(n, i, j)
+        s2 = trivec_index(n, k, i)
+        s3 = trivec_index(n, k, j)
 
-            # accumulate
-            Q[i,j] += Q_ij
-            Q[k,i] += Q_ki
-            Q[k,j] += Q_kj
-        end
+        __set_row!(I, J, V, s1, s2, s3, edge += 1) # T_ijk
+        __set_row!(I, J, V, s2, s1, s3, edge += 1) # T_jik
+        __set_row!(I, J, V, s3, s1, s2, edge += 1) # T_kij
     end
 
-    return Q
+    return [sparse(I, J, V); I]
 end
 
-# Operator 1: y = Tt*T * trivec(X); y - min(0, y)
-@inbounds function metric_apply_operator1!(Q, X)
-    n = size(X, 1)
+function __set_row!(I, J, V, s1, s2, s3, t)
+    z = 3*(t-1)+1
 
-    penalty = zero(eltype(Q))
+    I[z] = t
+    J[z] = s1
+    V[z] = -1
 
-    for j in 1:n-2, i in j+1:n-1
-        a = X[i,j]
+    I[z+1] = t
+    J[z+1] = s2
+    V[z+1] = 1
 
-        @simd for k in i+1:n
-            b = X[k,i]
-            c = X[k,j]
+    I[z+2] = t
+    J[z+2] = s3
+    V[z+2] = 1
 
-            abc = a - b - c; fabc = min(0, abc)
-            bac = b - a - c; fbac = min(0, bac)
-            cab = c - a - b; fcab = min(0, cab)
+    return nothing
+end
 
-            # TtT*x - Tt*(T*x)_{-}
-            Q_ij = 3*a - b - c - fabc + fbac + fcab
-            Q_ki = 3*b - a - c - fbac + fabc + fcab
-            Q_kj = 3*c - a - b - fcab + fabc + fbac
+struct MetricHessian{T,matT} <: ProxDistHessian{T}
+    n::Int      # number of nodes
+    N::Int      # size of matrix
+    ρ::T        # penalty coefficient
+    ∇²f::matT   # cache for Hessian
+    indices::TriVecIndices
+end
 
-            # accumulate
-            Q[i,j] += Q_ij
-            Q[k,i] += Q_ki
-            Q[k,j] += Q_kj
+# constructors
+function MetricHessian{T}(n::Integer, ρ, ∇²f::matT) where {T<:Number,matT}
+    N = binomial(n, 2)
+    indices = TriVecIndices(n)
+    return MetricHessian{T,matT}(n, N, ρ, ∇²f, indices)
+end
 
-            # accumulate penalty T*x - min(T*x, 0)
-            penalty += (abc - fabc)^2
-            penalty += (bac - fbac)^2
-            penalty += (cab - fcab)^2
+# remake with different ρ
+MetricHessian{T}(H::MetricHessian{T}, ρ) where {T<:Number} = MetricHessian{T}(H.n, H.N, ρ, H.∇²f, H.indices)
+
+# default to Float64
+MetricHessian(n::Integer, ρ, ∇²f) = MetricHessian{Float64}(n, ρ, ∇²f)
+
+# implementation
+Base.size(H::MetricHessian) = (H.N, H.N)
+
+function apply_hessian!(y::AbstractVector, H::MetricHessian, x::AbstractVector)
+    n = H.n
+    N = H.N
+    ρ = H.ρ
+    ∇²f = H.∇²f
+    indices = H.indices
+
+    # apply I block of D'D
+    y .= x
+
+    # apply T'T block of D'D
+    @inbounds for j in 1:n-2, i in j+1:n-1
+        i1 = indices[i,j]; a = x[i1]
+
+        @inbounds for k in i+1:n
+            i2 = indices[k,i]; b = x[i2]
+            i3 = indices[k,j]; c = x[i3]
+
+            y[i1] += 3*a - b - c
+            y[i2] += 3*b - a - c
+            y[i3] += 3*c - a - b
         end
     end
 
-    return penalty
+    # complete (∇²h + ρ*D'D) * x
+    mul!(y, ∇²f, x, 1, ρ)
+
+    return y
 end

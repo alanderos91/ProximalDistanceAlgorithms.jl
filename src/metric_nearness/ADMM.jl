@@ -1,139 +1,128 @@
-"""
-Update `X` by taking a step in Newton's method.
-"""
-function metric_admm_update_x!(optvars, linsys, ρ, μ)
-    X = optvars.X
+function metric_admm_update_x!(optvars, derivs, operators, buffers, ρ)
     x = optvars.x
     y = optvars.y
     λ = optvars.λ
-    D = optvars.D # assuming weights all equal to 1
-    T = optvars.T
+    ∇f = derivs.∇f
+    D = operators.D
+    μ = operators.H.ρ
 
-    cg_iterator = linsys.cg_iterator
-    b = linsys.b
+    cg_iterator = buffers.cg_iterator
+    b = buffers.b
+    η = buffers.η
+    z = buffers.z
 
-    n = size(X, 1)
-
-    # set up RHS of Ax = b
-    b .= transpose(T) * (T*x - y + λ)
-    t = 1
-    for j in 1:n, i in j+1:n
-        b[t] = b[t] + (X[i,j] - D[i,j]) / μ
-        t += 1
-    end
+    # set up RHS of Ax = b := ∇f + μ*D' * (D*x - y + λ)
+    mul!(z, D, x)
+    b .= ∇f
+    mul!(b, D', z, μ, 1.0)
+    mul!(b, D', y, -μ, 1.0)
+    mul!(b, D', λ, μ, 1.0)
 
     # solve the linear system
-    __trivec_copy!(x, X)
     __do_linear_solve!(cg_iterator, b)
 
     # apply the update:
     # x_new = x_old - Newton direction
-    for j in 1:n, i in j+1:n
-        k = trivec_index(n, i, j)
-        X[i,j] = X[i,j] - x[k]
-    end
+    axpy!(-1.0, η, x)
 
     return nothing
 end
 
-function metric_admm_update_y!(optvars, linsys, ρ, μ)
-    y = optvars.y
-    α = (ρ / μ) / (1 + ρ / μ)
-
-    for k in eachindex(y)
-        y[k] = α * min(0, y[k]) + (1-α) * y[k]
-    end
-
-    return nothing
-end
-
-function metric_admm_update_λ!(optvars, linsys, ρ, μ)
+function metric_admm_update_y!(optvars, derivs, operators, buffers, ρ)
     x = optvars.x
     y = optvars.y
     λ = optvars.λ
-    T = optvars.T
+    D = operators.D
+    P = operators.P
+    μ = operators.H.ρ
+    z = buffers.z
+    Pz = buffers.Pz
 
-    λ .= λ + μ*(T*x - y)
+    # evaluate z = D*x + λ and P(z)
+    mul!(z, D, x)
+    axpy!(1, λ, z)
+    @. Pz = P(z)
+
+    # y = α*Pz + (1-α)*z
+    α = (ρ / μ) / (1 + ρ / μ)
+    y .= (1-α)*z
+    axpy!(α, Pz, y)
 
     return nothing
 end
 
-function metric_projection(::ADMM, W, D;
-    ρ_init::Real      = 1.0,
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger,
-    accel::accelT     = Val(:none)) where {FuncLike, accelT}
+function metric_admm_update_λ!(optvars, derivs, operators, buffers, ρ)
+    x = optvars.x
+    y = optvars.y
+    λ = optvars.λ
+    D = operators.D
+    μ = operators.H.ρ
+
+    # λ =  λ + μ*(D*x - y)
+    mul!(λ, D, x, μ, 1.0) # λ = λ + μ*D*x
+    axpy!(-μ, y, λ)    # λ = λ - μ*y
+
+    return nothing
+end
+
+function metric_iter(::ADMM, optvars, derivs, operators, buffers, ρ)
+    metric_admm_update_x!(optvars, derivs, operators, buffers, ρ)
+    metric_admm_update_y!(optvars, derivs, operators, buffers, ρ)
+    metric_admm_update_λ!(optvars, derivs, operators, buffers, ρ)
+
+    return 1.0
+end
+
+function metric_projection(algorithm::ADMM, W, A; μ::Real = 1.0, kwargs...)
     #
     # extract problem dimensions
-    n = size(D, 1)
-    m = binomial(n, 2)
-
-    # assume symmetry in D and zeros in diagonal
-    D_tri = LowerTriangular(D)
-    W_tri = LowerTriangular(W)
+    n = size(A, 1)      # number of nodes
+    m1 = binomial(n, 2) # number of unique non-negativity constraints
+    m2 = m1*(n-2)       # number of unique triangle edges
+    N = m1              # total number of optimization variables
+    M = m1 + m2         # total number of constraints
 
     # allocate optimization variable
-    X = copy(D_tri)
-    x = zeros(eltype(X), m)
-    y = zeros(eltype(X), m*(n-2))
-    λ = zeros(eltype(X), m*(n-2))
+    X = copy(A)
+    x = trivec_view(X)
+    y = zeros(M)
+    λ = zeros(M)
+    optvars = (x = x, y = y, λ = λ)
 
-    # initialize penalty coefficient + tuning parameter
-    ρ = ρ_init
-    μ = 1.0
+    # allocate derivatives
+    ∇f = trivec_view(zero(X))    # loss
+    ∇d = trivec_view(zero(X))    # distance
+    ∇h = trivec_view(zero(X))    # objective
+    ∇²f = I                      # Hessian for loss
+    derivs = (∇f = ∇f, ∇²f = ∇²f, ∇d = ∇d, ∇h = ∇h)
 
-    # allocate matrix for conjugate gradient
-    T = metric_fusion_matrix(n)
-    A = T'T
-    for i in 1:n
-        A[i,i] = 1/μ + A[i,i]
-    end
-    __trivec_copy!(x, X)
-    mul!(y, T, x)
+    # generate operators
+    D = MetricFM(n, M, N)   # fusion matrix
+    P(x) = max.(x, 0)       # projection onto non-negative orthant
+    H = MetricHessian(n, μ, ∇²f)
+    a = trivec_view(A)
+    operators = (D = D, P = P, H = H, a = a)
 
-    # intermediates for solving A*trivec(X) = trivec(Z)
-    B = similar(X)
-    b = zeros(eltype(B), m)
+    # allocate any additional arrays for mat-vec multiplication
+    z = zeros(M)
+    Pz = similar(z)
+    η = trivec_view(similar(X))
+    b = trivec_view(similar(X))
 
     # initialize conjugate gradient solver
-    cg_iterator = CGIterable(
-        A, x,
-        similar(b), similar(b), similar(b),
-        1e-8, 0.0, 1.0, size(A, 2), 0
-    )
+    b1 = trivec_view(similar(X))
+    b2 = trivec_view(similar(X))
+    b3 = trivec_view(similar(X))
+    cg_iterator = CGIterable(H, η, b1, b2, b3, 1e-8, 0.0, 1.0, size(H, 2), 0)
 
-    # pack variables into named tuple
-    optvars  = (D = D_tri, W = W_tri, X = X, x = x, y = y, λ = λ, T = T)
-    linsys = (A = A, B = B, b = b, cg_iterator = cg_iterator)
+    buffers = (z = z, Pz = Pz, b = b, η = η, cg_iterator = cg_iterator)
 
-    # construct acceleration strategy
-    # strategy = get_acceleration_strategy(accel, X)
+    optimize!(algorithm, metric_eval, metric_iter, optvars, derivs, operators, buffers; kwargs...)
 
-    for iteration in 1:maxiters
-        # iterate the algorithm map
-        metric_admm_update_x!(optvars, linsys, ρ, μ)
-        metric_admm_update_y!(optvars, linsys, ρ, μ)
-        metric_admm_update_λ!(optvars, linsys, ρ, μ)
-
-        # check for updates to the penalty coefficient
-        # ρ_new = penalty(ρ, iteration)
-        μ_new = 1 / (iteration + 1)
-        for i in 1:n
-            diff = 1 / μ_new - 1 / μ
-            A[i,i] = A[i,i] + diff
-        end
-        μ = μ_new
-        # apply acceleration strategy
-        # ρ != ρ_new && restart!(strategy, X)
-        # apply_momentum!(X, strategy)
-
-        # check for updates to the convergence history
-        # history(data, iteration)
-
-        # update penalty
-        # ρ = ρ_new
+    # symmetrize solution
+    for j in 1:n, i in j+1:n
+        X[j,i] = X[i,j]
     end
 
-    return optvars
+    return X
 end
