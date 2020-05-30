@@ -10,10 +10,6 @@ import IterativeSolvers: CGStateVariables
 import LinearMaps
 import LinearMaps: LinearMap, AdjointMap, TransposeMap
 
-# default penalty schedule
-__default_schedule(ρ::Real, iteration::Integer) = ρ
-__default_schedule(T, W, n::Integer, ρ::Real, iteration::Integer) = ρ
-
 # algorithm types
 abstract type AlgorithmOption end
 
@@ -44,7 +40,7 @@ export slow_schedule, fast_schedule
 include("common.jl")
 include("acceleration.jl")
 
-export initialize_history
+export initialize_history, instantiate_fusion_matrix
 
 # example: convex regression
 include(joinpath("convex_regression", "linear_operators.jl"))
@@ -62,7 +58,7 @@ include(joinpath("metric_nearness", "steepest_descent.jl"))
 include(joinpath("metric_nearness", "mm.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
 
-export metric_projection, metric_example
+export metric_projection, metric_example, MetricFM
 
 # example: convex clustering
 include(joinpath("convex_clustering", "linear_operators.jl"))

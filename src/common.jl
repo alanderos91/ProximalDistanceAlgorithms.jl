@@ -1,3 +1,9 @@
+##### annealing schedules #####
+
+__default_schedule(ρ::Real, iteration::Integer) = ρ
+slow_schedule(ρ::Real, iteration::Integer) = iteration % 250 == 0 ? 1.5*ρ : ρ
+fast_schedule(ρ::Real, iteration::Integer) = iteration % 50 == 0 ? 1.1*ρ : ρ
+
 ##### convergence history #####
 
 # notes:
@@ -27,11 +33,11 @@ Package arguments into a `NamedTuple` and standardize reporting:
 - Input `objective` is reported as '0.5 * (loss + rho * distance)'.
 - Input `gradient` is assumed to be 'norm^2' so we take its square root.
 """
-function package_data(loss, distance, rho, gradient, stepsize)
+function package_data(loss, distance, gradient, stepsize, rho)
     data = (
         loss      = loss,
         distance  = sqrt(distance),
-        objective = 0.5 * (loss + rho * distance),
+        objective = loss + rho * distance / 2,
         gradient  = sqrt(gradient),
         stepsize  = stepsize,
         rho       = rho,
@@ -63,21 +69,21 @@ end
 """
 Evaluate convergence using the following three checks:
 
-    1. relative change in `loss` is within `ftol`,
-    2. relative change in `dist` is within `ftol`, and
-    3. magnitude of `dist` is smaller than `dtol`
+    1. relative change in `loss` is within `rtol`,
+    2. relative change in `dist` is within `rtol`, and
+    3. magnitude of `dist` is smaller than `atol`
 
-Returns a `true` if any of (1)-(3) are false, `false` otherwise.
+Returns `true` if any of (1)-(3) are violated, `false` otherwise.
 """
-function not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol)
-    diff1 = abs(loss_new - loss_old)
-    diff2 = abs(dist_new - dist_old)
+function not_converged(loss, dist, rtol, atol)
+    diff1 = abs(loss.new - loss.old)
+    diff2 = abs(dist.new - dist.old)
 
-    flag = diff1 > ftol * (loss_old + 1)
-    flag = flag || (diff2 > ftol * (dist_old + 1))
-    flag = flag || (dist_new > dtol)
+    flag1 = diff1 > rtol * (loss.old + 1)
+    flag2 = diff2 > rtol * (dist.old + 1)
+    flag3 = dist.new > atol
 
-    return flag
+    return flag1 || flag2 || flag3
 end
 
 ##### wrapper around CGIterable #####
@@ -165,11 +171,15 @@ end
 
 # internal API
 
-apply_fusion_matrix!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+apply_fusion_matrix!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(D))")
 
-apply_fusion_matrix_transpose!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+apply_fusion_matrix_transpose!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(D))")
 
-apply_fusion_matrix_conjugate!(y, A::FusionMatrix, x) = error("not implemented for $(typeof(A))")
+apply_fusion_matrix_conjugate!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(D))")
+
+apply_gram_matrix!(y, D::Fusionmatrix, x) = error("not implemented for $(typeof(D))")
+
+instantiate_fusion_matrix(D::FusionMatrix) = error("not implemented for $(typeof(D))")
 
 abstract type ProxDistHessian{T} <: LinearMap{T} end
 
@@ -253,4 +263,52 @@ function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
     @boundscheck checkbounds(iter, i, j)
     j, i = extrema((i, j))
     l = (i == j) ? 0 : trivec_index(iter.n, i, j)
+end
+
+##### common solution interface #####
+
+function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, operators, buffers;
+    ρ_init::Real      = 1.0,
+    maxiters::Integer = 100,
+    penalty::Function = __default_schedule,
+    history::histT    = nothing,
+    rtol::Real        = 1e-6,
+    atol::Real        = 1e-4,
+    accel::accelT     = Val(:none)) where {histT, accelT}
+    #
+    # construct acceleration strategy
+    strategy = get_acceleration_strategy(accel, optvars)
+
+    # initialize
+    ρ = ρ_init
+
+    f_loss, h_dist, h_ngrad = eval_h(optvars, gradients, operators, buffers, ρ)
+    data = package_data(f_loss, h_dist, h_ngrad, one(f_loss), ρ)
+    update_history!(history, data, 0)
+
+    loss = (old = f_loss, new = Inf)
+    dist = (old = h_dist, new = Inf)
+    iteration = 1
+
+    while not_converged(loss, dist, rtol, atol) && iteration ≤ maxiters
+        # iterate the algorithm map
+        stepsize = M(algorithm, optvars, gradients, operators, buffers, ρ)
+
+        # penalty schedule + acceleration
+        ρ_new = penalty(ρ, iteration)
+        ρ != ρ_new && restart!(strategy, optvars)
+        apply_momentum!(optvars, strategy)
+        ρ = ρ_new
+
+        # convergence history
+        f_loss, h_dist, h_ngrad = eval_h(optvars, gradients, operators, buffers, ρ)
+        data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
+        update_history!(history, data, iteration)
+
+        loss = (old = loss.new, new = f_loss)
+        dist = (old = dist.new, new = h_dist)
+        iteration += 1
+    end
+
+    return optvars
 end

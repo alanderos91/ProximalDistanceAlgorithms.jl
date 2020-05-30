@@ -1,97 +1,78 @@
-function metric_evaluate!(Q, W, D, X, ρ)
-    n = size(X, 1)
+function metric_eval(optvars, gradients, operators, buffers, ρ)
+    x = optvars.x
+    ∇f = gradients.∇f
+    ∇d = gradients.∇d
+    ∇h = gradients.∇h
+    D = operators.D
+    P = operators.P
+    y = operators.y
+    z = buffers.z
 
-    # evaluate loss, penalty, objective and gradient
-    fill!(Q, 0)
-    penalty1 = metric_apply_operator1!(Q, X)
-    penalty2 = metric_accumulate_operator2!(Q, X)
+    mul!(z, D, x)
+    @. z = z - P(z)
+    @. ∇f = x - y
+    mul!(∇d, D', z)
+    @. ∇h = ∇f + ρ * ∇d
 
-    loss = zero(eltype(X))
+    loss = SqEuclidean()(x, y) / 2    # 1/2 * ||W^1/2 * (x-y)||^2
+    penalty = dot(z, z)             # D*x - P(D*x)
+    normgrad = dot(∇h, ∇h)          # ||∇h(x)||^2
 
-    for j in 1:n, i in j+1:n
-        Q[i,j] = W[i,j] * (X[i,j] - D[i,j]) + ρ*Q[i,j]
-        loss = loss + W[i,j]*(X[i,j] - D[i,j])^2
-    end
-
-    penalty = penalty1 + penalty2
-    gradient = dot(Q, Q)
-
-    return loss, penalty, gradient
+    return loss, penalty, normgrad
 end
 
-function metric_steepest_descent!(X, Q, W, D, ρ, gradient)
+function metric_iter(::SteepestDescent, optvars, gradients, operators, buffers, ρ)
+    x = optvars.x
+    ∇h = gradients.∇h
+    D = operators.D
+    z = buffers.z
+
     # evaluate stepsize
-    a = gradient                               # norm^2 of gradient
-    b = __apply_T_evaluate_norm_squared(Q)     # norm^2 of T*gradient
-    c = __evaulate_weighted_norm_squared(W, Q) # norm^2 of W^1/2*gradient
+    mul!(z, D, ∇h)
+    a = dot(∇h, ∇h)     # ||∇h(x)||^2
+    b = dot(z, z)       # ||D*∇h(x)||^2
+    c = a               # ||W^1/2 * ∇h(x)||^2
     γ = a / (c + ρ*(a + b) + eps())
 
     # move in the direction of steepest descent
-    n = size(X, 1)
-    for j in 1:n, i in j+1:n
-        X[i,j] = X[i,j] - γ*Q[i,j]
-    end
+    @. x = x - γ*∇h
 
     return γ
 end
 
-function metric_projection(::SteepestDescent, W, D;
-    ρ_init::Real      = 1.0,
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::histT    = nothing,
-    ftol::Real        = 1e-6,
-    dtol::Real        = 1e-4,
-    accel::accelT     = Val(:none)) where {histT, accelT}
+function metric_projection(algorithm::SteepestDescent, W, Y; kwargs...)
     #
     # extract problem dimensions
-    n = size(D, 1)
+    n = size(Y, 1)      # number of nodes
+    m1 = binomial(n, 2) # number of unique non-negativity constraints
+    m2 = m1*(n-2)       # number of unique triangle edges
+    N = m1              # total number of optimization variables
+    M = m1 + m2         # total number of constraints
 
     # allocate optimization variable
-    X = copy(D)
+    X = copy(Y)
+    x = trivec_view(X)
+    optvars = (x = x,)
 
-    # allocate gradient
-    Q = similar(X)
+    # allocate gradients
+    ∇f = trivec_view(zero(X))    # loss
+    ∇d = trivec_view(zero(X))    # distance
+    ∇h = trivec_view(zero(X))    # objective
+    gradients = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
 
-    # construct acceleration strategy
-    strategy = get_acceleration_strategy(accel, X)
+    # generate operators
+    D = MetricFM(n, M, N)   # fusion matrix
+    P(x) = max.(x, 0)       # projection onto non-negative orthant
+    y = trivec_view(Y)
+    operators = (D = D, P = P, y = y)
 
-    # initialize
-    ρ = ρ_init
+    # allocate any additional arrays for mat-vec multiplication
+    z = zeros(M)
+    buffers = (z = z,)
 
-    loss, distance, gradient = metric_evaluate!(Q, W, D, X, ρ)
-    data = package_data(loss, distance, ρ, gradient, zero(loss))
-    update_history!(history, data, 0)
+    optimize!(algorithm, metric_eval, metric_iter, optvars, gradients, operators, buffers; kwargs...)
 
-    loss_old = loss
-    loss_new = Inf
-    dist_old = distance
-    dist_new = Inf
-    iteration = 1
-
-    while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
-        # iterate the algorithm map
-        stepsize = metric_steepest_descent!(X, Q, W, D, ρ, gradient)
-
-        # penalty schedule + acceleration
-        ρ_new = penalty(ρ, iteration)       # check for updates to the penalty coefficient
-        ρ != ρ_new && restart!(strategy, X) # check for restart due to changing objective
-        apply_momentum!(X, strategy)        # apply acceleration strategy
-        ρ = ρ_new                           # update penalty
-
-        # convergence history
-        loss, distance, gradient = metric_evaluate!(Q, W, D, X, ρ)
-        data = package_data(loss, distance, ρ, gradient, stepsize)
-        update_history!(history, data, iteration)
-
-        loss_old = loss_new
-        loss_new = loss
-        dist_old = dist_new
-        dist_new = distance
-        iteration += 1
-    end
-
-    # symmetrize
+    # symmetrize solution
     for j in 1:n, i in j+1:n
         X[j,i] = X[i,j]
     end

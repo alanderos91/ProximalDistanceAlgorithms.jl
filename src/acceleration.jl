@@ -12,7 +12,7 @@ mutable struct Nesterov{T}
     Nesterov(X::T) where T = new{T}(deepcopy(X), 1)
 end
 
-get_acceleration_strategy(::Val{:nesterov}, X) = Nesterov(X)
+get_acceleration_strategy(::Val{:nesterov}, optvars) = Nesterov(optvars)
 
 # dispatch for array types
 function apply_momentum!(X::AbstractArray, strategy::Nesterov)
@@ -46,23 +46,6 @@ function __apply_momentum!(X::AbstractArray, Y, n)
 
         Y[idx] = x
         X[idx] = z
-    end
-
-    return nothing
-end
-
-# implementation for lower triangular matrix
-function __apply_momentum!(X::LowerTriangular, Y, n)
-    m1, m2 = size(X)
-
-    for j in 1:m2, i in j+1:m1
-        x = X[i,j]
-        y = Y[i,j]
-
-        z = x + (n-1)/(n+2) * (x-y)
-
-        Y[i,j] = x
-        X[i,j] = z
     end
 
     return nothing
