@@ -268,11 +268,6 @@ end
 ##### remaking named tuples
 remake_operators(::AlgorithmOption, x, ρ) = x
 
-function remake_operators(::ADMM, x, ρ)
-    H = typeof(x.H)(x.H, ρ)
-    return (x..., H = H)
-end
-
 function remake_operators(::MM, x, ρ)
     H = typeof(x.H)(x.H, ρ)
     return (x..., H = H)
