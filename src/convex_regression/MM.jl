@@ -1,101 +1,73 @@
-function cvxreg_mm!(θ, ξ, ∇θ, ∇ξ, U, V, b, b1, b2, w, w1, w2, y, X, T, cg_iterator, ρ)
-# function cvxreg_mm!(θ, ξ, y, X, D, H, T, ρ)
-    # compute B*z = D*θ + H*ξ
-    apply_D_plus_H!(U, X, θ, ξ)
+function cvxreg_iter(::MM, optvars, derivs, operators, buffers, ρ)
+    x = optvars.x
+    D = operators.D
+    P = operators.P
+    y = operators.y
 
-    # project onto non-positive orthant
-    @. V = min(0, U)
+    cg_iterator = buffers.cg_iterator
+    b = buffers.b
+    z = buffers.z
+    Pz = buffers.Pz
 
-    # compute blocks b1 = Dt*v and b2 = Ht*v
-    apply_Dt!(b1, V)
-    apply_Ht!(b2, X, V)
+    # set up RHS of Ax = b := y + ρ*D'P(D*x)
+    mul!(z, D, x)
+    @. Pz = P(z)
 
-    # finish forming RHS of T*w = b
-    @. b1 = b1 + y / ρ
+    fill!(b, 0)
+    copyto!(b, 1, y, 1, length(y))
+    mul!(b, D', Pz, ρ, 1.0)
 
-    # evaluate B*z - proj(B*z) and check distance penalty
-    @. U = U - V
-    penalty = dot(U, U)
-
-    # form the gradient
-    apply_Dt!(∇θ, U)
-    @. ∇θ = θ - y + ρ*∇θ    # θ block
-    apply_Ht!(∇ξ, X, U)
-    @. ∇ξ = ρ*∇ξ            # ξ blocks
-
-    # evaluate norm of gradient
-    g = sqrt(dot(∇θ, ∇θ) + dot(∇ξ, ∇ξ))
-
-    # solve linear system
+    # solve the linear system
     __do_linear_solve!(cg_iterator, b)
 
-    # apply update to θ block
-    copyto!(θ, w1)
-
-    # apply update to ξ blocks
-    copyto!(ξ, w2)
-
-    # evaluate loss and objective
-    loss = 0.5 * (dot(θ,θ) - 2*dot(y, θ) + dot(y,y))
-    objective = loss + 0.5*ρ*penalty
-
-    return g, loss, objective, penalty
+    return 1.0
 end
 
-function cvxreg_fit(::MM, y, X;
-    ρ_init::Real      = 1.0,
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::FuncLike = __default_logger) where FuncLike
+function cvxreg_fit(algorithm::MM, y, X; kwargs...)
+    #
     # extract problem information
-    d, n = size(X)
+    d, n = size(X)  # features by samples
+    M = n*n         # number of subgradient constraints (includes redundancy)
+    N = n*(d+1)     # total number of optimization variables
 
-    # initialize penalty coefficient
-    ρ = ρ_init
+    # allocate optimization variable
+    x = zeros(N)            # x = [θ; ξ]
+    copyto!(x, 1, y, 1, n)  # θ = y
+    optvars = (x = x,)
 
-    # allocate function estimates and subgradients
-    θ = copy(y)
-    ξ = zeros(d, n)
+    # allocate derivatives
+    ∇f = zero(x)                # loss
+    ∇d = zero(x)                # distance
+    ∇h = zero(x)                # objective
+    ∇h_θ = view(∇h, 1:n)        # view of ∇h with block corres. to θ
+    ∇h_ξ = view(∇h, n+1:N)      # view of ∇h with block corres. to ξ
+    ∇²f = [I spzeros(n, n*d); spzeros(n*d, n) spzeros(n, n)]
+    derivs = (∇f = ∇f, ∇²f = ∇²f, ∇d = ∇d, ∇h = ∇h, ∇h_θ = ∇h_θ, ∇h_ξ = ∇h_ξ)
 
-    # intermediate for mat-vec mult + projection
-    U = zeros(n, n)
-    V = zeros(n, n)
+    # generate operators
+    A = CvxRegBlockA(n)     # A*θ = θ_j - θ_i
+    B = CvxRegBlockB(X)     # B*ξ = <ξ_j, X_i - X_j>
+    D = [A B]               # implemented as a BlockMap
+    P(x) = min.(x, 0)       # projection onto non-positive orthant
+    H = CvxRegHessian(n, 1.0, ∇²f, D'D)
+    operators = (D = D, P = P, H = H, y = y)
 
-    # allocate gradients
-    ∇θ = zero(θ)
-    ∇ξ = zero(ξ)
+    # allocate any additional arrays for mat-vec multiplication
+    z = zeros(M)
+    Pz = zeros(M)
+    b = similar(x)
+    θ = view(x, 1:n) # should be in optvars; needed to avoid issue with accel.
+    ξ = view(x, n+1:N)
 
-    # itermediates for linear solve T*w = b
-    b = zeros(n+n*d)        # RHS
-    b1 = @view b[1:n]       # θ block
-    b2 = @view b[n+1:end]   # ξ block
+    # initialize conjugate gradient solver
+    b1 = similar(x)
+    b2 = similar(x)
+    b3 = similar(x)
+    cg_iterator = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, size(H, 2), 0)
 
-    w = zeros(n+n*d)        # LHS
-    w1 = @view w[1:n]       # θ block
-    w2 = @view w[n+1:end]   # ξ block
+    buffers = (z = z, Pz = Pz, θ = θ, ξ = ξ, b = b, cg_iterator = cg_iterator)
 
-    # sparse matrix T = (A'A/ρ + B'B)
-    D = make_D(n)
-    H = make_H(X)
-    T = sparse([
-            Matrix(I(n)/ρ + D'D)  Matrix(D'H)
-            Matrix(H'D)           Matrix(H'H)
-        ])::SparseMatrixCSC
+    optimize!(algorithm, cvxreg_eval, cvxreg_iter, optvars, derivs, operators, buffers; kwargs...)
 
-    cg_iterator = CGIterable(
-        T, w,
-        similar(b), similar(b), similar(b),
-        1e-8, 0.0, 1.0, size(T, 2), 0
-    )
-
-    for iteration in 1:maxiters
-        data = cvxreg_mm!(θ, ξ, ∇θ, ∇ξ, U, V, b, b1, b2, w, w1, w2, y, X, T, cg_iterator, ρ)
-        # data = cvxreg_mm!(θ, ξ, y, X, D, H, T, ρ)
-
-        ρ = penalty(T, I, n, ρ, iteration)
-
-        history(data, iteration)
-    end
-
-    return θ, ξ
+    return copy(θ), copy(reshape(ξ, d, n))
 end

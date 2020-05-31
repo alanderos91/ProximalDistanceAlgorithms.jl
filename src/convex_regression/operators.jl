@@ -156,7 +156,7 @@ function CvxRegHessian{T}(n::Integer, ρ, ∇²f::matT1, DtD::matT2) where {T<:N
 end
 
 # remake with different ρ
-CvxRegHessian(H::CvxRegHessian{T,matT1,matT2}, ρ) where {T,matT1,matT2} = CvxRegHessian{T,matT1,matT2}(H.n, H.N, ρ, H.∇²f, H.DtD)
+CvxRegHessian{T,matT1,matT2}(H::CvxRegHessian{T,matT1,matT2}, ρ) where {T,matT1,matT2} = CvxRegHessian{T,matT1,matT2}(H.n, H.N, ρ, H.∇²f, H.DtD)
 
 # default to Float64
 CvxRegHessian(n::Integer, ρ, ∇²f, DtD) = CvxRegHessian{Float64}(n, ρ, ∇²f, DtD)
