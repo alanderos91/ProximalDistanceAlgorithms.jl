@@ -39,7 +39,7 @@ export initialize_history, instantiate_fusion_matrix
 export slow_schedule, fast_schedule
 
 # example: convex regression
-include(joinpath("convex_regression", "linear_operators.jl"))
+include(joinpath("convex_regression", "operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))
 include(joinpath("convex_regression", "mm.jl"))
 include(joinpath("convex_regression", "black_box.jl"))
