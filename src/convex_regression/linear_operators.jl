@@ -1,180 +1,176 @@
-# matrices
-
-function make_D(n)
-    D = spzeros(Int, n*n, n)
-    k = 1
-
-    for j in 1:n, i in 1:n
-        if i != j
-            D[k,i] = -1
-            D[k,j] = 1
-        end
-        k += 1
-    end
-
-    return D
+struct CvxRegBlockA{T} <: FusionMatrix{T}
+   n::Int
+   M::Int
+   N::Int
 end
 
-function make_H(X)
-    d, n = size(X)
-    H = zeros(n*n, n*d)
+# constructors
 
-    for j in 1:n, i in 1:n, k in 1:d
-        I = (j-1)*n + i # column j, row i
-        J = (j-1)*d + k # block j, index k
+function CvxRegBlockA{T}(n::Integer) where {T<:Number}
+   M = n*n
+   N = n
 
-        H[I,J] = X[k,i] - X[k,j]
-    end
-
-    return H
+   return CvxRegBlockA{T}(n, M, N)
 end
 
-# linear operators
+# default eltype to Int
+CvxRegBlockA(n::Integer) = CvxRegBlockA{Int}(n)
 
-function apply_D!(C, θ)
-   for j in eachindex(θ), i in eachindex(θ)
-      @inbounds C[i,j] = θ[j] - θ[i]
+# implementation
+Base.size(D::CvxRegBlockA) = (D.M, D.N)
+
+function apply_fusion_matrix!(z, D::CvxRegBlockA, θ)
+   n = D.n
+   indices = LinearIndices((1:n, 1:n))
+
+   # apply A block of D = [A B]
+   @inbounds for j in 1:n, i in 1:n
+      z[indices[i,j]] = θ[j] - θ[i]
    end
 
-   return C
+   return z
 end
 
-function apply_Dt!(u, C)
-   fill!(u, 0)
+function apply_fusion_matrix_transpose!(θ, D::CvxRegBlockA, z)
+   n = D.n
+   indices = LinearIndices((1:n, 1:n))
 
-   for j in eachindex(u), i in eachindex(u)
-      @inbounds u[i] -= C[i,j] # accumulate C*1
-      @inbounds u[i] += C[j,i] # accumulate C'*1
+   fill!(θ, 0)
+
+   for j in 1:n, i in 1:n # may benefit from BLAS approach?
+      θ[i] -= z[indices[i,j]] # accumulate Z*1
+      θ[i] += z[indices[j,i]] # accumulate Z'*1
    end
 
-   return u
+   return θ
 end
 
-function apply_DtD!(u, θ)
-   n = length(θ)
-   μ = sum(θ)
-   @. u = 2*(n*θ - μ)
+function instantiate_fusion_matrix(D::CvxRegBlockA)
+   n = D.n
+   A = spzeros(Int, n*n, n)
 
-   return u
+   # form A block of D = [A B]
+   k = 1
+   for j in 1:n, i in 1:n
+      if i != j
+         A[k,i] = -1
+         A[k,j] = 1
+      end
+      k += 1
+   end
+
+   return A
 end
 
-function apply_H!(C, X, ξ)
+struct CvxRegBlockB{T,matT<:AbstractMatrix{T}} <: FusionMatrix{T}
+   d::Int
+   n::Int
+   M::Int
+   N::Int
+   X::matT
+end
+
+# constructors
+
+function CvxRegBlockB(X::AbstractMatrix)
    d, n = size(X)
-   fill!(C, 0)
+   M = n*n
+   N = d*n
 
-   for j in 1:n, i in 1:n, k in 1:d
-      @inbounds C[i,j] = C[i,j] + ξ[k,j] * (X[k,i] - X[k,j])
-   end
-
-   return C
+   return CvxRegBlockB(d, n, M, N, X)
 end
 
-function apply_Ht!(U::AbstractMatrix, X, W)
-   d, n = size(X)
-   fill!(U, 0)
+# implementation
+Base.size(D::CvxRegBlockB) = (D.M, D.N)
 
-   for j in 1:n, i in 1:n, k in 1:d
-      # U has the same shape as X
-      @inbounds U[k,j] = U[k,j] + W[i,j] * (X[k,i] - X[k,j])
-   end
+function apply_fusion_matrix!(z, D::CvxRegBlockB, ξ)
+   d = D.d
+   n = D.n
+   X = D.X
 
-   return U
-end
-
-function apply_Ht!(U::AbstractVector, X, W)
-   d, n = size(X)
-   fill!(U, 0)
-
-   for j in 1:n, i in 1:n, k in 1:d
-      l = (j-1)*d + k
-      # U has the same shape as vec(X)
-      @inbounds U[l] = U[l] + W[i,j] * (X[k,i] - X[k,j])
-   end
-
-   return U
-end
-
-function apply_D_plus_H!(U, X, θ, ξ)
-   fill!(U, 0)
-   d, n = size(X)
+   indices1 = LinearIndices((1:n, 1:n))
+   indices2 = LinearIndices((1:d, 1:n))
 
    for j in 1:n, i in 1:n
-      # accumulate contribution from D*θ
-      @inbounds U[i,j] = U[i,j] + θ[j] - θ[i]
+      s = 0
+      for k in 1:d # need views to SIMD
+         ξ_kj = ξ[indices2[k,j]]
+         s = s + ξ_kj * (X[k,i] - X[k,j])
+      end
+      z[indices1[i,j]] = s
+   end
 
-      # accumulate contribution from H*ξ
+   return z
+end
+
+function apply_fusion_matrix_transpose!(ξ, D::CvxRegBlockB, z)
+   d = D.d
+   n = D.n
+   X = D.X
+
+   indices1 = LinearIndices((1:n, 1:n))
+   indices2 = LinearIndices((1:d, 1:n))
+   fill!(ξ, 0)
+   for j in 1:n, i in 1:n
+      z_ij = z[indices1[i,j]]
       for k in 1:d
-         @inbounds U[i,j] = U[i,j] + ξ[k,j] * (X[k,i] - X[k,j])
+         J = indices2[k,j]
+         ξ[J] = ξ[J] + z_ij * (X[k,i] - X[k,j])
       end
    end
 
-   return U
+   return ξ
 end
 
-# version w/o redundant constraints
-#
-# function __apply_D_plus_H!(b, X, θ, ξ)
-#    d, n = size(X)
-#
-#    l = 1
-#    # contribution from D*θ
-#    for j in 1:n, i in j+1:n
-#       b[l] = θ[j] - θ[i]
-#       b[n*(n-1)-l+1] = θ[i] - θ[j]
-#       l += 1
-#    end
-#
-#    l = 1
-#    # contribution from H*ξ
-#    for j in 1:n, i in 1:n
-#       if i == j continue end
-#       for k in 1:d
-#          b[l] = b[l] + (X[k,i] - X[k,j]) * ξ[k,j]
-#       end
-#       l += 1
-#    end
-#
-#    return b
-# end
-#
-# function __build_D(n)
-#     D = spzeros(Int, n*(n-1), n)
-#     k = 1
-#     for j in 1:n, i in j+1:n
-#         D[k,i] = -1
-#         D[k,j] = 1
-#
-#         D[n*(n-1)-k+1,i] = 1
-#         D[n*(n-1)-k+1,j] = -1
-#         k += 1
-#     end
-#
-#     return D
-# end
-#
-# function __build_H(X)
-#    d, n = size(X)
-#    H = zeros(n*(n-1), n*d)
-#
-#    l = 1
-#    for j in 1:n, i in 1:n
-#       if i == j continue end
-#       for k in 1:d
-#          I = l
-#          J = (j-1)*d+k
-#          H[I,J] = X[k,i] - X[k,j]
-#       end
-#       l += 1
-#    end
-#
-#    return H
-# end
-#
-# function __build_matrices(X)
-#    d, n = size(X)
-#    D = __build_D(n)
-#    H = __build_H(X)
-#    T = inv(I + D*D' + H*H')
-#
-#    return D', H', T
-# end
+function instantiate_fusion_matrix(D::CvxRegBlockB)
+   d = D.d
+   n = D.n
+   M, N = size(D)
+   X = D.X
+
+   B = spzeros(eltype(D), M, N)
+
+   for j in 1:n, i in 1:n, k in 1:d
+      I = (j-1)*n + i # column j, row i
+      J = (j-1)*d + k # block j, index k
+
+      B[I,J] = X[k,i] - X[k,j]
+   end
+
+   return B
+end
+
+struct CvxRegHessian{T,matT1,matT2} <: ProxDistHessian{T}
+   n::Int
+   N::Int
+   ρ::T
+   ∇²f::matT1
+   DtD::matT2
+end
+
+# constructors
+
+function CvxRegHessian{T}(n::Integer, ρ, ∇²f::matT1, DtD::matT2) where {T<:Number,matT1,matT2}
+   N = size(DtD, 1)
+   return CvxRegHessian{T,matT1,matT2}(n, N, ρ, ∇²f, DtD)
+end
+
+# remake with different ρ
+CvxRegHessian(H::CvxRegHessian{T,matT1,matT2}, ρ) where {T,matT1,matT2} = CvxRegHessian{T,matT1,matT2}(H.n, H.N, ρ, H.∇²f, H.DtD)
+
+# default to Float64
+CvxRegHessian(n::Integer, ρ, ∇²f, DtD) = CvxRegHessian{Float64}(n, ρ, ∇²f, DtD)
+
+# implementation
+Base.size(H::CvxRegHessian) = (H.N, H.N)
+
+function apply_hessian!(y, H::CvxRegHessian, x)
+   ρ = H.ρ
+   ∇²f = H.∇²f
+   DtD = H.DtD
+
+   mul!(y, DtD, x)         # y = DtD*x
+   mul!(y, ∇²f, x, 1, ρ)   # y = ∇²f*x + ρ*y
+
+   return y
+end

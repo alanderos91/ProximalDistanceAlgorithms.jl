@@ -1,113 +1,59 @@
-function cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
-    θ = optvars.θ
-    ξ = optvars.ξ
+function cvxreg_iter(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
+    x = optvars.x       # [θ; ξ]
+    ∇h = derivs.∇h      # full gradient
+    ∇h_θ = derivs.∇h_θ  # view of ∇h with block corres. to θ
+    ∇h_ξ = derivs.∇h_ξ  # view of ∇h with block corres. to ξ
+    D = operators.D     # fusion matrix
+    z = buffers.z       # z = D*x
 
-    # evaluate loss
-    loss = dot(θ,θ) - 2*dot(y, θ) + dot(y,y)
-
-    # compute B*z = D*θ + H*ξ
-    apply_D_plus_H!(U, X, θ, ξ)
-
-    # project onto non-positive orthant
-    @. V = min(0, U)
-
-    # evaluate B*z - proj(B*z) and check distance penalty
-    @. U = U - V
-    penalty = dot(U, U)
-
-    # form the gradient
-    apply_Dt!(∇θ, U)
-    @. ∇θ = θ - y + ρ*∇θ    # θ block
-    apply_Ht!(∇ξ, X, U)
-    @. ∇ξ = ρ*∇ξ            # ξ blocks
-
-    a = dot(∇θ, ∇θ)
-    b = dot(∇ξ, ∇ξ)
-
-    return loss, penalty, a, b
-end
-
-function cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
-    θ = optvars.θ
-    ξ = optvars.ξ
-
-    # compute the step size
-    apply_D_plus_H!(U, X, ∇θ, ∇ξ)
-    c = dot(U, U)
-
+    # evaluate step size
+    mul!(z, D, ∇h)
+    a = dot(∇h_θ, ∇h_θ) # ||∇h_θ(x)||^2
+    b = dot(∇h_ξ, ∇h_ξ) # ||∇h_ξ(x)||^2
+    c = dot(z, z)       # ||D*∇h(x)||^2
     γ = (a + b) / (a + ρ*c + eps())
 
     # apply the steepest descent update
-    @. θ = θ - γ*∇θ
-    @. ξ = ξ - γ*∇ξ
+    @. x = x - γ*∇h
 
     return γ
 end
 
-function cvxreg_fit(::SteepestDescent, y, X;
-    ρ_init::Real      = 1.0,
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::histT    = nothing,
-    ftol::Real        = 1e-6,
-    dtol::Real        = 1e-4,
-    accel::accelT     = Val(:none)) where {histT, accelT}
+function cvxreg_fit(algorithm::SteepestDescent, y, X; kwargs...)
     #
     # extract problem information
-    d, n = size(X)
+    d, n = size(X)  # features by samples
+    M = n*n         # number of subgradient constraints (includes redundancy)
+    N = n*(d+1)     # total number of optimization variables
 
-    # allocate matrices for intermediates
-    U = zeros(n, n)
-    V = zeros(n, n)
+    # allocate optimization variable
+    x = zeros(N)            # x = [θ; ξ]
+    copyto!(x, 1, y, 1, n)  # θ = y
+    optvars = (x = x,)
 
-    # allocate function estimates and subgradients
-    θ = copy(y)
-    ξ = zeros(d, n)
+    # allocate derivatives
+    ∇f = zero(x)                # loss
+    ∇d = zero(x)                # distance
+    ∇h = zero(x)                # objective
+    ∇h_θ = view(∇h, 1:n)        # view of ∇h with block corres. to θ
+    ∇h_ξ = view(∇h, n+1:N)      # view of ∇h with block corres. to ξ
+    derivs = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h, ∇h_θ = ∇h_θ, ∇h_ξ = ∇h_ξ)
 
-    # collect into named tuple
-    optvars = (θ = θ, ξ = ξ)
+    # generate operators
+    A = CvxRegBlockA(n)     # A*θ = θ_j - θ_i
+    B = CvxRegBlockB(X)     # B*ξ = <ξ_j, X_i - X_j>
+    D = [A B]               # implemented as a BlockMap
+    P(x) = min.(x, 0)       # projection onto non-positive orthant
+    operators = (D = D, P = P, y = y)
 
-    # allocate gradients
-    ∇θ = zero(θ)
-    ∇ξ = zero(ξ)
+    # allocate any additional arrays for mat-vec multiplication
+    z = zeros(M)
+    Pz = zeros(M)
+    θ = view(x, 1:n) # should be in optvars; needed to avoid issue with accel.
+    ξ = view(x, n+1:N)
+    buffers = (z = z, Pz = Pz, θ = θ, ξ = ξ)
 
-    # construct acceleration strategy
-    strategy = get_acceleration_strategy(accel, optvars)
+    optimize!(algorithm, cvxreg_eval, cvxreg_iter, optvars, derivs, operators, buffers; kwargs...)
 
-    # initialize
-    ρ = ρ_init
-
-    loss, distance, a, b = cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
-    data = package_data(loss, distance, ρ, sqrt(a+b), zero(loss))
-    update_history!(history, data, 0)
-
-    loss_old = loss
-    loss_new = Inf
-    dist_old = distance
-    dist_new = Inf
-    iteration = 1
-
-    while not_converged(loss_old, loss_new, dist_old, dist_new, ftol, dtol) && iteration ≤ maxiters
-        # iterate the algorithm map
-        stepsize = cvxreg_steepest_descent!(optvars, ∇θ, ∇ξ, U, X, ρ, a, b)
-
-        # penalty schedule + acceleration
-        ρ_new = penalty(ρ, iteration)             # check for updates to the penalty coefficient
-        ρ != ρ_new && restart!(strategy, optvars) # check for restart due to changing objective
-        apply_momentum!(optvars, strategy)        # apply acceleration strategy
-        ρ = ρ_new                                 # update penalty
-
-        # convergence history
-        loss, distance, a, b = cvxreg_evaluate!(∇θ, ∇ξ, U, V, y, X, optvars, ρ)
-        data = package_data(loss, distance, ρ, sqrt(a+b), stepsize)
-        update_history!(history, data, iteration)
-
-        loss_old = loss_new
-        loss_new = loss
-        dist_old = dist_new
-        dist_new = distance
-        iteration += 1
-    end
-
-    return θ, ξ
+    return copy(θ), copy(reshape(ξ, d, n))
 end

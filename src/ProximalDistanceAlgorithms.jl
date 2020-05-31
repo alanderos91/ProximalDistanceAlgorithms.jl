@@ -46,6 +46,7 @@ include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
+export CvxRegBlockA, CvxRegBlockB
 
 # example: metric nearness problem
 include(joinpath("metric_nearness", "operators.jl"))

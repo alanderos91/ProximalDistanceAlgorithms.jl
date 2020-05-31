@@ -51,3 +51,31 @@ function mazumder_standardization(y, X)
 
     return y_scaled, X_scaled
 end
+
+function cvxreg_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ)
+    x = optvars.x
+    ∇f = derivs.∇f
+    ∇d = derivs.∇d
+    ∇h = derivs.∇h
+    D = operators.D
+    P = operators.P
+    y = operators.y
+    z = buffers.z
+    Pz = buffers.Pz
+    θ = buffers.θ
+
+    mul!(z, D, x)           # z = D*x
+    @. Pz = P(z)
+    @. z = z - Pz           # z = z - P(z)
+    for i in eachindex(y)   # dirty hack because ∇f is a longer vector
+        ∇f[i] = θ[i] - y[i]
+    end
+    mul!(∇d, D', z)         # ∇d = D'*z
+    @. ∇h = ∇f + ρ * ∇d
+
+    loss = SqEuclidean()(θ, y) / 2 # 1/2 * ||θ - y||^2
+    penalty = dot(z, z)            # D*[θ; ξ] - P(D*[θ; ξ])
+    normgrad = dot(∇h, ∇h)         # ||∇h(x)||^2
+
+    return loss, penalty, normgrad
+end
