@@ -41,7 +41,7 @@ export slow_schedule, fast_schedule
 # example: convex regression
 include(joinpath("convex_regression", "operators.jl"))
 include(joinpath("convex_regression", "steepest_descent.jl"))
-include(joinpath("convex_regression", "mm.jl"))
+include(joinpath("convex_regression", "MM.jl"))
 include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
@@ -52,7 +52,7 @@ export CvxRegBlockA, CvxRegBlockB
 include(joinpath("metric_nearness", "operators.jl"))
 include(joinpath("metric_nearness", "ADMM.jl"))
 include(joinpath("metric_nearness", "steepest_descent.jl"))
-include(joinpath("metric_nearness", "mm.jl"))
+include(joinpath("metric_nearness", "MM.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
 
 export metric_projection, metric_example, MetricFM
