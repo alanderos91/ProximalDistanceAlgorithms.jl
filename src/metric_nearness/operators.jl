@@ -135,8 +135,7 @@ end
 
 function instantiate_fusion_matrix(D::MetricFM{T}) where {T<:Number}
     n = D.n
-    nrows = D.M
-    ncols = D.N
+    nrows = 3*3*binomial(n,3)
 
     I = zeros(Int, nrows)
     J = zeros(Int, nrows)
@@ -149,12 +148,12 @@ function instantiate_fusion_matrix(D::MetricFM{T}) where {T<:Number}
         s2 = trivec_index(n, k, i)
         s3 = trivec_index(n, k, j)
 
-        __set_row!(I, J, V, s1, s2, s3, edge += 1) # T_ijk
-        __set_row!(I, J, V, s2, s1, s3, edge += 1) # T_jik
-        __set_row!(I, J, V, s3, s1, s2, edge += 1) # T_kij
+        edge += 1; __set_row!(I, J, V, s1, s2, s3, edge) # T_ijk
+        edge += 1; __set_row!(I, J, V, s2, s1, s3, edge) # T_jik
+        edge += 1; __set_row!(I, J, V, s3, s1, s2, edge) # T_kij
     end
 
-    return [sparse(I, J, V); I]
+    return [sparse(I, J, V); LinearAlgebra.I]
 end
 
 function __set_row!(I, J, V, s1, s2, s3, t)

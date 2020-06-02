@@ -1,131 +1,50 @@
-import ProximalDistanceAlgorithms:
-    metric_fusion_matrix,
-    metric_example,
-    metric_apply_fusion_matrix!,
-    metric_apply_gram_matrix!,
-    metric_apply_operator1!,
-    metric_accumulate_operator2!,
-    __trivec_copy!
+import ProximalDistanceAlgorithms: trivec_view
 
-function metric_initialize(n)
-    T = metric_fusion_matrix(n)
-    Tt = transpose(T)
-    W, Y = metric_example(n, weighted = true)
-
-    return T, Tt, W, Y
-end
-@testset "Metric Projection" begin
+@testset "metric projection" begin
     # simulated examples for testing
-    nnodes = (16, 64, 128)
+    nodes = (16, 32, 64)
+    tests = (D_mul_x, Dt_mul_z, DtD_mul_x)
 
-    examples = [metric_initialize(n) for n in nnodes]
+    @testset "fusion matrix" begin
+        for n in nodes
+            # create fusion matrix
+            D = MetricFM(n)                     # LinearMap
+            S = instantiate_fusion_matrix(D)    # SparseMatrix
+            M, N = size(D)
+            println("$(n) nodes; $(M) × $(N) matrix\n")
 
-    @testset "linear operators" begin
-        for example in examples
-            T, Tt, W, Y = example
-
-            n = size(Y, 1)
-            X = Y .+ Symmetric(rand(n, n)) # simulated solution
-
-            println("$(n) nodes")
-
-            # auxiliary variables
-            V = zero(X)
-            v1 = zeros(binomial(n, 2))  # v = trivec(V)
-            v2 = zero(v1)
-            x = zeros(binomial(n, 2))   # x = trivec(X)
-            y1 = zeros(3 * binomial(n, 3))
-            y2 = zero(y1)
-
-            # initialize variable x
-            __trivec_copy!(x, X)
+            # simulate dissimilarity matrix
+            X = Matrix(Symmetric(rand(n, n)))
+            x = trivec_view(X)
+            y = trivec_view(zero(X))
+            z = zeros(M)
 
             println("  warm-up:")
-            @time metric_apply_fusion_matrix!(y1, X)
-            @time metric_apply_gram_matrix!(V, X)
-            @time metric_apply_operator1!(V, X)
-            @time metric_accumulate_operator2!(V, X)
-            @time begin
-                mul!(y2, T, x)
-                @. y2 = y2 - min(0, y2)
-                mul!(v2, Tt, y2)
-                @. v2 = v2 - max(0, v2)
+            for A in (D, S), f in tests
+                print_info(f, A)
+                f(A, x, y, z)
+                println()
             end
             println()
 
-            # reset
-            fill!(V, 0)
-            fill!(v1, 0)
-            fill!(v2, 0)
-            fill!(y1, 0)
-            fill!(y2, 0)
-
-            # test: T*x
-            println("  T*x:")
-            print("    operator: ")
-            @time metric_apply_fusion_matrix!(y1, X) # observed
-            print("    mul!:     ")
-            @time mul!(y2, T, x)
-            @test y1 ≈ y2
-            println()
-
-            # test: T*Tt*x
-            println("  Tt*T * x:")
-            print("    operator: ")
-            @time metric_apply_gram_matrix!(V, X) # observed
-            print("    mul!:     ")
-            @time begin
-                mul!(y2, T, x)
-                mul!(v2, Tt, y2)
+            # correctness
+            print("  correctness... ")
+            @testset "$(get_test_string(f))" for f in tests
+                expected = copy(f(D, x, y, z))
+                observed = copy(f(S, x, y, z))
+                @test expected ≈ observed
             end
-            __trivec_copy!(v1, V)
-            @test v1 ≈ v2
-            println()
+            println("done.\n")
 
-            # reset
-            fill!(V, 0)
-            fill!(v1, 0)
-            fill!(v2, 0)
-            fill!(y1, 0)
-            fill!(y2, 0)
+            # performance
+            println("  performance:")
+            for f in tests
+                print_info(f, D)
+                @time f(D, x, y, z)
 
-            # test: y = Tt*T * x; y - min(0, y)
-            println("  y = Tt*T * x; y - min(0, y)")
-            print("    operator:  ")
-            penalty = @time metric_apply_operator1!(V, X)
-            print("    mul! + @.: ")
-            @time begin
-                mul!(y2, T, x)
-                @. y2 = y2 - min(0, y2)
-                mul!(v2, Tt, y2)
+                print_info(f, S)
+                @time f(S, x, y, z)
             end
-            __trivec_copy!(v1, V)
-
-            @test v1 ≈ v2
-            @test penalty ≈ dot(y2, y2)
-
-            println()
-
-            # reset
-            fill!(V, 0)
-            fill!(v1, 0)
-            fill!(v2, 0)
-            fill!(y1, 0)
-            fill!(y2, 0)
-
-            println("  x - max(0, x)")
-            print("    operator: ")
-            penalty = @time metric_accumulate_operator2!(V, X)
-            print("    @.:       ")
-            copyto!(v2, x)
-            @time begin
-                @. v2 = v2 - max(v2, 0)
-            end
-            __trivec_copy!(v1, V)
-
-            @test v1 ≈ v2
-            @test penalty ≈ dot(v2, v2)
-
             println()
         end
     end
