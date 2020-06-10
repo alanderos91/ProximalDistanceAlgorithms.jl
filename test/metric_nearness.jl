@@ -23,27 +23,17 @@ import ProximalDistanceAlgorithms: trivec_view
             for A in (D, S), f in tests
                 print_info(f, A)
                 f(A, x, y, z)
-                println()
             end
             println()
 
             # correctness
-            print("  correctness... ")
+            println("  tests:")
             @testset "$(get_test_string(f))" for f in tests
+                print_info(f, D)
                 expected = copy(f(D, x, y, z))
+                print_info(f, S)
                 observed = copy(f(S, x, y, z))
                 @test expected ≈ observed
-            end
-            println("done.\n")
-
-            # performance
-            println("  performance:")
-            for f in tests
-                print_info(f, D)
-                @time f(D, x, y, z)
-
-                print_info(f, S)
-                @time f(S, x, y, z)
             end
             println()
         end

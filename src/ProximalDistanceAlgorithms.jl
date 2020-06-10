@@ -46,7 +46,7 @@ include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
-export CvxRegBlockA, CvxRegBlockB
+export CvxRegBlockA, CvxRegBlockB, CvxRegFM
 
 # example: metric nearness problem
 include(joinpath("metric_nearness", "operators.jl"))
@@ -55,7 +55,7 @@ include(joinpath("metric_nearness", "steepest_descent.jl"))
 include(joinpath("metric_nearness", "MM.jl"))
 include(joinpath("metric_nearness", "utilities.jl"))
 
-export metric_projection, metric_example, MetricFM
+export metric_projection, metric_example, MetricFM, MetricFGM
 
 # example: convex clustering
 include(joinpath("convex_clustering", "linear_operators.jl"))

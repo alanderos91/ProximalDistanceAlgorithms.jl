@@ -181,7 +181,67 @@ apply_gram_matrix!(y, D::FusionMatrix, x) = error("not implemented for $(typeof(
 
 instantiate_fusion_matrix(D::FusionMatrix) = error("not implemented for $(typeof(D))")
 
-abstract type ProxDistHessian{T} <: LinearMap{T} end
+abstract type FusionGramMatrix{T} <: LinearMap{T} end
+
+# LinearAlgebra traits
+LinearAlgebra.issymmetric(DtD::FusionGramMatrix) = true
+LinearAlgebra.ishermitian(DtD::FusionGramMatrix) = false
+LinearAlgebra.isposdef(DtD::FusionGramMatrix)    = false
+
+# matrix-vector multiplication
+function Base.:(*)(DtD::FusionGramMatrix, x::AbstractVector)
+    N = size(DtD, 1)
+    length(x) == N || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(DtD), eltype(x)), N)
+    apply_fusion_gram_matrix!(y, DtD, x)
+
+    return y
+end
+
+function Base.:(*)(DtD::AdjointMap{<:Any,<:FusionGramMatrix}, x::AbstractVector)
+    throw(ArgumentError("Operation not implemented for $(typeof(DtD))"))
+end
+
+function Base.:(*)(DtD::TransposeMap{<:Any,<:FusionGramMatrix}, x::AbstractVector)
+    N = size(DtD, 1)
+    length(x) == N || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(DtD), eltype(x)), N)
+    apply_fusion_gram_matrix!(y, DtD.lmap, x)
+
+    return y
+end
+
+function LinearMaps.A_mul_B!(y::AbstractVector, DtD::FusionGramMatrix, x::AbstractVector)
+    N = size(DtD, 1)
+    (length(x) == N && length(y) == N) || throw(DimensionMismatch("A_mul_B!"))
+    apply_fusion_gram_matrix!(y, DtD, x)
+
+    return y
+end
+
+function LinearMaps.At_mul_B!(y::AbstractVector, DtD::FusionGramMatrix, x::AbstractVector)
+    A_mul_B!(y, DtD, x)
+end
+
+function LinearMaps.Ac_mul_B!(y::AbstractVector, DtD::FusionGramMatrix, x::AbstractVector)
+    A_mul_B!(y, DtD, x)
+end
+
+# internal API
+
+apply_fusion_gram_matrix!(y, DtD::FusionGramMatrix, x) = throw(ArgumentError("Operation not implemented for $(typeof(DtD))"))
+
+struct ProxDistHessian{T,matT1,matT2} <: LinearMap{T}
+    N::Int
+    ρ::T
+    ∇²f::matT1
+    DtD::matT2
+end
+
+# for remaking the operator
+ProxDistHessian{T,matT1,matT2}(H::ProxDistHessian{T,matT1,matT2}, ρ) where {T<:Number,matT1,matT2} = ProxDistHessian{T,matT1,matT2}(H.N, ρ, H.∇²f, H.DtD)
+
+Base.size(H::ProxDistHessian) = (H.N, H.N)
 
 # LinearAlgebra traits
 LinearAlgebra.issymmetric(H::ProxDistHessian) = true
@@ -203,7 +263,12 @@ function Base.:(*)(H::AdjointMap{<:Any,<:ProxDistHessian}, x::AbstractVector)
 end
 
 function Base.:(*)(H::TransposeMap{<:Any,<:ProxDistHessian}, x::AbstractVector)
-    return
+    N = size(H, 1)
+    length(x) == N || throw(DimensionMismatch())
+    y = similar(x, promote_type(eltype(H), eltype(x)), N)
+    apply_hessian!(y, H.lmap, x)
+
+    return y
 end
 
 function LinearMaps.A_mul_B!(y::AbstractVector, H::ProxDistHessian, x::AbstractVector)
@@ -224,7 +289,11 @@ end
 
 # internal API
 
-apply_hessian!(y, H::ProxDistHessian, x) = error("not implemented for $(typeof(A))")
+function apply_hessian!(y, H::ProxDistHessian, x)
+    mul!(y, H.DtD, x)
+    mul!(y, H.∇²f, x, 1, H.ρ)
+    return y
+end
 
 ##### trivec
 

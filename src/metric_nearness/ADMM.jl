@@ -70,7 +70,7 @@ function metric_iter(::ADMM, optvars, derivs, operators, buffers, ρ)
     metric_admm_update_y!(optvars, derivs, operators, buffers, ρ)
     metric_admm_update_λ!(optvars, derivs, operators, buffers, ρ)
 
-    return 1.0
+    return operators.H.ρ
 end
 
 function metric_projection(algorithm::ADMM, W, A; μ::Real = 1.0, kwargs...)
@@ -99,7 +99,7 @@ function metric_projection(algorithm::ADMM, W, A; μ::Real = 1.0, kwargs...)
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
-    H = MetricHessian(n, μ, ∇²f)
+    H = ProxDistHessian(N, μ, ∇²f, D'D) # this needs to be set to ρ_init
     a = trivec_view(A)
     operators = (D = D, P = P, H = H, a = a)
 

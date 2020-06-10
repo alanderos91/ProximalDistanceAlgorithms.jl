@@ -174,36 +174,28 @@ function __set_row!(I, J, V, s1, s2, s3, t)
     return nothing
 end
 
-struct MetricHessian{T,matT} <: ProxDistHessian{T}
+struct MetricFGM{T} <: FusionGramMatrix{T}
     n::Int      # number of nodes
     N::Int      # size of matrix
-    ρ::T        # penalty coefficient
-    ∇²f::matT   # cache for Hessian
     indices::TriVecIndices
 end
 
 # constructors
-function MetricHessian{T}(n::Integer, ρ, ∇²f::matT) where {T<:Number,matT}
+function MetricFGM{T}(n::Integer) where {T<:Number}
     N = binomial(n, 2)
     indices = TriVecIndices(n)
-    return MetricHessian{T,matT}(n, N, ρ, ∇²f, indices)
+    return MetricFGM{T}(n, N, indices)
 end
 
-# remake with different ρ
-MetricHessian{T,matT}(H::MetricHessian{T,matT}, ρ) where {T<:Number,matT} = MetricHessian{T,matT}(H.n, H.N, ρ, H.∇²f, H.indices)
-
 # default to Float64
-MetricHessian(n::Integer, ρ, ∇²f) = MetricHessian{Float64}(n, ρ, ∇²f)
+MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 
 # implementation
-Base.size(H::MetricHessian) = (H.N, H.N)
+Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-function apply_hessian!(y::AbstractVector, H::MetricHessian, x::AbstractVector)
-    n = H.n
-    N = H.N
-    ρ = H.ρ
-    ∇²f = H.∇²f
-    indices = H.indices
+function apply_fusion_gram_matrix!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
+    n = DtD.n
+    indices = DtD.indices
 
     # apply I block of D'D
     y .= x
@@ -222,8 +214,34 @@ function apply_hessian!(y::AbstractVector, H::MetricHessian, x::AbstractVector)
         end
     end
 
-    # complete (∇²h + ρ*D'D) * x
-    mul!(y, ∇²f, x, 1, ρ)
+    return y
+end
+
+function apply_fusion_gram_matrix!(y::SubArray, DtD::MetricFGM, x::SubArray)
+    n = DtD.n
+    X = trivec_parent(x, n)
+    Y = trivec_parent(y, n)
+
+    # apply I block of D'D
+    y .= x
+
+    # apply T'T block of D'D
+    @inbounds for j in 1:n-2, i in j+1:n-1
+        a = X[i,j]
+        # Y_ij = zero(a)
+        @inbounds for k in i+1:n
+            b = X[k,i]
+            c = X[k,j]
+
+            # Y_ij   += 3*a - b - c
+            Y[i,j] += 3*a - b - c
+            Y[k,i] += 3*b - a - c
+            Y[k,j] += 3*c - a - b
+        end
+        # Y[i,j] += Y_ij
+    end
 
     return y
 end
+
+Base.:(*)(Dt::TransposeMap{T,MetricFM{T}}, D::MetricFM{T}) where T = MetricFGM{T}(D.n, D.N, TriVecIndices(D.n))

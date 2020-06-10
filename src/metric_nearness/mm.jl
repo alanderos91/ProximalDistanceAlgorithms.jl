@@ -47,7 +47,7 @@ function metric_projection(algorithm::MM, W, A; kwargs...)
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
-    H = MetricHessian(n, 1.0, ∇²f) # this needs to be set to ρ_init
+    H = ProxDistHessian(N, 1.0, ∇²f, D'D) # this needs to be set to ρ_init
     a = trivec_view(A)
     operators = (D = D, P = P, H = H, W = ∇²f, a = a)
 

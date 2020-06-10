@@ -6,15 +6,16 @@ ProxDist = ProximalDistanceAlgorithms
 # helper functions for testing fusion matrices
 
 function D_mul_x(D, x, y, z)
-    mul!(z, D, x)
+    @time mul!(z, D, x)
 end
 
 function Dt_mul_z(D, x, y, z)
-    mul!(y, D', z)
+    @time mul!(y, D', z)
 end
 
 function DtD_mul_x(D, x, y, z)
-    mul!(y, D'D, x)
+    DtD = D'D
+    @time mul!(y, DtD, x)
 end
 
 function get_test_string(f)
@@ -44,7 +45,7 @@ function print_info(f, A)
     print("$(str1), $(str2)  ")
 end
 
-# include("convex_regression.jl")
-# include("convex_clustering.jl")
+include("convex_regression.jl")
+include("convex_clustering.jl")
 include("metric_nearness.jl")
-# include("image_denoising.jl")
+include("image_denoising.jl")
