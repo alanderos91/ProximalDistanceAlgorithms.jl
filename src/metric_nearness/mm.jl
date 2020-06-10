@@ -32,15 +32,21 @@ function metric_projection(algorithm::MM, W, A; kwargs...)
     N = m1              # total number of optimization variables
     M = m1 + m2         # total number of constraints
 
+    inds = sizehint!(Int[], binomial(n,2))
+    mapping = LinearIndices((1:n, 1:n))
+    for j in 1:n, i in j+1:n
+        push!(inds, mapping[i,j])
+    end
+
     # allocate optimization variable
     X = copy(A)
-    x = trivec_view(X)
+    x = trivec_view(X, inds)
     optvars = (x = x,)
 
     # allocate derivatives
-    ∇f = trivec_view(zero(X))    # loss
-    ∇d = trivec_view(zero(X))    # distance
-    ∇h = trivec_view(zero(X))    # objective
+    ∇f = trivec_view(zero(X), inds)    # loss
+    ∇d = trivec_view(zero(X), inds)    # distance
+    ∇h = trivec_view(zero(X), inds)    # objective
     ∇²f = I                      # Hessian for loss
     derivs = (∇f = ∇f, ∇²f = ∇²f, ∇d = ∇d, ∇h = ∇h)
 
@@ -48,18 +54,18 @@ function metric_projection(algorithm::MM, W, A; kwargs...)
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
     H = ProxDistHessian(N, 1.0, ∇²f, D'D) # this needs to be set to ρ_init
-    a = trivec_view(A)
+    a = trivec_view(A, inds)
     operators = (D = D, P = P, H = H, W = ∇²f, a = a)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
     Pz = similar(z)
-    b = trivec_view(similar(X))
+    b = trivec_view(similar(X), inds)
 
     # initialize conjugate gradient solver
-    b1 = trivec_view(similar(X))
-    b2 = trivec_view(similar(X))
-    b3 = trivec_view(similar(X))
+    b1 = trivec_view(similar(X), inds)
+    b2 = trivec_view(similar(X), inds)
+    b3 = trivec_view(similar(X), inds)
     cg_iterator = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, size(H, 2), 0)
 
     buffers = (z = z, Pz = Pz, b = b, cg_iterator = cg_iterator)

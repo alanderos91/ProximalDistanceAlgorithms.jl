@@ -13,10 +13,16 @@ import ProximalDistanceAlgorithms: trivec_view
             M, N = size(D)
             println("$(n) nodes; $(M) × $(N) matrix\n")
 
+            inds = sizehint!(Int[], binomial(n,2))
+            mapping = LinearIndices((1:n, 1:n))
+            for j in 1:n, i in j+1:n
+                push!(inds, mapping[i,j])
+            end
+
             # simulate dissimilarity matrix
             X = Matrix(Symmetric(rand(n, n)))
-            x = trivec_view(X)
-            y = trivec_view(zero(X))
+            x = trivec_view(X, inds)
+            y = trivec_view(zero(X), inds)
             z = zeros(M)
 
             println("  warm-up:")

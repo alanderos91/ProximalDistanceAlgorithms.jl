@@ -38,15 +38,17 @@ constraints and `x ≥ 0` encodes non-negativity.
 function apply_fusion_matrix!(z, D::MetricFM, x::SubArray)
     edge = 0 # edge counter
     n = D.n
-    X = trivec_parent(x, n)
+    # X = trivec_parent(x, n)
+    X = parent(x)
+    L = LinearIndices((1:n, 1:n))
 
     # A*x: 0 ≤ x_ik + x_kj - x_ij
     @inbounds for j in 1:n-2, i in j+1:n-1
-        a = X[i,j] # fix one edge
+        a = X[L[i,j]] # fix one edge
 
         @inbounds for k in i+1:n
-            b = X[k,i]
-            c = X[k,j]
+            b = X[L[k,i]]
+            c = X[L[k,j]]
 
             # check edges of one triangle
             z[edge += 1] = -a + b + c
@@ -91,7 +93,9 @@ function apply_fusion_matrix_transpose!(x::SubArray, D::MetricFM, z)
     edge = 0
     N = size(D, 2)
     n = D.n
-    X = trivec_parent(x, n)
+    # X = trivec_parent(x, n)
+    X = parent(x)
+    L = LinearIndices((1:n, 1:n))
 
     # I*z[block2]
     copyto!(x, 1, z, N*(n-2)+1, N)
@@ -102,9 +106,9 @@ function apply_fusion_matrix_transpose!(x::SubArray, D::MetricFM, z)
         bac = z[edge += 1]
         cab = z[edge += 1]
 
-        X[i,j] += -abc + bac + cab
-        X[k,j] += -cab + abc + bac
-        X[k,i] += -bac + abc + cab
+        X[L[i,j]] += -abc + bac + cab
+        X[L[k,j]] += -cab + abc + bac
+        X[L[k,i]] += -bac + abc + cab
     end
 
     return z
@@ -193,52 +197,56 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 # implementation
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-function apply_fusion_gram_matrix!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
-    n = DtD.n
-    indices = DtD.indices
-
-    # apply I block of D'D
-    y .= x
-
-    # apply T'T block of D'D
-    @inbounds for j in 1:n-2, i in j+1:n-1
-        i1 = indices[i,j]; a = x[i1]
-
-        @inbounds for k in i+1:n
-            i2 = indices[k,i]; b = x[i2]
-            i3 = indices[k,j]; c = x[i3]
-
-            y[i1] += 3*a - b - c
-            y[i2] += 3*b - a - c
-            y[i3] += 3*c - a - b
-        end
-    end
-
-    return y
-end
+# function apply_fusion_gram_matrix!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
+#     n = DtD.n
+#     indices = DtD.indices
+#
+#     # apply I block of D'D
+#     y .= x
+#
+#     # apply T'T block of D'D
+#     @inbounds for j in 1:n-2, i in j+1:n-1
+#         i1 = indices[i,j]; a = x[i1]
+#
+#         @inbounds for k in i+1:n
+#             i2 = indices[k,i]; b = x[i2]
+#             i3 = indices[k,j]; c = x[i3]
+#
+#             y[i1] += 3*a - b - c
+#             y[i2] += 3*b - a - c
+#             y[i3] += 3*c - a - b
+#         end
+#     end
+#
+#     return y
+# end
 
 function apply_fusion_gram_matrix!(y::SubArray, DtD::MetricFGM, x::SubArray)
     n = DtD.n
-    X = trivec_parent(x, n)
-    Y = trivec_parent(y, n)
+    # X = trivec_parent(x, n)
+    # Y = trivec_parent(y, n)
+    X = parent(x)
+    Y = parent(y)
+    L = LinearIndices((1:n, 1:n))
 
     # apply I block of D'D
-    y .= x
+    copyto!(y, 1, x, 1, length(x))
 
     # apply T'T block of D'D
-    @inbounds for j in 1:n-2, i in j+1:n-1
-        a = X[i,j]
-        # Y_ij = zero(a)
-        @inbounds for k in i+1:n
-            b = X[k,i]
-            c = X[k,j]
+    for j in 1:n-2, i in j+1:n-1
+        ij = L[i,j]; a = X[ij]
+        for k in i+1:n
+            ki = L[k,i]; b = X[ki]
+            kj = L[k,j]; c = X[kj]
 
-            # Y_ij   += 3*a - b - c
-            Y[i,j] += 3*a - b - c
-            Y[k,i] += 3*b - a - c
-            Y[k,j] += 3*c - a - b
+            abc = 3*a - b - c
+            bac = 3*b - a - c
+            cab = 3*c - a - b
+
+            Y[ij] += abc
+            Y[ki] += bac
+            Y[kj] += cab
         end
-        # Y[i,j] += Y_ij
     end
 
     return y

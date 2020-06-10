@@ -13,10 +13,14 @@ function metric_admm_update_x!(optvars, derivs, operators, buffers, ρ)
 
     # set up RHS of Ax = b := ∇f + μ*D' * (D*x - y + λ)
     mul!(z, D, x)
-    b .= ∇f
-    mul!(b, D', z, μ, 1.0)
-    mul!(b, D', y, -μ, 1.0)
-    mul!(b, D', λ, μ, 1.0)
+    axpy!(-1.0, y, z)
+    axpy!(1.0, λ, z)
+    mul!(b, D', z)
+    @. b = ∇f + μ*b
+    # b .= ∇f
+    # mul!(b, D', z, μ, 1.0)
+    # mul!(b, D', y, -μ, 1.0)
+    # mul!(b, D', λ, μ, 1.0)
 
     # solve the linear system
     __do_linear_solve!(cg_iterator, b)
@@ -45,7 +49,7 @@ function metric_admm_update_y!(optvars, derivs, operators, buffers, ρ)
 
     # y = α*Pz + (1-α)*z
     α = (ρ / μ) / (1 + ρ / μ)
-    y .= (1-α)*z
+    @. y = (1-α)*z
     axpy!(α, Pz, y)
 
     return nothing
@@ -82,17 +86,23 @@ function metric_projection(algorithm::ADMM, W, A; μ::Real = 1.0, kwargs...)
     N = m1              # total number of optimization variables
     M = m1 + m2         # total number of constraints
 
+    inds = sizehint!(Int[], binomial(n,2))
+    mapping = LinearIndices((1:n, 1:n))
+    for j in 1:n, i in j+1:n
+        push!(inds, mapping[i,j])
+    end
+
     # allocate optimization variable
     X = copy(A)
-    x = trivec_view(X)
+    x = trivec_view(X, inds)
     y = zeros(M)
     λ = zeros(M)
     optvars = (x = x, y = y, λ = λ)
 
     # allocate derivatives
-    ∇f = trivec_view(zero(X))    # loss
-    ∇d = trivec_view(zero(X))    # distance
-    ∇h = trivec_view(zero(X))    # objective
+    ∇f = trivec_view(zero(X), inds)    # loss
+    ∇d = trivec_view(zero(X), inds)    # distance
+    ∇h = trivec_view(zero(X), inds)    # objective
     ∇²f = I                      # Hessian for loss
     derivs = (∇f = ∇f, ∇²f = ∇²f, ∇d = ∇d, ∇h = ∇h)
 
@@ -100,19 +110,19 @@ function metric_projection(algorithm::ADMM, W, A; μ::Real = 1.0, kwargs...)
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
     H = ProxDistHessian(N, μ, ∇²f, D'D) # this needs to be set to ρ_init
-    a = trivec_view(A)
+    a = trivec_view(A, inds)
     operators = (D = D, P = P, H = H, a = a)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
     Pz = similar(z)
-    η = trivec_view(similar(X))
-    b = trivec_view(similar(X))
+    η = trivec_view(similar(X), inds)
+    b = trivec_view(similar(X), inds)
 
     # initialize conjugate gradient solver
-    b1 = trivec_view(similar(X))
-    b2 = trivec_view(similar(X))
-    b3 = trivec_view(similar(X))
+    b1 = trivec_view(similar(X), inds)
+    b2 = trivec_view(similar(X), inds)
+    b3 = trivec_view(similar(X), inds)
     cg_iterator = CGIterable(H, η, b1, b2, b3, 1e-8, 0.0, 1.0, size(H, 2), 0)
 
     buffers = (z = z, Pz = Pz, b = b, η = η, cg_iterator = cg_iterator)

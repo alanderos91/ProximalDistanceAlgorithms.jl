@@ -26,21 +26,27 @@ function metric_projection(algorithm::SteepestDescent, W, A; kwargs...)
     N = m1              # total number of optimization variables
     M = m1 + m2         # total number of constraints
 
+    inds = sizehint!(Int[], binomial(n,2))
+    mapping = LinearIndices((1:n, 1:n))
+    for j in 1:n, i in j+1:n
+        push!(inds, mapping[i,j])
+    end
+
     # allocate optimization variable
     X = copy(A)
-    x = trivec_view(X)
+    x = trivec_view(X, inds)
     optvars = (x = x,)
 
     # allocate derivatives
-    ∇f = trivec_view(zero(X))    # loss
-    ∇d = trivec_view(zero(X))    # distance
-    ∇h = trivec_view(zero(X))    # objective
+    ∇f = trivec_view(zero(X), inds)    # loss
+    ∇d = trivec_view(zero(X), inds)    # distance
+    ∇h = trivec_view(zero(X), inds)    # objective
     derivs = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
 
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
     P(x) = max.(x, 0)       # projection onto non-negative orthant
-    a = trivec_view(A)
+    a = trivec_view(A, inds)
     operators = (D = D, P = P, a = a)
 
     # allocate any additional arrays for mat-vec multiplication

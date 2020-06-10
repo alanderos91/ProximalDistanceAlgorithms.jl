@@ -299,13 +299,13 @@ end
 
 trivec_index(n, i, j) = (i-j) + n*(j-1) - (j*(j-1))>>1
 
-function trivec_view(X)
-    n = size(X, 1)
-    inds = sizehint!(Int[], binomial(n,2))
-    mapping = LinearIndices((1:n, 1:n))
-    for j in 1:n, i in j+1:n
-        push!(inds, mapping[i,j])
-    end
+function trivec_view(X, inds)
+    # n = size(X, 1)
+    # inds = sizehint!(Int[], binomial(n,2))
+    # mapping = LinearIndices((1:n, 1:n))
+    # for j in 1:n, i in j+1:n
+    #     push!(inds, mapping[i,j])
+    # end
     x = view(X, inds)
     return x
 end
