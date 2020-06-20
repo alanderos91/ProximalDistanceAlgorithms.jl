@@ -1,3 +1,6 @@
+###################
+#  CvxRegBlockA   #
+###################
 struct CvxRegBlockA{T} <: FusionMatrix{T}
    n::Int
    M::Int
@@ -61,6 +64,32 @@ function instantiate_fusion_matrix(D::CvxRegBlockA)
 
    return A
 end
+
+struct CvxRegAGM{T} <: FusionGramMatrix{T}
+   N::Int
+end
+
+# default eltype to Int
+CvxRegAGM(n::Integer) = CvxRegAGM{Int}(n)
+
+# implementation
+Base.size(D::CvxRegAGM) = (D.N, D.N)
+
+function apply_fusion_gram_matrix!(z, D::CvxRegAGM, θ)
+   N = D.N
+   c = sum(θ)
+   @inbounds for i in 1:N
+      z[i] = 2*(N*θ[i] - c)
+   end
+
+   return z
+end
+
+Base.:(*)(Dt::TransposeMap{T,CvxRegBlockA{T}}, D::CvxRegBlockA{T}) where T = CvxRegAGM{T}(D.N)
+
+###################
+#  CvxRegBlockB   #
+###################
 
 struct CvxRegBlockB{T,matT<:AbstractMatrix{T}} <: FusionMatrix{T}
    d::Int
@@ -140,37 +169,54 @@ function instantiate_fusion_matrix(D::CvxRegBlockB)
    return B
 end
 
-struct CvxRegHessian{T,matT1,matT2} <: ProxDistHessian{T}
+struct CvxRegFM{T,matA,matB} <: FusionMatrix{T}
+   A::matA
+   B::matB
+   d::Int
    n::Int
+   M::Int
    N::Int
-   ρ::T
-   ∇²f::matT1
-   DtD::matT2
 end
 
 # constructors
 
-function CvxRegHessian{T}(n::Integer, ρ, ∇²f::matT1, DtD::matT2) where {T<:Number,matT1,matT2}
-   N = size(DtD, 1)
-   return CvxRegHessian{T,matT1,matT2}(n, N, ρ, ∇²f, DtD)
+function CvxRegFM(X)
+   d, n = size(X)
+   M = n*n
+   N = n*(1+d)
+   A = CvxRegBlockA(n)
+   B = CvxRegBlockB(X)
+
+   T = promote_type(Int, eltype(X))
+   matA = typeof(A)
+   matB = typeof(B)
+
+   return CvxRegFM{T,matA,matB}(A, B, d, n, M, N)
 end
 
-# remake with different ρ
-CvxRegHessian{T,matT1,matT2}(H::CvxRegHessian{T,matT1,matT2}, ρ) where {T,matT1,matT2} = CvxRegHessian{T,matT1,matT2}(H.n, H.N, ρ, H.∇²f, H.DtD)
-
-# default to Float64
-CvxRegHessian(n::Integer, ρ, ∇²f, DtD) = CvxRegHessian{Float64}(n, ρ, ∇²f, DtD)
-
 # implementation
-Base.size(H::CvxRegHessian) = (H.N, H.N)
+Base.size(D::CvxRegFM) = (D.M, D.N)
 
-function apply_hessian!(y, H::CvxRegHessian, x)
-   ρ = H.ρ
-   ∇²f = H.∇²f
-   DtD = H.DtD
+function apply_fusion_matrix!(z, D::CvxRegFM, x)
+   d, n = D.d, D.n
+   θ = view(x, 1:n)
+   ξ = view(x, n+1:n*(1+d))
+   mul!(z, D.A, θ)         # z = A*θ
+   mul!(z, D.B, ξ, 1, 1)   # z = A*θ + B*ξ
+   return z
+end
 
-   mul!(y, DtD, x)         # y = DtD*x
-   mul!(y, ∇²f, x, 1, ρ)   # y = ∇²f*x + ρ*y
+function apply_fusion_matrix_transpose!(x, D::CvxRegFM, z)
+   d, n = D.d, D.n
+   θ = view(x, 1:n)
+   ξ = view(x, n+1:n*(1+d))
+   mul!(θ, D.A', z)  # θ = A'*z
+   mul!(ξ, D.B', z)  # ξ = B'*z
+   return x
+end
 
-   return y
+function instantiate_fusion_matrix(D::CvxRegFM)
+   A = instantiate_fusion_matrix(D.A)
+   B = instantiate_fusion_matrix(D.B)
+   return [A B]
 end

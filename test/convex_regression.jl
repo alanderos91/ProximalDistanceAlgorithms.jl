@@ -1,64 +1,84 @@
-import ProximalDistanceAlgorithms:
-    make_D, make_H,
-    apply_D!, apply_Dt!, apply_DtD!,
-    apply_H!, apply_Ht!
+function run_cvxreg_tests(tests, D, S, x, y, z)
+    # pre-compile
+    println("  warm-up:")
+    for C in (D, S), f in tests
+        print_info(f, C)
+        f(C, x, y, z)
+    end
+    println()
 
-@testset "Convex Regression" begin
-    sample_size = (3, 10, 100)
-    domain_size = (1, 10)
+    # correctness
+    println("  tests:")
+    @testset "$(get_test_string(f))" for f in tests
+        print_info(f, D)
+        expected = copy(f(D, x, y, z))
+        print_info(f, S)
+        observed = copy(f(S, x, y, z))
+        @test expected ≈ observed
+    end
+    println()
+end
 
-    for n in sample_size
-        # linear operators as matrices
-        D = make_D(n)
-        Dt = transpose(D)
-        DtD = D'D
+@testset "convex regression" begin
+    # simulated examples for testing
+    sample_size = (50, 100, 200)
+    domain_size = (1, 2, 10)
+    tests = (D_mul_x, Dt_mul_z, DtD_mul_x)
 
-        # test inputs
-        θ = rand(n)
-        C = rand(n,n)
+    @testset "BlockA" begin
+        for n in sample_size
+            # create linear map and matrix
+            D = CvxRegBlockA(n)
+            S = instantiate_fusion_matrix(D)
+            M, N = size(D)
+            println("$(n) samples; $(M) × $(N) matrix\n")
 
-        # test outputs
-        u = similar(θ)
-        v = similar(θ)
-        w = zeros(n*n)
-        W = similar(C)
+            # allocate inputs & output
+            x = randn(N)
+            y = zero(x)
+            z = zeros(M)
 
-        # test: D*θ
-        mul!(w, D, θ)   # expected
-        apply_D!(W, θ)  # observed
-        @test w ≈ vec(W)
+            run_cvxreg_tests(tests, D, S, x, y, z)
+        end
+    end
 
-        # test: Dt*vec(C)
-        mul!(u, Dt, vec(C)) # expected
-        apply_Dt!(v, C)     # observed
-        @test u ≈ v
+    @testset "BlockB" begin
+        for d in domain_size, n in sample_size
+            # simulate covariates
+            X = randn(d, n)
 
-        # test: DtD*θ
-        mul!(u, DtD, θ)   # expected
-        apply_DtD!(v, θ)  # observed
-        @test u ≈ v
+            # create linear map and matrix
+            D = CvxRegBlockB(X)
+            S = instantiate_fusion_matrix(D)
+            M, N = size(D)
+            println("$(d) covariates, $(n) samples; $(M) × $(N) matrix\n")
 
-        for d in domain_size
-            X = rand(d, n)
-            H = make_H(X)
-            Ht = transpose(H)
+            # allocate inputs & outputs
+            x = randn(N)
+            y = zero(x)
+            z = zeros(M)
 
-            # test inputs
-            ξ = rand(d, n)
+            run_cvxreg_tests(tests, D, S, x, y, z)
+        end
+    end
 
-            # test outputs
-            z = zeros(d*n)
-            Z = zeros(d, n)
+    @testset "fusion matrix" begin
+        for d in domain_size, n in sample_size
+            # simulate covariates
+            X = randn(d, n)
 
-            # test: H*vec(ξ)
-            mul!(w, H, vec(ξ))
-            apply_H!(W, X, ξ)
-            @test w ≈ vec(W)
+            # create fusion matrix
+            D = CvxRegFM(X)
+            S = instantiate_fusion_matrix(D)
+            M, N = size(D)
+            println("$(d) covariates, $(n) samples; $(M) × $(N) matrix\n")
 
-            # test: Ht*vec(C)
-            mul!(z, Ht, vec(C))
-            apply_Ht!(Z, X, C)
-            @test z ≈ vec(Z)
+            # simulate inputs
+            x = randn(N)
+            y = zero(x)
+            z = zeros(M)
+
+            run_cvxreg_tests(tests, D, S, x, y, z)
         end
     end
 end
