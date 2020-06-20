@@ -34,7 +34,7 @@ function apply_fusion_matrix!(z, D::CvxClusterFM, x)
 
     @inbounds for j in 1:n, i in j+1:n
         l = tidx[i,j]
-        @inbounds for k in 1:d
+        @simd for k in 1:d
             ki = lidx1[k,i]
             kj = lidx1[k,j]
             kl = lidx2[k,l]
@@ -50,18 +50,19 @@ function apply_fusion_matrix_transpose!(x, D::CvxClusterFM, z)
     lidx1 = LinearIndices((1:d,1:n)) # for x
     lidx2 = LinearIndices((1:d,1:M)) # for z
     tidx = TriVecIndices(n)
+    fill!(x, 0)
 
-    for j in 1:n, i in j+1:n
+    @inbounds for j in 1:n, i in j+1:n
         l = tidx[i,j]
-        for k in 1:d
+        @simd for k in 1:d
             ki = lidx1[k,i]
             kl = lidx2[k,l]
-            @inbouds x[ki] += z[kl]
+            x[ki] += z[kl]
         end
-        for k in 1:d
+        @simd for k in 1:d
             kj = lidx1[k,j]
             kl = lidx2[k,l]
-            @inbouds x[kj] -= z[kl]
+            x[kj] -= z[kl]
         end
     end
 end
@@ -78,6 +79,7 @@ Blocks are stacked in dictionary order.
 For example, if `n = 3` then the blocks are ordered `(2,1), (3,1), (3,2)`.
 """
 function instantiate_fusion_matrix(D::CvxClusterFM{T}) where {T<:Number}
+    d, n = D.d, D.n
     Idn = I(n)  # n by n identity matrix
     Idd = I(d)  # d by d identity matrix
 
