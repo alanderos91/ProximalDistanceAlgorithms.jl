@@ -58,7 +58,7 @@ include(joinpath("metric_nearness", "utilities.jl"))
 export metric_projection, metric_example, MetricFM, MetricFGM
 
 # example: convex clustering
-include(joinpath("convex_clustering", "linear_operators.jl"))
+include(joinpath("convex_clustering", "operators.jl"))
 include(joinpath("convex_clustering", "steepest_descent.jl"))
 include(joinpath("convex_clustering", "utilities.jl"))
 
