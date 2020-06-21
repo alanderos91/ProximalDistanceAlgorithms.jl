@@ -70,6 +70,6 @@ export convex_clustering, convex_clustering_path,
 include(joinpath("image_denoising", "steepest_descent.jl"))
 include(joinpath("image_denoising", "operators.jl"))
 
-export image_denoise, prox_l1_ball!, prox_l2_ball!
+export image_denoise, prox_l1_ball!, prox_l2_ball!, ImgTvdFM
 
 end # module
