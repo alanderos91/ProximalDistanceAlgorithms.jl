@@ -114,70 +114,69 @@ function instantiate_fusion_matrix(D::ImgTvdFM{T}) where T <: Number
     return S
 end
 
-#
-# function imgtvd_apply_Dx!(dx, U)
-#     m, n = size(U)
-#     for j in 1:n
-#         for i in 1:m-1
-#             @inbounds dx[i,j] = U[i+1,j] - U[i,j]
-#         end
-#     end
-#     return dx
-# end
-#
-# function imgtvd_apply_Dx_transpose!(Q, dx)
-#     m, n = size(Q)
-#     for j in 1:n
-#         @inbounds Q[1,j] += -dx[1,j]
-#     end
-#
-#     for j in 1:n, i in 2:m-1
-#         @inbounds Q[i,j] += dx[i-1,j] - dx[i,j]
-#     end
-#
-#     for j in 1:n
-#         @inbounds Q[m,j] += dx[m-1,j]
-#     end
-#     return Q
-# end
-#
-# function imgtvd_apply_Dy!(dy, U)
-#     m, n = size(U)
-#     for j in 1:n-1
-#         for i in 1:m
-#             @inbounds dy[i,j] = U[i,j+1] - U[i,j]
-#         end
-#     end
-#     return dy
-# end
-#
-# function imgtvd_apply_Dy_transpose!(Q, dy)
-#     m, n = size(Q)
-#     for i in 1:m
-#         @inbounds Q[i,1] += -dy[i,1]
-#     end
-#
-#     for j in 2:n-1, i in 1:m
-#         @inbounds Q[i,j] += dy[i,j-1] - dy[i,j]
-#     end
-#
-#     for i in 1:m
-#         @inbounds Q[i,n] += dy[i,n-1]
-#     end
-#     return Q
-# end
-#
-# function imgtvd_apply_D!(z, dx, dy, U)
-#     imgtvd_apply_Dx!(dx, U)
-#     imgtvd_apply_Dy!(dy, U)
-#     unsafe_copyto!(z, 1, dx, 1, length(dx))
-#     unsafe_copyto!(z, length(dx)+1, dy, 1, length(dy))
-#     @inbounds z[end] = U[end]
-#     return z
-# end
-#
-# function imgtvd_apply_D_transpose!(Q, dx, dy)
-#     imgtvd_apply_Dx_transpose!(Q, dx)
-#     imgtvd_apply_Dy_transpose!(Q, dy)
-#     return Q
-# end
+struct ImgTvdFGM{T} <: FusionGramMatrix{T}
+    m::Int
+    n::Int
+    N::Int
+
+    function ImgTvdFGM{T}(m::Integer, n::Integer) where T <: Number
+        new{T}(m,n,m*n)
+    end
+end
+
+# default eltype to Int64
+ImgTvdFGM(m::Integer, n::Integer) = ImgTvdFGM{Int}(m, n)
+
+# implementation
+Base.size(DtD::ImgTvdFGM) = (DtD.N, DtD.N)
+
+function apply_fusion_gram_matrix!(y, DtD::ImgTvdFGM, x)
+    m, n = DtD.m, DtD.n
+    imind = LinearIndices((1:m, 1:n))
+
+    # accumulate Dx'*dx
+    @inbounds for j in 1:n
+        # first row in block
+        k = imind[1,j]
+        y[k] = x[k] - x[k+1]
+
+        # intermediate rows in block
+        @simd for i in 2:m-1
+            k = imind[i,j]
+            y[k] = -x[k-1] + 2*x[k] - x[k+1]
+        end
+
+        # last row in block
+        k = imind[m,j]
+        y[k] = -x[k-1] + x[k]
+    end
+
+    # accumulate Dy'dy
+
+    # first block
+    @inbounds @simd for i in 1:m
+        k = imind[i,1]
+        y[k] += x[k] - x[k+m]
+    end
+
+    # intermediate blocks
+    @inbounds for j in 2:n-1
+        @simd for i in 1:m
+            k = imind[i,j]
+            y[k] += -x[k-m] + 2*x[k] - x[k+m]
+        end
+    end
+
+    # last block
+    @inbounds @simd for i in 1:m
+        k = imind[i,n]
+        y[k] += -x[k-m] + x[k]
+    end
+
+    # accumulate u*u'
+    @inbounds y[end] += x[end]
+
+    return y
+end
+
+Base.:(*)(Dt::TransposeMap{T,ImgTvdFM{T}}, D::ImgTvdFM{T}) where T = ImgTvdFGM{T}(D.m, D.n)
