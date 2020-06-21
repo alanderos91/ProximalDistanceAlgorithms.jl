@@ -28,14 +28,14 @@ function apply_fusion_matrix!(z, D::ImgTvdFM, x)
     # compute derivatives along columns
     for j in 1:n
         @simd for i in 1:m-1
-            z[dxind[i,j]] = x[xind[i+1,j]] - x[xind[i,j]]
+            @inbounds z[dxind[i,j]] = x[xind[i+1,j]] - x[xind[i,j]]
         end
     end
 
     # compute derivatives along rows
     for j in 1:n-1
         @simd for i in 1:m
-            z[dyind[i,j]+offset] = x[xind[i,j+1]] - x[xind[i,j]]
+            @inbounds z[dyind[i,j]+offset] = x[xind[i,j+1]] - x[xind[i,j]]
         end
     end
 
@@ -56,36 +56,36 @@ function apply_fusion_matrix_transpose!(x, D::ImgTvdFM, z)
 
     # apply Dx'
     @simd for j in 1:n
-        x[xind[1,j]] += -z[dxind[1,j]]
+        @inbounds x[xind[1,j]] += -z[dxind[1,j]]
     end
 
     for j in 1:n
         @simd for i in 2:m-1
-            x[xind[i,j]] += z[dxind[i-1,j]] - z[dxind[i,j]]
+            @inbounds x[xind[i,j]] += z[dxind[i-1,j]] - z[dxind[i,j]]
         end
     end
 
     @simd for j in 1:n
-        x[xind[m,j]] += z[dxind[m-1,j]]
+        @inbounds x[xind[m,j]] += z[dxind[m-1,j]]
     end
 
     # apply Dy'
     @simd for i in 1:m
-        x[xind[i,1]] += -z[dyind[i,1]+offset]
+        @inbounds x[xind[i,1]] += -z[dyind[i,1]+offset]
     end
 
     for j in 2:n-1
         @simd for i in 1:m
-            x[xind[i,j]] += z[dyind[i,j-1]+offset] - z[dyind[i,j]+offset]
+            @inbounds x[xind[i,j]] += z[dyind[i,j-1]+offset] - z[dyind[i,j]+offset]
         end
     end
 
     @simd for i in 1:m
-        x[xind[i,n]] += z[dyind[i,n-1]+offset]
+        @inbounds x[xind[i,n]] += z[dyind[i,n-1]+offset]
     end
 
     # apply extra row transpose
-    x[end] += z[end]
+    @inbounds x[end] += z[end]
 
     return x
 end
