@@ -6,345 +6,186 @@ These notes implement an efficient algorithm for block sparsity projection.
 First, we develop the general approach and then apply it to a problem involving
 pairwise distances.
 
+```{julia}
+using BenchmarkTools, Distances
+using DataStructures: heapify!, percolate_down!
+```
+
 We start with a $d \times n$ matrix $\boldsymbol{U}$ where each column $\boldsymbol{u}_{j}$ is an observation with $d$ features.
-The goal is to project $\boldsymbol{U}$ onto a sparsity set with $K$ non-zero blocks.
-That is, the projection should preserve $K$ samples and zero out the rest.
-If we define the projection in terms of a metric, then block sparsity simply generalizes projection of a vector onto a sparsity set.
-The only computationally demanding step is to identify the largest $K$ blocks with respect to the metric.
-Taking $P_{K}(\cdot)$ as the projection operator, we have in symbols
+Our goal is to determine a sparse representation of the differences (arranged in blocks) $\boldsymbol{z} = \boldsymbol{D}~\mathrm{vec}(\boldsymbol{U})$ which effectively set $\boldsymbol{u}_{j} = \boldsymbol{u}_{i}$ for pairs $(i,j)$.
+The distances $\Delta_{ij} = \|\boldsymbol{u}_{j} - \boldsymbol{u}_{i}\|$ are a useful proxy in solving this problem.
+Concretely, our goal is to select the $\nu$-largest elements among the non-redundant elements of $\boldsymbol{\Delta}$.
+Note that one is free to choose any metric $\|\cdot\|$.
+
+There are a few computational issues to consider.
+Sorting is unavoidable in computing a sparsity projeciton.
+However, only a small subset of the sorting permutation is needed.
+Let $L$ denote the number of non-trivial, non-redundant entries in $\boldsymbol{\Delta}$ (no diagonal elements and only the lower or upper triangular region).
+If $\nu \le L/2$, then $P(\boldsymbol{z})$ is highly sparse.
+On the other hand, if $\nu > L/2$ then $z - P(z)$ is highly sparse.
+In the former case it is more efficient to directly select the $\nu$-largest elements in $\boldsymbol{\Delta}$, whereas the $(L-\nu)$-smallest elements are easier to compute in the latter case.
+Partial sorting methods such as partial quicksort are well-suited to this problem.
+Binary heaps are also efficient in partially sorting $\boldsymbol{\Delta}$.
+
+Yet, even a size $\nu$ subset of the sorting permutation is excessive.
+For example, in the case where determining the $\nu$-largest elements is optimal it is enough to determine two elements: the first and the $\nu$-th elements.
+This observation is likely to be of little consequence to theory but it suggests a faster, in-place implementation of the projection operator.
+That is, we view $P$ as an operator parameterized by two values, $\Delta_{\mathrm{lo}}$ and $\Delta_{\mathrm{hi}}$, and define
 $$
-P_{K}(\boldsymbol{u}_{j})
-=
+P(\Delta_{ij};\Delta_{\mathrm{lo}},\Delta_{\mathrm{hi}}) =
 \begin{cases}
-    \boldsymbol{u}_{j}, & \text{if } \|\boldsymbol{u}_{j}\| \text{ is not in the top } K \text{ blocks}, \\
-    \boldsymbol{0}, & \text{otherwise}
+    \Delta_{ij}, & \Delta_{\mathrm{lo}} \le \Delta_{ij} \le \Delta_{\mathrm{hi}} \\
+    0, & \text{otherwise}
 \end{cases}
 $$
+The cases are reversed if we choose to parameterize $P$ in terms of the smaller entries.
+Thus, we compute the projection in two steps:
 
-#### Strategy for applying projection
+1. Given $\boldsymbol{\Delta}$, determine the projection $P(\cdot;\Delta_{\mathrm{lo}},\Delta_{\mathrm{hi}})$.
 
-The columns preserved under block sparsity will be random.
-Thus, we cannot take advantage of parallelism from `@simd` instructions.
-Instead, we use `@threads` to delegate the work of copying a column.
+2. Given the projection operator $P$, compute $P(\Delta)$.
 
-**Note**: I expect to see small allocations from this function due to `@threads`, but it will only be the cost of launching the threads.
-The allocations do not scale with input size => no memory leak.
+### Julia implementation for sparse projection
+
+We implement this operator using a functor in Julia.
 
 ```{julia}
-@show Threads.nthreads()
+const MaxParam = Base.Order.Reverse
+const MinParam = Base.Order.Forward
+const MaxParamT = typeof(MaxParam)
+const MinParamT = typeof(MinParam)
 
-function apply_projection!(V, index, U, K)
-    fill!(V, 0)     # most entries in V will be 0 when K is small
-    d = size(U, 1)  # number of features
-    Threads.@threads for k in 1:K
-        # delegate column j to available thread
-        @inbounds j = index[Threads.threadid()]
+struct SparseProjection{order,T} <: Function
+    lo::T
+    hi::T
+end
 
-        for i in 1:d
-            @inbounds V[i,j] = U[i,j]
-        end
-    end
+SparseProjection{order}(lo, hi) where {order} = SparseProjection{order,promote_type(typeof(lo), typeof(hi))}(lo, hi)
+SparseProjection(order,lo,hi) = SparseProjection{typeof(order)}(lo,hi)
+
+# parameterize by largest entries
+(P::SparseProjection{MaxParamT})(x) = P.lo ≤ x ≤ P.hi ? x : zero(x)
+
+# parameterize by smallest entries
+(P::SparseProjection{MinParamT})(x) = P.lo ≤ x ≤ P.hi ? zero(x) : x
+```
+
+Now we define algorithms to compute the correct projection operator using partial sorting methods.
+
+```{julia}
+function partial_quicksort(xs, ord, K)
+    sort!(xs, alg = PartialQuickSort(K), order = ord)
+    lo, hi = extrema((xs[1], xs[K]))
+    return SparseProjection(ord, lo, hi)
+end
+
+function swap!(h, i, j)
+    h[i], h[j] = h[j], h[i]
     return nothing
 end
-```
 
-#### Implementation 1: Using BLAS for inner products
-
-I tried using `BLAS.gemm!` but this ended up being slow for $> 10^{3}$ samples.
-Instead, I use `BLAS.nrm2` which computes the 2-norm of a vector.
-This function is slightly faster than the default `norm` due to a small memory leak.
-
-**Note**: `partialsortperm!` will have a small, neglible memory allocation that does not scale with input size.
-
-```{julia}
-using LinearAlgebra
-
-function block_sparsity_BLAS(W, U, K)
-    # allocate memory for data to be used by kernel
-    n = size(U, 2)
-    V = zero(U)                         # projection
-    x = Vector{Float64}(undef, n)       # store norms
-    index = collect(1:n)                # permutation vector
-
-    # delegate to kernel
-    return block_sparsity_BLAS!(V, x, index, W, U, K)
-end
-
-function block_sparsity_BLAS!(V, x, index, W, U, K)
-    # compute the weighted norm of each column using BLAS + loop
-    d = size(U, 1)
-    for i in eachindex(x)
-        u = view(U, :, i)
-        @inbounds x[i] = W[i,i] * BLAS.nrm2(d, u, 1)
+function partial_heapsort(xs, ord, K)
+    n = length(xs)
+    heapify!(xs, ord)
+    j = 1
+    while j < K && j < n
+        swap!(xs, 1, n-j+1)
+        percolate_down!(xs, 1, xs[1], ord, n-j)
+        j += 1
     end
-
-    # use a partial sort to recover the K largest blocks
-    partialsortperm!(index, x, 1:K, rev = true, initialized = true)
-
-    # complete the projection
-    apply_projection!(V, index, U, K)
-
-    return V
-end
-```
-
-#### Implementation 2: Using SIMD for inner products
-
-This is the strategy used in the Distances.jl package.
-SIMD (Single Instruction, Multiple Data) exploits data-level parallelism to compute a reduction in small batches that fit neatly into SIMD registers on modern Intel CPUs.
-This feature is typically advertised as Advanced Vector Extensions (AVX) --- the hardware instruction set that implements the SIMD paradigm.
-
-**Notes**: The implementation in Distances.jl is a bit more clever when it comes to computing pairwise distances.
-
-```{julia}
-function block_sparsity_SIMD(W, U, K)
-    # allocate memory for data to be used by kernel
-    n = size(U, 2)
-    V = zero(U)                         # projection
-    x = Vector{Float64}(undef, n)       # store norms
-    index = collect(1:n)                # permutation vector
-
-    # delegate to kernel
-    return block_sparsity_SIMD!(V, x, index, W, U, K)
+    J = max(1, n-K)
+    swap!(xs, 1, J)
+    lo, hi = extrema((xs[J], xs[n]))
+    return SparseProjection(ord, lo, hi)
 end
 
-function block_sparsity_SIMD!(V, x, index, W, U, K)
-    # compute the weighted norm of each column with SIMD instructions
-    for j in eachindex(x)
-        s = zero(eltype(x))
-        @simd for i in 1:size(U, 1)
-            @inbounds s = s + U[i,j] * U[i,j]
-        end
-        @inbounds x[j] = W[j,j] * sqrt(s)
-    end
-
-    # use a partial sort to recover the K largest blocks
-    partialsortperm!(index, x, 1:K, rev = true, initialized = true)
-
-    # complete the projection
-    apply_projection!(V, index, U, K)
-
-    return V
-end
+extract_params_closure(ord, K, F) = xs -> F(xs, ord, K)
 ```
 
-#### Example
+Simulate a distance matrix:
 
 ```{julia}
-using LinearAlgebra, Random
+d, n = 3, 50
+U = randn(d, n)                             # cluster data
+Δ = pairwise(SqEuclidean(), U, dims = 2)    # distance matrix
+x = [Δ[i,j] for i in 1:n for j in i+1:n]    # non-redundant representation
+L = length(x)
 
-Random.seed!(1234)
-
-d, n = 3, 10            # features × samples
-U = randn(d, n)         # simulated data
-W = Diagonal(rand(n))   # random weights
-@. W = sqrt(W)          # take square root to make quadratic form Ut*W*U
-
-# the operation U*W scales each column of U by the weights
-(U * W)[:,1] == U[:,1] * W[1,1]
-```
-
-The largest blocks are given by the 2nd, 7th, and 9th columns:
-
-```{julia}
-# sortperm orders elements smallest to largest by default
-Δ = [norm(W[i,i] * u) for (i, u) in enumerate(eachcol(U))] |> sortperm
-```
-
-Projection onto the 3-sparse set preserves these blocks:
-
-```{julia}
-block_sparsity_BLAS(W, U, 3)
-```
-
-```{julia}
-block_sparsity_SIMD(W, U, 3)
-```
-
-#### Benchmarks
-
-```{julia}
-using BenchmarkTools
-
-function benchmark_block_sparsity(d, n, K)
-    U = randn(d, n)         # simulated data
-    W = Diagonal(rand(n))   # random weights
-    @. W = sqrt(W)          # take square root to make quadratic form Ut*W*U
-
-    # allocate data for in-place versions
-    V = zero(U)
-    x = Vector{Float64}(undef, n)
-    index = collect(1:n)
-
-    println("pre-compile...")
-    @btime block_sparsity_BLAS($W, $U, $K)
-    @btime block_sparsity_SIMD($W, $U, $K)
-    @btime block_sparsity_BLAS!($V, $x, $index, $W, $U, $K)
-    @btime block_sparsity_SIMD!($V, $x, $index, $W, $U, $K)
-    println()
-
-    println("allocating versions")
-    print("  BLAS:")
-    @btime block_sparsity_BLAS($W, $U, $K)
-    print("  SIMD:")
-    @btime block_sparsity_SIMD($W, $U, $K)
-    println()
-
-    println("in-place versions:")
-    print("  BLAS:")
-    @btime block_sparsity_BLAS!($V, $x, $index, $W, $U, $K)
-    print("  SIMD:")
-    @btime block_sparsity_SIMD!($V, $x, $index, $W, $U, $K)
-
-    return nothing
-end
-```
-
-The two implementations are essentially equivalent.
-
-```{julia}
-# 50 features × 10^5 samples; K = 100
-benchmark_block_sparsity(50, 10^5, 100)
-```
-
-#### Application to pairwise distances
-
-Now we apply the projection to $\boldsymbol{V} = \boldsymbol{U} \boldsymbol{D} \boldsymbol{W}$, where $\boldsymbol{D}$ maps its left argument on the left to $\binom{n}{2}$ pairwise column *differences*.
-Here $\boldsymbol{U}$ represents centroids in a clustering problem and $\boldsymbol{W}$ applies a weight to each distance.
-The idea is identify the $K$ largest *distances* between these centroids in order to zero out columns of $\boldsymbol{V}$.
-This maneuver sets $\boldsymbol{u}_{j} = \boldsymbol{u}_{i}$ for different pairs $(i,j)$, effectively assigning points to an unknown number of clusters.
-
-```{julia}
-using Distances
-
-function distance_block_sparsity(W, U, K)
-    d, n = size(U)
-    m = binomial(n, 2)      # number of unique comparisons
-    Z = zeros(d, m)         # encodes differences between columns of U
-    Δ = zeros(n, n)         # encodes pairwise distances
-    index = collect(1:n*n)  # index vector
-
-    # delegate to kernel
-    return distance_block_sparsity!(Z, Δ, index, W, U, K)
-end
-
-function distance_block_sparsity!(Z, Δ, index, W, U, K)
-    d, n = size(U)
-
-    # compute pairwise distances
-    pairwise!(Δ, Euclidean(), U, dims = 2)
-    @. Δ = W * Δ
-
-    # mask upper triangular part to extract unique comparisons
-    for j in 1:n, i in 1:j-1
-        @inbounds Δ[i,j] = 0
-    end
-    δ = vec(Δ)
-
-    # find the K largest distances
-    partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
-
-    # map back to coordinates
-    J = CartesianIndices(Δ)
-
-    # compute differences for non-zero blocks only
-    fill!(Z, 0)
-    Threads.@threads for ix in 1:K
-        l = index[Threads.threadid()]   # retrieve linear index
-        i = J[l][1]                     # coordinate i
-        j = J[l][2]                     # coordinate j
-
-        for m in 1:j
-            l = l - m
-        end
-
-        for k in 1:d
-            Z[k,l] = U[k,i] - U[k,j]
-        end
-    end
-
-    return Z
-end
-```
-
-#### Example
-
-```{julia}
-Random.seed!(1234)
-d, n = 3, 6
-U = randn(d, n)
-W = rand(n, n)
-Z = zeros(d, binomial(n, 2))
-
-function construct_pairwise_differences!(Z, U)
-    d, n = size(U)
-    l = 1
-    for j in 1:n, i in j+1:n # dictionary order; (i,j) with i > j
-        for k in 1:d
-            Z[k,l] = U[k,i] - U[k,j]
-        end
-        l += 1
-    end
-    return Z
-end
-
-construct_pairwise_differences!(Z, U)
-```
-
-The largest distances occur in pairs $(2, 1)$, $(5, 1)$, and $(4, 1)$:
-
-```{julia}
-# compute pairwise distances
-Δ = pairwise(Euclidean(), U, dims = 2)
-@. Δ = W * Δ
-δ = vec(LowerTriangular(Δ))
 Δ
 ```
 
+##### Example: Projection 'max' parameterization.
+
+If $\nu \ll L/2$, then we parameterize the projection by the $\nu$-largest values.
+
 ```{julia}
-# extract largest distances
-topK = partialsortperm(δ, 1:3, rev = true)
-map(k -> Tuple(CartesianIndices(Δ)[k]), topK)
+ν = 50              # sparsity level
+ord = MaxParam      # optimal search direction
+
+by_quicksort = extract_params_closure(ord, ν, partial_quicksort)
+by_heapsort  = extract_params_closure(ord, ν, partial_heapsort)
 ```
 
-Columns are in dictionary order $(2,1), (3,1), \ldots, (n,1), (3,2), \ldots (n, n-1)$:
+##### Checking for correctness
+
 ```{julia}
-distance_block_sparsity(W, U, 3)
+P1 = by_quicksort(copy(x))
+P2 = by_heapsort(copy(x))
+
+P1.(x) == P2.(x)
 ```
 
-#### Benchmark
+##### Using the projection operator
 
 ```{julia}
-function benchmark_distance_block_sparsity(d, n, K)
-    # inputs
-    U = randn(d, n)                 # data
-    W = rand(n, n)                  # weights
-    Z = zeros(d, binomial(n, 2))    # pairwise differences
+P1.(Δ)
+```
 
-    # auxiliary data structures
-    m = binomial(n, 2)      # number of unique comparisons
-    Z = zeros(d, m)         # encodes differences between columns of U
-    Δ = zeros(n, n)         # encodes pairwise distances
-    index = collect(1:n*n)  # index vector
+##### Benchmarking
 
-    println("pre-compile...")
-    @btime distance_block_sparsity($W, $U, $K)
-    @btime distance_block_sparsity!($Z, $Δ, $index, $W, $U, $K)
-    println()
-
-    println("allocating version:")
-    @btime distance_block_sparsity($W, $U, $K)
-    println()
-
-    println("in-place version:")
-    @btime distance_block_sparsity!($Z, $Δ, $index, $W, $U, $K)
-
-    return nothing
-end
+```{julia}
+@benchmark by_quicksort(ys) setup = (ys = copy($x))
 ```
 
 ```{julia}
-benchmark_distance_block_sparsity(50, 5*10^2, 100)
+@benchmark by_heapsort(ys) setup = (ys = copy($x))
+```
+
+##### Example: Projection 'min' parameterization.
+
+If $\nu \gg L/2$, then we parameterize the projection by the $(L-\nu)$-largest values.
+
+```{julia}
+ν = L - 100     # sparsity level
+ord = MinParam  # optimal search direction
+
+by_quicksort = extract_params_closure(ord, L-ν, partial_quicksort)
+by_heapsort  = extract_params_closure(ord, L-ν, partial_heapsort)
+```
+
+##### Checking for correctness
+
+```{julia}
+P1 = by_quicksort(copy(x))
+P2 = by_heapsort(copy(x))
+
+P1.(x) == P2.(x)
+```
+
+##### Using the projection operator
+
+```{julia}
+P1.(Δ)
+```
+
+##### Benchmarking
+
+```{julia}
+@benchmark by_quicksort(ys) setup = (ys = copy($x))
+```
+
+```{julia}
+@benchmark by_heapsort(ys) setup = (ys = copy($x))
 ```
 
 #### Appendix
