@@ -56,7 +56,7 @@ end
 ##### distances #####
 function evaluate_distances!(xs, U)
     d, n = size(U)
-    
+
     k = 0
     for j in 1:n, i in j+1:n
         ui = view(U, 1:d, i)
