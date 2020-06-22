@@ -1,89 +1,69 @@
-##### sparse fused block projection #####
+function cvxclst_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ)
+    u = optvars.u
 
-"""
-```
-sparse_fused_block_projection(W, A, [k = 1])
-```
+    ∇f = derivs.∇f
+    ∇d = derivs.∇d
+    ∇h = derivs.∇h
 
-Compute a `k`-sparse fused block projection of `A[:,i] - A[:,j]`.
-The matrix `W` applies a weight to each Euclidean distance between centroids.
-Only the lower triangular region is used; that is, `W[i,j]` assumes `i > j`.
+    D = operators.D
+    x = operators.x
+    o = operators.o
+    K = operators.K
+    compute_projection = operators.compute_projection
 
-For the sake of computational performance, we assume `A` is `d` by `n`, where `d` is the number of features and `n` is the number of samples.
+    z = buffers.z
+    U = buffers.U
+    ds = buffers.ds
+    Pz = buffers.Pz
 
-The optional argument `0 <= k <= binomial(n, 2)` enforces the number of non-zero
-blocks within the projection.
-"""
-function sparse_block_projection(W, U, K = 1)
-    d, n = size(U)
-    K_max = binomial(n, 2)  # number of unique comparisons
-    Y = zeros(d, K_max)     # encodes differences between columns of U
-    Δ = zeros(n, n)         # encodes pairwise distances
-    index = collect(1:n*n)  # index vector
+    mul!(z, D, u)
 
-    # enforce 0 <= K <= K_max
-    K = min(K, K_max)
-    K = max(K, 0)
+    # compute projection
+    evaluate_distances!(ds, U)
+    P = compute_projection(ds, o, K)
 
-    return sparse_block_projection!(Y, Δ, index, W, U, K)
-end
+    # evaluate projection
+    d, n = D.d, D.n
+    offset = 0
 
-"""
-```
-sparse_fused_block_projection!(buffer, y, index, K)
-```
-
-In-place version of `sparse_fused_block_projection`.
-"""
-function sparse_block_projection!(Y, Δ, index, W, U, K)
-    d, n = size(U)
-
-    if K > 0
-        # compute pairwise distances
-        pairwise!(Δ, Euclidean(), U, dims = 2)
-        # Δ .= Δ .* W
-
-        # mask upper triangular part to extract unique comparisons
-        for j in 1:n, i in 1:j-1
-            @inbounds Δ[i,j] = 0
-        end
-        δ = vec(Δ)
-
-        # find the K largest distances
-        # J = partialsortperm!(index, δ, 1:K, rev = true, initialized = true)
-        sortperm!(index, δ, alg = PartialQuickSort(K), rev = true, initialized = true)
-
-        ix2coord = CartesianIndices(Δ)
-        # for ix in J
-        for l in 1:K
-            ix = index[l]
-            i = ix2coord[ix][1]
-            j = ix2coord[ix][2]
-
-            if i > j
-                l = tri2vec(i,j,n)
-                for k in 1:d
-                    Y[k,l] = U[k,i] - U[k,j]
-                end
+    @inbounds for block in eachindex(ds)
+        Δ = ds[block]
+        if P(Δ) == Δ
+            @inbounds for k in 1:d
+                Pz[k+offset] = z[k+offset]
+            end
+        else
+            @inbounds for k in 1:d
+                Pz[k+offset] = 0
             end
         end
-    else
-        fill!(Y, 0)
+
+        offset += d
     end
 
-    return Y
+    @. z = z - Pz
+    @. ∇f = u - x
+    mul!(∇d, D', z)
+    @. ∇h = ∇f + ρ * ∇d
+
+    loss = SqEuclidean()(u, x) / 2
+    penalty = dot(z, z)
+    normgrad = dot(∇h, ∇h)
+
+    return loss, penalty, normgrad
 end
 
-"""
-```
-tri2vec(i, j, n)
-```
-
-Map a Cartesian coordinate `(i,j)` with `i > j` to its index in dictionary
-order, assuming `i` ranges from `1` to `n`.
-"""
-function tri2vec(i, j, n)
-    return (i-j) + n*(j-1) - (j*(j-1))>>1
+##### distances #####
+function evaluate_distances!(xs, U)
+    d, n = size(U)
+    
+    k = 0
+    for j in 1:n, i in j+1:n
+        ui = view(U, 1:d, i)
+        uj = view(U, 1:d, j)
+        xs[k+=1] = SqEuclidean()(ui, uj)
+    end
+    return xs
 end
 
 ##### cluster assignment #####

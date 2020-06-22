@@ -6,6 +6,8 @@ using Convex
 using RecipesBase
 using CSV, DataFrames
 
+using DataStructures: heapify!, percolate_down!
+
 import IterativeSolvers: CGStateVariables
 import LinearMaps
 import LinearMaps: LinearMap, AdjointMap, TransposeMap
@@ -61,6 +63,7 @@ export MetricFM, MetricFGM
 # example: convex clustering
 include(joinpath("convex_clustering", "operators.jl"))
 include(joinpath("convex_clustering", "steepest_descent.jl"))
+include(joinpath("convex_clustering", "MM.jl"))
 include(joinpath("convex_clustering", "utilities.jl"))
 
 export convex_clustering, convex_clustering_path, convex_clustering_data

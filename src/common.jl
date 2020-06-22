@@ -397,3 +397,52 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
 
     return optvars
 end
+
+#########################
+#   sparse projections  #
+#########################
+
+const MaxParam = Base.Order.Reverse
+const MinParam = Base.Order.Forward
+const MaxParamT = typeof(MaxParam)
+const MinParamT = typeof(MinParam)
+
+struct SparseProjection{order,T} <: Function
+    lo::T
+    hi::T
+end
+
+SparseProjection{order}(lo, hi) where {order} = SparseProjection{order,promote_type(typeof(lo), typeof(hi))}(lo, hi)
+SparseProjection(order,lo,hi) = SparseProjection{typeof(order)}(lo,hi)
+
+# parameterize by largest entries
+(P::SparseProjection{MaxParamT})(x) = P.lo ≤ x ≤ P.hi ? x : zero(x)
+
+# parameterize by smallest entries
+(P::SparseProjection{MinParamT})(x) = P.lo ≤ x ≤ P.hi ? zero(x) : x
+
+function partial_quicksort(xs, ord, K)
+    sort!(xs, alg = PartialQuickSort(K), order = ord)
+    lo, hi = extrema((xs[1], xs[K]))
+    return SparseProjection(ord, lo, hi)
+end
+
+function swap!(h, i, j)
+    h[i], h[j] = h[j], h[i]
+    return nothing
+end
+
+function partial_heapsort(xs, ord, K)
+    n = length(xs)
+    heapify!(xs, ord)
+    j = 1
+    while j < K && j < n
+        swap!(xs, 1, n-j+1)
+        percolate_down!(xs, 1, xs[1], ord, n-j)
+        j += 1
+    end
+    J = max(1, n-K)
+    swap!(xs, 1, J)
+    lo, hi = extrema((xs[J], xs[n]))
+    return SparseProjection(ord, lo, hi)
+end
