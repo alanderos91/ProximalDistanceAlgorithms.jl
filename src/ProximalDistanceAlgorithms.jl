@@ -71,8 +71,9 @@ export gaussian_weights, knn_weights, gaussian_cluster, assign_classes
 export CvxClusterFM
 
 # example: total variation image denoising
-include(joinpath("image_denoising", "steepest_descent.jl"))
 include(joinpath("image_denoising", "operators.jl"))
+include(joinpath("image_denoising", "steepest_descent.jl"))
+include(joinpath("image_denoising", "utilities.jl"))
 
 export image_denoise
 export ImgTvdFM
