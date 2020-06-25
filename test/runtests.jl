@@ -32,6 +32,8 @@ end
 function get_op_string(A)
     if A isa ProxDist.FusionMatrix
         str = "LinearMap   "
+    elseif A isa DenseMatrix
+        str = "DenseMatrix "
     else
         str = "SparseMatrix"
     end
@@ -49,3 +51,4 @@ include("convex_regression.jl")
 include("convex_clustering.jl")
 include("metric_nearness.jl")
 include("image_denoising.jl")
+include("condition_number.jl")

@@ -79,4 +79,9 @@ include(joinpath("image_denoising", "utilities.jl"))
 export image_denoise
 export ImgTvdFM
 
+# example: improving condition number
+include(joinpath("condition_number", "operators.jl"))
+
+export ConNumFM
+
 end # module
