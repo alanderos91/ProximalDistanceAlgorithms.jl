@@ -34,9 +34,15 @@ function metric_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ)
 
     mul!(z, D, x)
     @. z = z - P(z)
-    @. ∇f = x - a
+    # @. ∇f = x - a
+    @simd for j in eachindex(∇f)
+        @inbounds ∇f[j] = x[j] - a[j]
+    end
     mul!(∇d, D', z)
-    @. ∇h = ∇f + ρ * ∇d
+    # @. ∇h = ∇f + ρ * ∇d
+    @simd for j in eachindex(∇h)
+        @inbounds ∇h[j] = ∇f[j] + ρ*∇d[j]
+    end
 
     loss = SqEuclidean()(x, a) / 2  # 1/2 * ||W^1/2 * (x-y)||^2
     penalty = dot(z, z)             # D*x - P(D*x)

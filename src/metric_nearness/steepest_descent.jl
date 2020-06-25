@@ -12,7 +12,8 @@ function metric_iter(::SteepestDescent, optvars, derivs, operators, buffers, ρ)
     γ = a / (c + ρ*(a + b) + eps())
 
     # move in the direction of steepest descent
-    @. x = x - γ*∇h
+    # @. x = x - γ*∇h
+    axpy!(-γ, ∇h, x)
 
     return γ
 end

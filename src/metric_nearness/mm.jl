@@ -14,7 +14,7 @@ function metric_iter(::MM, optvars, derivs, operators, buffers, ρ)
     mul!(z, D, x)
     @. Pz = P(z)
 
-    b .= W*a
+    mul!(b, W, a)
     mul!(b, D', Pz, ρ, 1.0)
 
     # solve the linear system
