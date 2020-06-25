@@ -9,7 +9,7 @@ function imgtvd_iter(::MM, optvars, derivs, operators, buffers, ρ)
     Pz = buffers.Pz
 
     # set up RHS of Ax = b := W*y + ρ*D'P(D*x)
-    b .= x
+    b .= w
     mul!(b, D', Pz, ρ, 1.0)
 
     # solve the linear system
@@ -19,7 +19,7 @@ function imgtvd_iter(::MM, optvars, derivs, operators, buffers, ρ)
 end
 
 
-function image_denoise(algorithm::SteepestDescent, W;
+function image_denoise(algorithm::MM, W;
     K::Integer = 0,
     o::Base.Ordering = Base.Order.Forward,
     psort::Function = partial_quicksort, kwargs...)
@@ -41,13 +41,13 @@ function image_denoise(algorithm::SteepestDescent, W;
     ∇d = zeros(N)   # distance
     ∇h = zeros(N)   # objective
     ∇²f = I         # Hessian for loss
-    derivs = (∇f = ∇f, ∇²f = ∇²f, d = ∇d, ∇h = ∇h)
+    derivs = (∇f = ∇f, ∇²f = ∇²f, ∇d = ∇d, ∇h = ∇h)
 
     # generate operators
     D = ImgTvdFM(n, p)
     w = vec(W)
     H = ProxDistHessian(N, 1.0, ∇²f, D'D)
-    operators = (D = D, w = w, o = o, K = K, compute_projection = psort)
+    operators = (D = D, w = w, o = o, K = K, H = H, compute_projection = psort)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
