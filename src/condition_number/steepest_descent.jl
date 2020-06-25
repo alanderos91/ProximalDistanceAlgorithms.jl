@@ -25,7 +25,7 @@ function reduce_cond(algorithm::SteepestDescent, c, M; kwargs...)
     #
     # extract problem information
     y, U, Vt = extract_svd(M)
-    p = length(x)
+    p = length(y)
 
     # allocate optimization variable
     x = copy(y)
@@ -35,18 +35,18 @@ function reduce_cond(algorithm::SteepestDescent, c, M; kwargs...)
     ∇f = similar(x)
     ∇d = similar(x)
     ∇h = similar(x)
-    derivs = (∇f = ∇f, )
+    derivs = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
 
     # generate operators
     D = ConNumFM(c, p)
-    P(x) = max.(x, 0)
+    P(x) = min.(x, 0)
     operators = (D = D, P = P, y = y)
 
     # allocate any additional arrays for mat-vec multiplication
     M, N = size(D)
     z = zeros(M)
-    buffers = (z = z,)
-    # r = zeros(N+M*N)
+    Pz = zeros(M)
+    buffers = (z = z, Pz = Pz)
 
     optimize!(algorithm, connum_eval, connum_iter, optvars, derivs, operators, buffers; kwargs...)
 

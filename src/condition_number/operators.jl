@@ -13,12 +13,12 @@ Base.size(D::ConNumFM) = (D.M, D.N)
 
 function apply_fusion_matrix!(z, D::ConNumFM, x)
     p = size(D, 2)
-    cval = -D.c * sum(x)
-    for k in eachindex(x)
-        xk = x[k]
-        offset = p*(k-1)
-        for j in eachindex(x)
-            z[offset+j] = cval + xk
+    c = D.c
+    for j in eachindex(x)
+        @inbounds xj = x[j]
+        offset = p*(j-1)
+        @simd for i in eachindex(x)
+            @inbounds z[offset+i] = xj - c*x[i]
         end
     end
     return z
@@ -26,32 +26,35 @@ end
 
 function apply_fusion_matrix_transpose!(x, D::ConNumFM, z)
     p = size(D, 2)
-    cval = -D.c * sum(z)
-    for k in eachindex(x)
-        x[k] = cval
-        offset = p*(k-1)
-        for j in eachindex(x)
-            x[k] += z[offset+j]
+    c = D.c
+
+    fill!(x, 0)
+    for j in eachindex(x)
+        offset = p*(j-1)
+
+        # apply sparse part of block
+        @simd for i in eachindex(x)
+            @inbounds x[i] = x[i] - c*z[offset+i]
         end
+
+        # apply dense row in block
+        xj = zero(eltype(x))
+        @simd for i in eachindex(x)
+            @inbounds xj = xj + z[offset+i]
+        end
+        x[j] += xj
     end
     return x
 end
 
 function instantiate_fusion_matrix(D::ConNumFM{T}) where T
     p², p = size(D)
-    A = similar(Matrix{T}, p², p)
-    for j in 1:p
-        for i in 1:p*(j-1)
-            A[i,j] = -D.c
-        end
-        for i in p*(j-1)+1:p*j
-            A[i,j] = -D.c + 1
-        end
-        for i in p*j+1:p²
-            A[i,j] = -D.c
-        end
-    end
-    return A
+    c = D.c
+
+    C = kron(-c*ones(p), I(p))
+    S = kron(I(p), ones(p))
+
+    return sparse(C + S)
 end
 
 struct ConNumFGM{T} <: FusionGramMatrix{T}
@@ -64,9 +67,11 @@ Base.size(DtD::ConNumFGM) = (DtD.N, DtD.N)
 function apply_fusion_gram_matrix!(y, DtD::ConNumFGM, x)
     p = DtD.N
     c = DtD.c
-    xsum = sum(x)
+
+    a = p*(c^2 + 1)
+    b = -2*c*sum(x)
     for k in eachindex(x)
-        y[k] = ((c*p)^2 - 2*c*p) * xsum + p * x[k]
+        y[k] = a*x[k] + b
     end
     return y
 end
