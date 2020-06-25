@@ -1,5 +1,3 @@
-import ProximalDistanceAlgorithms: tri2vec
-
 function run_cvxcluster_tests(tests, D, S, x, y, z)
     # pre-compile
     println("  warm-up:")
@@ -44,13 +42,13 @@ end
         end
     end
 
-    @testset "utilities" begin
-        # test: tri2vec, dictionary ordering
-        n = 4
-        count = 1
-        for j in 1:n, i in j+1:n
-            @test tri2vec(i, j, n) == count
-            count += 1
-        end
-    end
+    # @testset "utilities" begin
+    #     # test: tri2vec, dictionary ordering
+    #     n = 4
+    #     count = 1
+    #     for j in 1:n, i in j+1:n
+    #         @test tri2vec(i, j, n) == count
+    #         count += 1
+    #     end
+    # end
 end
