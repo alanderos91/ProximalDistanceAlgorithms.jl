@@ -21,8 +21,7 @@ end
 
 function convex_clustering(algorithm::MM, W, X;
     K::Integer = 0,
-    o::Base.Ordering = Base.Order.Forward,
-    psort::Function = partial_quicksort, kwargs...)
+    o::Base.Ordering = Base.Order.Forward, kwargs...)
     #
     # extract problem dimensions
     d, n = size(X)      # d features by n samples
@@ -46,12 +45,13 @@ function convex_clustering(algorithm::MM, W, X;
     D = CvxClusterFM(d, n)
     x = vec(X)
     H = ProxDistHessian(N, 1.0, ∇²f, D'D)
-    operators = (D = D, x = x, o = o, K = K, H = H, compute_projection = psort)
+    operators = (D = D, x = x, o = o, K = K, H = H, compute_projection = compute_sparse_projection)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
     Pz = zeros(M)
     ds = zeros(m)
+    ss = similar(ds)
     b = similar(u)
 
     # initialize conjugate gradient solver
@@ -60,7 +60,7 @@ function convex_clustering(algorithm::MM, W, X;
     b3 = similar(u)
     cg_iterator = CGIterable(H, u, b1, b2, b3, 1e-8, 0.0, 1.0, size(H, 2), 0)
 
-    buffers = (z = z, U = U, Pz = Pz, ds = ds, b = b, cg_iterator = cg_iterator)
+    buffers = (z = z, U = U, Pz = Pz, ds = ds, ss = ss, b = b, cg_iterator = cg_iterator)
 
     optimize!(algorithm, cvxclst_eval, cvxclst_iter, optvars, derivs, operators, buffers; kwargs...)
 

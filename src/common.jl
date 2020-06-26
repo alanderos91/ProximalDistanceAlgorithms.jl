@@ -411,23 +411,26 @@ const MaxParamT = typeof(MaxParam)
 const MinParamT = typeof(MinParam)
 
 struct SparseProjection{order,T} <: Function
-    lo::T
-    hi::T
+    pivot::T
 end
 
-SparseProjection{order}(lo, hi) where {order} = SparseProjection{order,promote_type(typeof(lo), typeof(hi))}(lo, hi)
-SparseProjection(order,lo,hi) = SparseProjection{typeof(order)}(lo,hi)
+SparseProjection{order}(pivot::T) where {order,T} = SparseProjection{order,T}(pivot)
+SparseProjection(order,pivot) = SparseProjection{typeof(order)}(pivot)
 
 # parameterize by largest entries
-(P::SparseProjection{MaxParamT})(x) = P.lo ≤ x ≤ P.hi ? x : zero(x)
+(P::SparseProjection{MaxParamT})(x) = x ≥ P.pivot ? x : zero(x)
 
 # parameterize by smallest entries
-(P::SparseProjection{MinParamT})(x) = P.lo ≤ x ≤ P.hi ? zero(x) : x
+(P::SparseProjection{MinParamT})(x) = x > P.pivot ? x : zero(x)
 
-function partial_quicksort(xs, ord, K)
-    sort!(xs, alg = PartialQuickSort(K), order = ord)
-    lo, hi = extrema((xs[1], xs[K]))
-    return SparseProjection(ord, lo, hi)
+function compute_sparse_projection(xs, ::MaxParamT, K)
+    pivot = partialsort!(xs, K, rev = true)
+    return SparseProjection{MaxParamT}(pivot)
+end
+
+function compute_sparse_projection(xs, ::MinParamT, K)
+    pivot = partialsort!(xs, K, rev = false)
+    return SparseProjection{MinParamT}(pivot)
 end
 
 function swap!(h, i, j)

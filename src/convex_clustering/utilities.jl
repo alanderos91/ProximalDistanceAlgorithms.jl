@@ -14,13 +14,15 @@ function cvxclst_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ
     z = buffers.z
     U = buffers.U
     ds = buffers.ds
+    ss = buffers.ss
     Pz = buffers.Pz
 
     mul!(z, D, u)
 
     # compute projection
     evaluate_distances!(ds, U)
-    P = compute_projection(ds, o, K)
+    copyto!(ss, ds)
+    P = compute_projection(ss, o, K)
 
     # evaluate projection
     d, n = D.d, D.n
@@ -28,20 +30,14 @@ function cvxclst_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ
 
     @inbounds for block in eachindex(ds)
         Δ = ds[block]
-        if P(Δ) == Δ
-            @inbounds for k in 1:d
-                Pz[k+offset] = z[k+offset]
-            end
-        else
-            @inbounds for k in 1:d
-                Pz[k+offset] = 0
-            end
+        r = (P(Δ) == Δ)
+        @inbounds for k in 1:d
+            Pz[k+offset] = r*z[k+offset]
+            z[k+offset] = (1-r)*z[k+offset]
         end
-
         offset += d
     end
 
-    @. z = z - Pz
     @. ∇f = u - x
     mul!(∇d, D', z)
     @. ∇h = ∇f + ρ * ∇d

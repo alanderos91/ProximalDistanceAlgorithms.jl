@@ -8,8 +8,8 @@ function imgtvd_iter(::MM, optvars, derivs, operators, buffers, ρ)
     z = buffers.z
     Pz = buffers.Pz
 
-    # set up RHS of Ax = b := W*y + ρ*D'P(D*x)
-    b .= w
+    # set up RHS of Ax = b := w + ρ*D'P(D*x)
+    unsafe_copyto!(b, 1, w, 1, length(w))
     mul!(b, D', Pz, ρ, 1.0)
 
     # solve the linear system
@@ -18,11 +18,9 @@ function imgtvd_iter(::MM, optvars, derivs, operators, buffers, ρ)
     return 1.0
 end
 
-
 function image_denoise(algorithm::MM, W;
     K::Integer = 0,
-    o::Base.Ordering = Base.Order.Forward,
-    psort::Function = partial_quicksort, kwargs...)
+    o::Base.Ordering = Base.Order.Forward, kwargs...)
     #
     # extract problem dimensions
     n, p = size(W)          # n pixels by p pixels
@@ -47,7 +45,7 @@ function image_denoise(algorithm::MM, W;
     D = ImgTvdFM(n, p)
     w = vec(W)
     H = ProxDistHessian(N, 1.0, ∇²f, D'D)
-    operators = (D = D, w = w, o = o, K = K, H = H, compute_projection = psort)
+    operators = (D = D, w = w, o = o, K = K, H = H, compute_projection = compute_sparse_projection)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)

@@ -17,8 +17,12 @@ function imgtvd_eval(::AlgorithmOption, optvars, derivs, operators, buffers, ρ)
     mul!(z, D, u)
     @. ds = abs(z)
     P = compute_projection(ds, o, K)
-    @. Pz = P(z)
-    @. z = z - Pz
+    # @. z *= (P(abs(z)) == abs(z))
+    for k in eachindex(ds)
+        r = P(abs(z[k])) == abs(z[k])
+        Pz[k] = r*z[k]
+        z[k] = (1-r)*z[k]
+    end
     @. ∇f = u - w
     mul!(∇d, D', z)
     @. ∇h = ∇f + ρ * ∇d

@@ -18,8 +18,7 @@ end
 
 function image_denoise(algorithm::SteepestDescent, W;
     K::Integer = 0,
-    o::Base.Ordering = Base.Order.Forward,
-    psort::Function = partial_quicksort, kwargs...)
+    o::Base.Ordering = Base.Order.Forward, kwargs...)
     #
     # extract problem dimensions
     n, p = size(W)          # n pixels by p pixels
@@ -29,7 +28,7 @@ function image_denoise(algorithm::SteepestDescent, W;
     N = n*p                 # number of variables
 
     # allocate optimization variable
-    U = zero(W)
+    U = copy(W)
     u = vec(U)
     optvars = (u = u,)
 
@@ -42,7 +41,7 @@ function image_denoise(algorithm::SteepestDescent, W;
     # generate operators
     D = ImgTvdFM(n, p)
     w = vec(W)
-    operators = (D = D, w = w, o = o, K = K, compute_projection = psort)
+    operators = (D = D, w = w, o = o, K = K, compute_projection = compute_sparse_projection)
 
     # allocate any additional arrays for mat-vec multiplication
     z = zeros(M)
