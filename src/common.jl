@@ -89,7 +89,6 @@ function __do_linear_solve!(cg_iterator, b)
     cg_iterator.reltol = cg_iterator.residual * tol
 
     for _ in cg_iterator end
-
     return nothing
 end
 
@@ -219,9 +218,6 @@ struct ProxDistHessian{T,matT1,matT2} <: LinearMap{T}
     DtD::matT2
 end
 
-# for remaking the operator
-ProxDistHessian{T,matT1,matT2}(H::ProxDistHessian{T,matT1,matT2}, ρ) where {T<:Number,matT1,matT2} = ProxDistHessian{T,matT1,matT2}(H.N, ρ, H.∇²f, H.DtD)
-
 Base.size(H::ProxDistHessian) = (H.N, H.N)
 
 # LinearAlgebra traits
@@ -280,17 +276,6 @@ end
 
 trivec_index(n, i, j) = (i-j) + n*(j-1) - (j*(j-1))>>1
 
-function trivec_view(X, inds)
-    # n = size(X, 1)
-    # inds = sizehint!(Int[], binomial(n,2))
-    # mapping = LinearIndices((1:n, 1:n))
-    # for j in 1:n, i in j+1:n
-    #     push!(inds, mapping[i,j])
-    # end
-    x = view(X, inds)
-    return x
-end
-
 function trivec_parent(x::AbstractVector, n::Int)
     p = parent(x)
     x === p && throw(ArgumentError("input may not be a trivec view"))
@@ -313,19 +298,6 @@ function Base.getindex(iter::TriVecIndices, i::Int, j::Int)
     @boundscheck checkbounds(iter, i, j)
     j, i = extrema((i, j))
     l = (i == j) ? 0 : trivec_index(iter.n, i, j)
-end
-
-##### remaking named tuples
-remake_operators(::AlgorithmOption, x, y, ρ) = (x, y)
-
-function remake_operators(::MM, x, y, ρ)
-    H = typeof(x.H)(x.H, ρ)
-    x1 = (x..., H = H)
-    s = y.cg_iterator
-    cg_iterator = CGIterable(H, s.x, s.r, s.c, s.u, s.reltol, s.residual, s.prev_residual, s.maxiter, s.mv_products)
-    y1 = (y..., cg_iterator = cg_iterator)
-
-    return (x1, y1)
 end
 
 #########################

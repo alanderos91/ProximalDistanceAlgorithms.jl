@@ -16,14 +16,34 @@ import LinearMaps: LinearMap, AdjointMap, TransposeMap
 # algorithm types
 abstract type AlgorithmOption end
 
+# traits
+needs_gradient(::AlgorithmOption) = false
+needs_hessian(::AlgorithmOption) = false
+needs_linsolver(::AlgorithmOption) = false
+
 """Use steepest descent iteration."""
 struct SteepestDescent <: AlgorithmOption end
+
+# traits
+needs_gradient(::SteepestDescent) = true
+needs_hessian(::SteepestDescent) = false
+needs_linsolver(::SteepestDescent) = false
 
 """Use algorithm map implied by distance majorization"""
 struct MM <: AlgorithmOption end
 
+# traits
+needs_gradient(::MM) = true
+needs_hessian(::MM) = true
+needs_linsolver(::MM) = true
+
 """Use ADMM"""
 struct ADMM <: AlgorithmOption end
+
+# traits
+needs_gradient(::ADMM) = true
+needs_hessian(::ADMM) = true
+needs_linsolver(::ADMM) = true
 
 """
 Build a portable representation of a problem using Convex.jl.
@@ -44,9 +64,9 @@ export slow_schedule, fast_schedule
 
 # example: convex regression
 include(joinpath("convex_regression", "operators.jl"))
-include(joinpath("convex_regression", "steepest_descent.jl"))
-include(joinpath("convex_regression", "MM.jl"))
-include(joinpath("convex_regression", "black_box.jl"))
+# include(joinpath("convex_regression", "steepest_descent.jl"))
+# include(joinpath("convex_regression", "MM.jl"))
+# include(joinpath("convex_regression", "black_box.jl"))
 include(joinpath("convex_regression", "utilities.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
@@ -54,18 +74,15 @@ export CvxRegBlockA, CvxRegBlockB, CvxRegFM
 
 # example: metric nearness problem
 include(joinpath("metric_nearness", "operators.jl"))
-include(joinpath("metric_nearness", "ADMM.jl"))
-include(joinpath("metric_nearness", "steepest_descent.jl"))
-include(joinpath("metric_nearness", "MM.jl"))
-include(joinpath("metric_nearness", "utilities.jl"))
+include(joinpath("metric_nearness", "implementation.jl"))
 
 export metric_projection, metric_example
 export MetricFM, MetricFGM
 
 # example: convex clustering
 include(joinpath("convex_clustering", "operators.jl"))
-include(joinpath("convex_clustering", "steepest_descent.jl"))
-include(joinpath("convex_clustering", "MM.jl"))
+# include(joinpath("convex_clustering", "steepest_descent.jl"))
+# include(joinpath("convex_clustering", "MM.jl"))
 include(joinpath("convex_clustering", "utilities.jl"))
 
 export convex_clustering, convex_clustering_path, convex_clustering_data
@@ -74,8 +91,8 @@ export CvxClusterFM
 
 # example: total variation image denoising
 include(joinpath("image_denoising", "operators.jl"))
-include(joinpath("image_denoising", "steepest_descent.jl"))
-include(joinpath("image_denoising", "MM.jl"))
+# include(joinpath("image_denoising", "steepest_descent.jl"))
+# include(joinpath("image_denoising", "MM.jl"))
 include(joinpath("image_denoising", "utilities.jl"))
 
 export image_denoise
@@ -83,8 +100,8 @@ export ImgTvdFM
 
 # example: improving condition number
 include(joinpath("condition_number", "operators.jl"))
-include(joinpath("condition_number", "steepest_descent.jl"))
-include(joinpath("condition_number", "MM.jl"))
+# include(joinpath("condition_number", "steepest_descent.jl"))
+# include(joinpath("condition_number", "MM.jl"))
 include(joinpath("condition_number", "utilities.jl"))
 
 export reduce_cond

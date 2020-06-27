@@ -1,71 +1,62 @@
 # no acceleration
-get_acceleration_strategy(::Val{:none}, X) = nothing
-apply_momentum!(X, strategy::Nothing) = X
-restart!(::Nothing, X) = nothing
+get_accelerator(::Val{:none}, vars) = nothing
+apply_momentum!(::Nothing, vars) = vars
+restart!(::Nothing, vars) = nothing
 
 # Nesterov acceleration
 mutable struct Nesterov{T}
-    Y::T
+    oldvars::T
     n::Int
 
     # type can be a vector, matrix, or named tuple
-    Nesterov(X::T) where T = new{T}(deepcopy(X), 1)
+    Nesterov(vars::T) where T = new{T}(deepcopy(vars), 1)
 end
 
-get_acceleration_strategy(::Val{:nesterov}, optvars) = Nesterov(optvars)
+get_accelerator(::Val{:nesterov}, optvars) = Nesterov(optvars)
 
 # dispatch for array types
-function apply_momentum!(X::AbstractArray, strategy::Nesterov)
-    n = strategy.n + 1
-    strategy.n = n
-
-    __apply_momentum!(X, strategy.Y, n)
-
-    return X
+function apply_momentum!(accelerator::Nesterov, optvars::AbstractArray)
+    n = accelerator.n + 1
+    accelerator.n = n
+    __apply_momentum!(optvars, accelerator.oldvars, n)
+    return optvars
 end
 
 # dispatch for named tuples
-function apply_momentum!(optvars::NamedTuple, strategy::Nesterov)
-    n = strategy.n + 1
-    strategy.n = n
-
-    for (X, Y) in zip(optvars, strategy.Y)
-        __apply_momentum!(X, Y, n)
+function apply_momentum!(accelerator::Nesterov, optvars::NamedTuple)
+    n = accelerator.n + 1
+    accelerator.n = n
+    for (x, y) in zip(optvars, accelerator.oldvars)
+        __apply_momentum!(x, y, n)
     end
-
     return optvars
 end
 
 # generic implementation for array types
-function __apply_momentum!(X::AbstractArray, Y, n)
-    for idx in eachindex(X)
-        x = X[idx]
-        y = Y[idx]
-
-        z = x + (n-1)/(n+2) * (x-y)
-
-        Y[idx] = x
-        X[idx] = z
+function __apply_momentum!(x::AbstractArray, y::AbstractArray, n)
+    @inbounds for i in eachindex(x)
+        xi = x[i]
+        yi = y[i]
+        zi = xi + (n-1)/(n+2) * (xi-yi)
+        y[i] = xi
+        x[i] = zi
     end
 
     return nothing
 end
 
 # dispatch for arrays
-function restart!(strategy::Nesterov, X::AbstractArray)
-    copyto!(strategy.Y, X)
-    strategy.n = 1
-
+function restart!(accelerator::Nesterov, optvars::AbstractArray)
+    copyto!(accelerator.oldvars, optvars)
+    accelerator.n = 1
     return nothing
 end
 
 # dispatch for named tuples
-function restart!(strategy::Nesterov, optvars::NamedTuple)
-    for (X, Y) in zip(optvars, strategy.Y)
-        copyto!(Y, X)
+function restart!(accelerator::Nesterov, optvars::NamedTuple)
+    for (x, y) in zip(optvars, accelerator.oldvars)
+        copyto!(y, x)
     end
-
-    strategy.n = 1
-
+    accelerator.n = 1
     return nothing
 end

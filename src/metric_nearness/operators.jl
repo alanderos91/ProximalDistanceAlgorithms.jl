@@ -27,43 +27,7 @@ MetricFM(n::Integer, M::Integer, N::Integer) = MetricFM{Int}(n, M, N)
 # implementation
 Base.size(D::MetricFM) = (D.M, D.N)
 
-"""
-```
-apply_fusion_matrix!(z, D::MetricFM, x)
-```
-
-Multiply `x` by `D = [A, I]`, where `A*x ≥ 0` encodes triangle inequality
-constraints and `x ≥ 0` encodes non-negativity.
-"""
-function apply_fusion_matrix!(z, D::MetricFM, x::SubArray)
-    edge = 0 # edge counter
-    n = D.n
-    # X = trivec_parent(x, n)
-    X = parent(x)
-    L = LinearIndices((1:n, 1:n))
-
-    # A*x: 0 ≤ x_ik + x_kj - x_ij
-    @inbounds for j in 1:n-2, i in j+1:n-1
-        a = X[L[i,j]] # fix one edge
-
-        @inbounds for k in i+1:n
-            b = X[L[k,i]]
-            c = X[L[k,j]]
-
-            # check edges of one triangle
-            z[edge += 1] = -a + b + c
-            z[edge += 1] = -b + a + c
-            z[edge += 1] = -c + a + b
-        end
-    end
-
-    # I*x = x
-    copyto!(z, edge+1, x, 1, length(x))
-
-    return z
-end
-
-function apply_fusion_matrix!(z, D::MetricFM, x::AbstractVector)
+function apply_fusion_matrix!(z, D::MetricFM, x)
     edge = 0 # edge counter
     n = D.n
     T = D.I
@@ -72,7 +36,7 @@ function apply_fusion_matrix!(z, D::MetricFM, x::AbstractVector)
     @inbounds for j in 1:n-2, i in j+1:n-1
         a = x[T[i,j]] # fix one edge
 
-        @inbounds for k in i+1:n
+        @inbounds @simd for k in i+1:n
             b = x[T[k,i]]
             c = x[T[k,j]]
 
@@ -89,32 +53,7 @@ function apply_fusion_matrix!(z, D::MetricFM, x::AbstractVector)
     return z
 end
 
-function apply_fusion_matrix_transpose!(x::SubArray, D::MetricFM, z)
-    edge = 0
-    N = size(D, 2)
-    n = D.n
-    # X = trivec_parent(x, n)
-    X = parent(x)
-    L = LinearIndices((1:n, 1:n))
-
-    # I*z[block2]
-    copyto!(x, 1, z, N*(n-2)+1, N)
-
-    # T'*z[block1]
-    @inbounds for j in 1:n-2, i in j+1:n-1, k in i+1:n
-        abc = z[edge += 1]
-        bac = z[edge += 1]
-        cab = z[edge += 1]
-
-        X[L[i,j]] += -abc + bac + cab
-        X[L[k,j]] += -cab + abc + bac
-        X[L[k,i]] += -bac + abc + cab
-    end
-
-    return z
-end
-
-function apply_fusion_matrix_transpose!(x::AbstractVector, D::MetricFM, z)
+function apply_fusion_matrix_transpose!(x, D::MetricFM, z)
     edge = 0
     N = size(D, 2)
     n = D.n
@@ -124,14 +63,16 @@ function apply_fusion_matrix_transpose!(x::AbstractVector, D::MetricFM, z)
     copyto!(x, 1, z, N*(n-2)+1, N)
 
     # T'*z[block1]
-    @inbounds for j in 1:n-2, i in j+1:n-1, k in i+1:n
+    @inbounds for j in 1:n-2, i in j+1:n-1
         abc = z[edge += 1]
         bac = z[edge += 1]
         cab = z[edge += 1]
 
-        x[T[i,j]] += -abc + bac + cab
-        x[T[k,j]] += -cab + abc + bac
-        x[T[k,i]] += -bac + abc + cab
+        @inbounds @simd for k in i+1:n
+            x[T[i,j]] += -abc + bac + cab
+            x[T[k,j]] += -cab + abc + bac
+            x[T[k,i]] += -bac + abc + cab
+        end
     end
 
     return z
@@ -197,55 +138,24 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 # implementation
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-# function apply_fusion_gram_matrix!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
-#     n = DtD.n
-#     indices = DtD.indices
-#
-#     # apply I block of D'D
-#     y .= x
-#
-#     # apply T'T block of D'D
-#     @inbounds for j in 1:n-2, i in j+1:n-1
-#         i1 = indices[i,j]; a = x[i1]
-#
-#         @inbounds for k in i+1:n
-#             i2 = indices[k,i]; b = x[i2]
-#             i3 = indices[k,j]; c = x[i3]
-#
-#             y[i1] += 3*a - b - c
-#             y[i2] += 3*b - a - c
-#             y[i3] += 3*c - a - b
-#         end
-#     end
-#
-#     return y
-# end
-
-function apply_fusion_gram_matrix!(y::SubArray, DtD::MetricFGM, x::SubArray)
+function apply_fusion_gram_matrix!(y, DtD::MetricFGM, x)
     n = DtD.n
-    # X = trivec_parent(x, n)
-    # Y = trivec_parent(y, n)
-    X = parent(x)
-    Y = parent(y)
-    L = LinearIndices((1:n, 1:n))
+    indices = DtD.indices
 
     # apply I block of D'D
-    copyto!(y, 1, x, 1, length(x))
+    copyto!(y, x)
 
     # apply T'T block of D'D
-    for j in 1:n-2, i in j+1:n-1
-        ij = L[i,j]; a = X[ij]
-        for k in i+1:n
-            ki = L[k,i]; b = X[ki]
-            kj = L[k,j]; c = X[kj]
+    @inbounds for j in 1:n-2, i in j+1:n-1
+        i1 = indices[i,j]; a = x[i1]
 
-            abc = 3*a - b - c
-            bac = 3*b - a - c
-            cab = 3*c - a - b
+        @inbounds @simd for k in i+1:n
+            i2 = indices[k,i]; b = x[i2]
+            i3 = indices[k,j]; c = x[i3]
 
-            Y[ij] += abc
-            Y[ki] += bac
-            Y[kj] += cab
+            y[i1] += 3*a - b - c
+            y[i2] += 3*b - a - c
+            y[i3] += 3*c - a - b
         end
     end
 

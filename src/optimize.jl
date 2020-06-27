@@ -1,3 +1,14 @@
+##### container for problem variables and data #####
+
+struct ProxDistProblem{VAR,DER,OPS,BUF,VWS,LS}
+    variables::VAR
+    derivatives::DER
+    operators::OPS
+    buffers::BUF
+    views::VWS
+    linsolver::LS
+end
+
 ##### checking convergence #####
 
 """
@@ -9,7 +20,7 @@ Evaluate convergence using the following three checks:
 
 Returns `true` if any of (1)-(3) are violated, `false` otherwise.
 """
-function not_converged(loss, dist, rtol, atol)
+function check_convergence(loss, dist, rtol, atol)
     diff1 = abs(loss.new - loss.old)
     diff2 = abs(dist.new - dist.old)
 
@@ -20,10 +31,26 @@ function not_converged(loss, dist, rtol, atol)
     return flag1 || flag2 || flag3
 end
 
+##### remaking immutables #####
+
+remake_hessian(H::ProxDistHessian, ρ) = ProxDistHessian(H.N, ρ, H.∇²f, H.DtD)
+
+remake_operators(::AlgorithmOption, prob, ρ) = prob
+
+function remake_operators(::MM, prob, ρ)
+    @unpack variables, derivatives, operators, buffers, views, linsolver = prob
+    @unpack x, r, c, u, reltol, residual, prev_residual, maxiter, mv_products = linsolver
+
+    H = remake_hessian(operators.H, ρ)
+    operators = (operators..., H = H)
+    linsolver = CGIterable(H, x, r, c, u, reltol, residual, prev_residual, maxiter, mv_products)
+
+    return ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+end
+
 ##### common solution interface #####
 
-function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, operators, buffers;
-    ρ_init::Real      = 1.0,
+function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
     history::histT    = nothing,
@@ -31,42 +58,45 @@ function optimize!(algorithm::AlgorithmOption, eval_h, M, optvars, gradients, op
     atol::Real        = 1e-4,
     accel::accelT     = Val(:none)) where {histT, accelT}
     #
-    # construct acceleration strategy
-    strategy = get_acceleration_strategy(accel, optvars)
+    # select acceleration algorithm
+    accelerator = get_accelerator(accel, prob.variables)
 
-    # initialize
-    ρ = ρ_init
-
-    f_loss, h_dist, h_ngrad = eval_h(algorithm, optvars, gradients, operators, buffers, ρ)
+    # initialize algorithm
+    f_loss, h_dist, h_ngrad = objective(algorithm, prob, ρ)
     data = package_data(f_loss, h_dist, h_ngrad, one(f_loss), ρ)
     update_history!(history, data, 0)
 
     loss = (old = f_loss, new = Inf)
     dist = (old = h_dist, new = Inf)
+    not_converged = check_convergence(loss, dist, rtol, atol)
     iteration = 1
 
-    while not_converged(loss, dist, rtol, atol) && iteration ≤ maxiters
-        # iterate the algorithm map
-        stepsize = M(algorithm, optvars, gradients, operators, buffers, ρ)
+    # main optimization loop
+    while not_converged && iteration ≤ maxiters
+        # apply algorithm map
+        stepsize = algmap(algorithm, prob, ρ, μ)
 
-        # penalty schedule + acceleration
+        # update penalty and momentum
         ρ_new = penalty(ρ, iteration)
         if ρ != ρ_new
-            restart!(strategy, optvars)
-            operators, buffers = remake_operators(algorithm, operators, buffers, ρ_new)
+            restart!(accelerator, prob.variables)
+            prob = remake_operators(algorithm, prob, ρ_new)
         end
-        apply_momentum!(optvars, strategy)
+        apply_momentum!(accelerator, prob.variables)
         ρ = ρ_new
 
         # convergence history
-        f_loss, h_dist, h_ngrad = eval_h(algorithm, optvars, gradients, operators, buffers, ρ)
+        f_loss, h_dist, h_ngrad = objective(algorithm, prob, ρ)
         data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
         update_history!(history, data, iteration)
 
         loss = (old = loss.new, new = f_loss)
         dist = (old = dist.new, new = h_dist)
+        not_converged = check_convergence(loss, dist, rtol, atol)
         iteration += 1
     end
 
-    return optvars
+    converged = !not_converged
+
+    return prob, iteration, converged
 end
