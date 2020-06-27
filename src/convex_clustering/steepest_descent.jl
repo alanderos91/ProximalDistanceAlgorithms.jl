@@ -125,66 +125,81 @@ end
 #
 #     return U
 # end
-#
-# function convex_clustering_path(::SteepestDescent, W, X;
-#     ρ_init::Real      = 1.0,
-#     maxiters::Integer = 100,
-#     penalty::Function = __default_schedule,
-#     history::histT    = nothing,
-#     ftol::Real        = 1e-6,
-#     dtol::Real        = 1e-4,
-#     accel::accelT     = Val(:none)) where {histT, accelT}
-#     #
-#     # initialize
-#     d, n = size(X)
-#     ν_max = binomial(n, 2)
-#     ν = ν_max
-#
-#     # solution path
-#     U_path = typeof(X)[]
-#     ν_path = Int[]
-#
-#     # allocate optimization variable
-#     U = copy(X)
-#
-#     # allocate gradient and auxiliary variables
-#     Q = similar(X)
-#     Y = zeros(d, binomial(n, 2))
-#     Δ = zeros(n, n)
-#     index = collect(1:n*n)
-#
-#     # construct type for acceleration strategy
-#     strategy = get_acceleration_strategy(accel, U)
-#
-#     # packing
-#     solution   = (Q = Q, U = U)
-#     projection = (Y = Y, Δ = Δ, index = index)
-#     inputs     = (W = W, X = X, ρ_init = ρ_init, penalty = penalty)
-#     settings   = (maxiters = maxiters, history = history, ftol = ftol, dtol = dtol, strategy = strategy)
-#
-#     # each instance uses the previous solution as the starting point
-#     while ν ≥ 0
-#         # solve problem with ν violated constraints
-#         result = convex_clustering!(solution, projection, inputs, settings, ν, false)
-#
-#         # add to solution path
-#         push!(U_path, copy(result))
-#         push!(ν_path, ν)
-#
-#         # count satisfied constraints
-#         Δ = pairwise!(Δ, Euclidean(), result, dims = 2)
-#         @. Δ = log(10, Δ)
-#
-#         nconstraint = 0
-#         for j in 1:n, i in j+1:n
-#             nconstraint += (Δ[i,j] ≤ -3) # distances within 10^-3 are 0
-#         end
-#
-#         # decrease ν with a heuristic that guarantees descent
-#         ν = min(ν - 1, ν_max - nconstraint - 1)
-#     end
-#
-#     solution_path = (U = U_path, ν = ν_path)
-#
-#     return solution_path
-# end
+
+function convex_clustering_path(algorithm::SteepestDescent, W, X; history::histT = nothing, kwargs...) where histT
+    #
+    # extract problem dimensions
+    d, n = size(X)      # d features by n samples
+    m = binomial(n, 2)  # number of constraints
+    M = d*m             # number of rows
+    N = d*n             # number of columns
+
+    # allocate optimization variable
+    U = copy(X)
+    u = vec(U)
+    optvars = (u = u,)
+
+    # allocate derivatives
+    ∇f = zeros(N)
+    ∇d = zeros(N)
+    ∇h = zeros(N)
+    derivs = (∇f = ∇f, ∇d = ∇d, ∇h = ∇h)
+
+    # generate operators
+    D = CvxClusterFM(d, n)
+    x = vec(X)
+
+    # allocate any additional arrays for mat-vec multiplication
+    z = zeros(M)
+    Pz = zeros(M)
+    ds = zeros(m)
+    ss = similar(ds)
+    buffers = (z = z, U = U, Pz = Pz, ds = ds, ss = ss)
+
+    # allocate outputs
+    U_path = typeof(X)[]
+    ν_path = Int[]
+
+    # initialize
+    ν_max = binomial(n, 2)
+    ν = ν_max - 1
+
+    # each instance uses the previous solution as the starting point
+    while ν ≥ 0
+        if ν ≤ ν_max >> 2
+            operators = (D = D, x = x, o = MaxParam, K = ν, compute_projection = compute_sparse_projection)
+
+            optimize!(algorithm, cvxclst_eval, cvxclst_iter, optvars, derivs, operators, buffers; kwargs...)
+        else
+            operators = (D = D, x = x, o = MinParam, K = ν_max - ν, compute_projection = compute_sparse_projection)
+
+            optimize!(algorithm, cvxclst_eval, cvxclst_iter, optvars, derivs, operators, buffers; kwargs...)
+        end
+
+        # convergence history
+        if !(history isa Nothing)
+            f_loss, h_dist, h_ngrad = cvxclst_eval(algorithm, optvars, derivs, operators, buffers, 1.0)
+            data = package_data(f_loss, h_dist, h_ngrad, 0.0, 0.0)
+            update_history!(history, data, 0)
+        end
+
+        # add to solution path
+        push!(U_path, copy(U))
+        push!(ν_path, ν)
+
+        # count satisfied constraints
+        evaluate_distances!(ds, U)
+
+        nconstraint = 0
+        for Δ in ds
+            nconstraint += (log(10, Δ) ≤ -3) # distances within 10^-3 are 0
+        end
+
+        # decrease ν with a heuristic that guarantees a decrease
+        ν = min(ν - 1, ν_max - nconstraint - 1)
+    end
+
+    solution_path = (U = U_path, ν = ν_path)
+
+    return solution_path
+end
