@@ -1,6 +1,7 @@
 module ProximalDistanceAlgorithms
 
 using Distances, Clustering
+using Parameters
 using LinearAlgebra, Statistics, SparseArrays, IterativeSolvers
 using Convex
 using RecipesBase
@@ -35,6 +36,7 @@ export SteepestDescent, MM, BlackBox, ADMM
 
 # convergence metrics + common operations
 include("common.jl")
+include("optimize.jl")
 include("acceleration.jl")
 
 export initialize_history, instantiate_fusion_matrix
