@@ -13,16 +13,8 @@ function metric_projection(algorithm::AlgorithmOption, W, A;
     N = m1              # total number of optimization variables
     M = m1 + m2         # total number of constraints
 
-    # enumerate indices for trivec views
-    # inds = sizehint!(Int[], binomial(n,2))
-    mapping = LinearIndices((1:n, 1:n))
-    # for j in 1:n, i in j+1:n
-    #     push!(inds, mapping[i,j])
-    # end
-
     # allocate optimization variable
     X = copy(A)
-    # x = view(X, inds)
     x = zeros(N)
     k = 0
     for j in 1:n, i in j+1:n
@@ -60,7 +52,7 @@ function metric_projection(algorithm::AlgorithmOption, W, A;
     else
         H = nothing
     end
-    operators = (D = D, P = P, H = H, W = ∇²f, a = a)
+    operators = (D = D, P = P, H = H, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -71,11 +63,10 @@ function metric_projection(algorithm::AlgorithmOption, W, A;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        xsol = similar(x)
         b1 = similar(x)
         b2 = similar(x)
         b3 = similar(x)
-        linsolver = CGIterable(H, xsol, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
+        linsolver = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
     else
         linsolver = nothing
     end
@@ -149,43 +140,43 @@ function metric_iter(::SteepestDescent, prob, ρ, μ)
 end
 
 function metric_iter(::MM, prob, ρ, μ)
-    @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
+    @unpack D, a = prob.operators
+    @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
-    # solve the linear system
-    __do_linear_solve!(linsolver, ∇h)
-    axpy!(-1, linsolver.x, x)
+    # build RHS of Ax = b
+    mul!(b, D', Pz)
+    axpby!(1, a, ρ, b)
+
+    # solve the linear system; assuming x bound to linsolver
+    __do_linear_solve!(linsolver, b)
 
     return 1.0
 end
 
 function metric_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack ∇f = prob.derivatives
-    @unpack D, P = prob.operators
+    @unpack D, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
 
-    # x block update
-    axpy!(1, v, z)
-    mul!(b, D', z)
-    axpby!(1, ∇f, μ, b)
-    __do_linear_solve!(linsolver, b)
-    axpy!(-1, linsolver.x, x)
-
     # y block update
-    mul!(z, D, x)
-    axpy!(1, λ, z)
-    @. Pz = P(z)
-    α = (ρ / μ) / (1 + ρ / μ)
-    @. y = (1-α)*z
-    axpy!(α, Pz, y)
+    α = (ρ / μ)
+    @inbounds @simd for j in eachindex(y)
+        y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
+    end
+
+    # x block update
+    @. v = y - λ
+    mul!(b, D', v)
+    axpby!(1, a, μ, b)
+    __do_linear_solve!(linsolver, b)
 
     # λ block update
-    # mul!(λ, D, x, μ, 1.0)
-    axpy!(μ, z, λ)
-    axpy!(-μ, y, λ)
+    mul!(z, D, x)
+    @inbounds @simd for j in eachindex(λ)
+        λ[j] = λ[j] / μ + z[j] - y[j]
+    end
 
     return μ
 end
