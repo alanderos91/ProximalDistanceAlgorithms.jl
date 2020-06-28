@@ -64,10 +64,7 @@ export slow_schedule, fast_schedule
 
 # example: convex regression
 include(joinpath("convex_regression", "operators.jl"))
-# include(joinpath("convex_regression", "steepest_descent.jl"))
-# include(joinpath("convex_regression", "MM.jl"))
-# include(joinpath("convex_regression", "black_box.jl"))
-include(joinpath("convex_regression", "utilities.jl"))
+include(joinpath("convex_regression", "implementation.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
 export CvxRegBlockA, CvxRegBlockB, CvxRegFM
