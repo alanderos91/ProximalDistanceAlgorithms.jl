@@ -77,10 +77,7 @@ function __do_linear_solve!(cg_iterator, b)
     fill!(x, zero(eltype(x)))
     fill!(u, zero(eltype(u)))
     fill!(c, zero(eltype(c)))
-    # copyto!(r, b)
-    for j in eachindex(r)
-        @inbounds r[j] = b[j]
-    end
+    copyto!(r, b)
 
     tol = sqrt(eps(eltype(b)))
     cg_iterator.mv_products = 0

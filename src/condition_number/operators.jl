@@ -1,17 +1,17 @@
-struct ConNumFM{T} <: FusionMatrix{T}
+struct CondNumFM{T} <: FusionMatrix{T}
     c::T
     M::Int
     N::Int
 end
 
-function ConNumFM(c::T, p::Integer) where {T<:Number}
-    ConNumFM{T}(c, p*p, p)
+function CondNumFM(c::T, p::Integer) where {T<:Number}
+    CondNumFM{T}(c, p*p, p)
 end
 
 # implementation
-Base.size(D::ConNumFM) = (D.M, D.N)
+Base.size(D::CondNumFM) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::ConNumFM, x)
+function apply_fusion_matrix!(z, D::CondNumFM, x)
     p = size(D, 2)
     c = D.c
     for j in eachindex(x)
@@ -24,7 +24,7 @@ function apply_fusion_matrix!(z, D::ConNumFM, x)
     return z
 end
 
-function apply_fusion_matrix_transpose!(x, D::ConNumFM, z)
+function apply_fusion_matrix_transpose!(x, D::CondNumFM, z)
     p = size(D, 2)
     c = D.c
 
@@ -47,7 +47,7 @@ function apply_fusion_matrix_transpose!(x, D::ConNumFM, z)
     return x
 end
 
-function instantiate_fusion_matrix(D::ConNumFM{T}) where T
+function instantiate_fusion_matrix(D::CondNumFM{T}) where T
     p², p = size(D)
     c = D.c
 
@@ -57,14 +57,14 @@ function instantiate_fusion_matrix(D::ConNumFM{T}) where T
     return sparse(C + S)
 end
 
-struct ConNumFGM{T} <: FusionGramMatrix{T}
+struct CondNumFGM{T} <: FusionGramMatrix{T}
     c::T
     N::Int
 end
 
-Base.size(DtD::ConNumFGM) = (DtD.N, DtD.N)
+Base.size(DtD::CondNumFGM) = (DtD.N, DtD.N)
 
-function apply_fusion_gram_matrix!(y, DtD::ConNumFGM, x)
+function apply_fusion_gram_matrix!(y, DtD::CondNumFGM, x)
     p = DtD.N
     c = DtD.c
 
@@ -76,4 +76,4 @@ function apply_fusion_gram_matrix!(y, DtD::ConNumFGM, x)
     return y
 end
 
-Base.:(*)(Dt::TransposeMap{T,ConNumFM{T}}, D::ConNumFM{T}) where T = ConNumFGM(D.c, D.N)
+Base.:(*)(Dt::TransposeMap{T,CondNumFM{T}}, D::CondNumFM{T}) where T = CondNumFGM(D.c, D.N)

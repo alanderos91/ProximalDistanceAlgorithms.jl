@@ -100,11 +100,9 @@ export ImgTvdFM
 
 # example: improving condition number
 include(joinpath("condition_number", "operators.jl"))
-# include(joinpath("condition_number", "steepest_descent.jl"))
-# include(joinpath("condition_number", "MM.jl"))
-include(joinpath("condition_number", "utilities.jl"))
+include(joinpath("condition_number", "implementation.jl"))
 
 export reduce_cond
-export ConNumFM
+export CondNumFM
 
 end # module

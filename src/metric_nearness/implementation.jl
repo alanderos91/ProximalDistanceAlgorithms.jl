@@ -71,7 +71,7 @@ function metric_projection(algorithm::AlgorithmOption, W, A;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        xsol = algorithm isa MM ? x : similar(x)
+        xsol = similar(x)
         b1 = similar(x)
         b2 = similar(x)
         b3 = similar(x)
@@ -150,18 +150,12 @@ end
 
 function metric_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack D, P, W, a = prob.operators
-    @unpack z, Pz, b = prob.buffers
+    @unpack ∇h = prob.derivatives
     linsolver = prob.linsolver
 
-    # set up RHS of Ax = b := W*y + ρ*D'P(D*x)
-    # mul!(b, W, a)
-    # mul!(b, D', Pz, ρ, 1.0)
-    mul!(b, D', Pz)
-    mul!(b, W, a, 1, ρ)
-
     # solve the linear system
-    __do_linear_solve!(prob.linsolver, b)
+    __do_linear_solve!(linsolver, ∇h)
+    axpy!(-1, linsolver.x, x)
 
     return 1.0
 end

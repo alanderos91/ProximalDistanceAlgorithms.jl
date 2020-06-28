@@ -37,7 +37,7 @@ remake_hessian(H::ProxDistHessian, ρ) = ProxDistHessian(H.N, ρ, H.∇²f, H.Dt
 
 remake_operators(::AlgorithmOption, prob, ρ) = prob
 
-function remake_operators(::MM, prob, ρ)
+function remake_operators(::MM, prob::ProxDistProblem{A,B,C,D,E,F}, ρ) where {A,B,C,D,E,F<:CGIterable}
     @unpack variables, derivatives, operators, buffers, views, linsolver = prob
     @unpack x, r, c, u, reltol, residual, prev_residual, maxiter, mv_products = linsolver
 

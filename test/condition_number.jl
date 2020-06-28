@@ -1,4 +1,4 @@
-function run_connum_tests(tests, D, S, x, y, z)
+function run_condnum_tests(tests, D, S, x, y, z)
     # pre-compile
     println("  warm-up:")
     for C in (D, S), f in tests
@@ -28,7 +28,7 @@ end
         c = rand()
         for p in nsingular_values
             # create fusion matrix
-            D = ConNumFM(c, p)
+            D = CondNumFM(c, p)
             S = instantiate_fusion_matrix(D)
             M, N = size(D)
             println("$(p) singular values; $(M) × $(N) matrix")
@@ -38,7 +38,7 @@ end
             y = zero(x)
             z = zeros(M)
 
-            run_connum_tests(tests, D, S, x, y, z)
+            run_condnum_tests(tests, D, S, x, y, z)
         end
     end
 end
