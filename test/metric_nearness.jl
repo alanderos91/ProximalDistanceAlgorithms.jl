@@ -1,5 +1,3 @@
-import ProximalDistanceAlgorithms: trivec_view
-
 @testset "metric projection" begin
     # simulated examples for testing
     nodes = (16, 32, 64)
@@ -21,8 +19,12 @@ import ProximalDistanceAlgorithms: trivec_view
 
             # simulate dissimilarity matrix
             X = Matrix(Symmetric(rand(n, n)))
-            x = trivec_view(X, inds)
-            y = trivec_view(zero(X), inds)
+            x = zeros(N);
+            k = 0
+            for j in 1:n, i in j+1:n
+                x[k+=1] = X[i,j]
+            end
+            y = similar(x)
             z = zeros(M)
 
             println("  warm-up:")

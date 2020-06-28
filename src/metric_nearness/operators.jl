@@ -36,7 +36,7 @@ function apply_fusion_matrix!(z, D::MetricFM, x)
     @inbounds for j in 1:n-2, i in j+1:n-1
         a = x[T[i,j]] # fix one edge
 
-        @inbounds @simd for k in i+1:n
+        @inbounds for k in i+1:n
             b = x[T[k,i]]
             c = x[T[k,j]]
 
@@ -48,7 +48,7 @@ function apply_fusion_matrix!(z, D::MetricFM, x)
     end
 
     # I*x = x
-    copyto!(z, edge+1, x, 1, length(x))
+    unsafe_copyto!(z, edge+1, x, 1, length(x))
 
     return z
 end
@@ -60,19 +60,17 @@ function apply_fusion_matrix_transpose!(x, D::MetricFM, z)
     T = D.I
 
     # I*z[block2]
-    copyto!(x, 1, z, N*(n-2)+1, N)
+    unsafe_copyto!(x, 1, z, N*(n-2)+1, N)
 
     # T'*z[block1]
-    @inbounds for j in 1:n-2, i in j+1:n-1
+    @inbounds for j in 1:n-2, i in j+1:n-1, k in i+1:n
         abc = z[edge += 1]
         bac = z[edge += 1]
         cab = z[edge += 1]
 
-        @inbounds @simd for k in i+1:n
-            x[T[i,j]] += -abc + bac + cab
-            x[T[k,j]] += -cab + abc + bac
-            x[T[k,i]] += -bac + abc + cab
-        end
+        x[T[i,j]] += -abc + bac + cab
+        x[T[k,j]] += -cab + abc + bac
+        x[T[k,i]] += -bac + abc + cab
     end
 
     return z
@@ -143,13 +141,13 @@ function apply_fusion_gram_matrix!(y, DtD::MetricFGM, x)
     indices = DtD.indices
 
     # apply I block of D'D
-    copyto!(y, x)
+    unsafe_copyto!(y, 1, x, 1, length(x))
 
     # apply T'T block of D'D
     @inbounds for j in 1:n-2, i in j+1:n-1
         i1 = indices[i,j]; a = x[i1]
 
-        @inbounds @simd for k in i+1:n
+        @inbounds for k in i+1:n
             i2 = indices[k,i]; b = x[i2]
             i3 = indices[k,j]; c = x[i3]
 
