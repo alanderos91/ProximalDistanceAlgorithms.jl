@@ -142,9 +142,15 @@ function condnum_iter(::ADMM, prob, ρ, μ)
     @unpack z, Pz, v = prob.buffers
     linsolver = prob.linsolver
 
+    # y block update
+    α = (ρ / μ)
+    @inbounds @simd for j in eachindex(y)
+        y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
+    end
+
     # x block update
-    @. z = y - λ
-    mul!(x, D', z)
+    @. v = y - λ
+    mul!(x, D', v)
     axpby!(1, σ, μ, x)
 
     c = D.c
@@ -158,17 +164,11 @@ function condnum_iter(::ADMM, prob, ρ, μ)
         @inbounds x[k] = u*(x[k] - v)
     end
 
-    # y block update
-    mul!(z, D, x)
-    axpy!(1, λ, z)
-    @. Pz = P(z)
-    α = (ρ / μ) / (1 + ρ / μ)
-    @. y = (1-α)*z
-    axpy!(α, Pz, y)
-
     # λ block update
-    axpy!(μ, z, λ)
-    axpy!(-μ, y, λ)
+    mul!(z, D, x)
+    @inbounds @simd for j in eachindex(λ)
+        λ[j] = λ[j] / μ + z[j] - y[j]
+    end
 
     return μ
 end
