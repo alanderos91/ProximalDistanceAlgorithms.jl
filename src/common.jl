@@ -320,12 +320,20 @@ SparseProjection(order,pivot) = SparseProjection{typeof(order)}(pivot)
 (P::SparseProjection{MinParamT})(x) = x > P.pivot ? x : zero(x)
 
 function compute_sparse_projection(xs, ::MaxParamT, K)
-    pivot = partialsort!(xs, K, rev = true)
+    if K > 0
+        pivot = K < length(xs) ? partialsort!(xs, K, rev = true) : zero(eltype(xs))
+    else
+        pivot = -Inf
+    end
     return SparseProjection{MaxParamT}(pivot)
 end
 
 function compute_sparse_projection(xs, ::MinParamT, K)
-    pivot = partialsort!(xs, K, rev = false)
+    if K > 0
+        pivot = K < length(xs) ? partialsort!(xs, K, rev = false) : zero(eltype(xs))
+    else
+        pivot = -Inf
+    end
     return SparseProjection{MinParamT}(pivot)
 end
 
@@ -348,3 +356,47 @@ function partial_heapsort(xs, ord, K)
     lo, hi = extrema((xs[J], xs[n]))
     return SparseProjection(ord, lo, hi)
 end
+
+struct BlockSparseProjection{order,T} <: Function
+    block_size::Int
+    block_norm::Vector{T}
+    cache::Vector{T}
+    K::Int
+end
+
+function (P::BlockSparseProjection{order})(y, x) where order
+    block_size = P.block_size
+    block_norm = P.block_norm
+    cache = P.cache
+    K = P.K
+
+    for j in eachindex(block_norm)
+        offset = block_size*(j-1)
+        s = zero(eltype(x))
+
+        for k in 1:block_size
+            s += x[offset+k]*x[offset+k]
+        end
+        block_norm[j] = s
+        cache[j] = s
+    end
+
+    if order <: MinParamT
+        proj = compute_sparse_projection(cache, MinParam, K)
+    else
+        proj = compute_sparse_projection(cache, MaxParam, K)
+    end
+
+    for (j, s) in enumerate(block_norm)
+        offset = block_size*(j-1)
+        indicator = (proj(s) == s)
+
+        for k in 1:block_size
+            y[offset+k] = indicator * x[offset+k]
+        end
+    end
+
+    return y
+end
+
+(P::BlockSparseProjection)(x) = P(similar(x), x)
