@@ -27,43 +27,48 @@ cvxclst_apply_fusion_matrix!(Y, U)
 ```
 """
 function apply_fusion_matrix!(z, D::CvxClusterFM, x)
-    d, n, M = D.d, D.n, D.M
-    lidx1 = LinearIndices((1:d,1:n)) # for x
-    lidx2 = LinearIndices((1:d,1:M)) # for z
-    tidx = TriVecIndices(n)
+    d, n, = D.d, D.n
 
-    @inbounds for j in 1:n, i in j+1:n
-        l = tidx[i,j]
-        @simd for k in 1:d
-            ki = lidx1[k,i]
-            kj = lidx1[k,j]
-            kl = lidx2[k,l]
-            z[kl] = x[ki] - x[kj]
+    # copy terms to be subtracted
+    offset = 0
+    for i in 1:n-1
+        for j in 1:n-i, k in 1:d
+            @inbounds z[offset+d*(j-1)+k] = -x[d*(i-1)+k]
         end
+        offset += d*(n-i)
+    end
+
+    # walk along off-diagonal
+    offset = 0
+    for i in 1:n-1
+        for j in 1:n-i, k in 1:d
+            @inbounds z[offset+d*(j-1)+k] += x[d*(i-1)+d*j+k]
+        end
+        offset += d*(n-i)
     end
 
     return z
 end
 
 function apply_fusion_matrix_transpose!(x, D::CvxClusterFM, z)
-    d, n, M = D.d, D.n, D.M
-    lidx1 = LinearIndices((1:d,1:n)) # for x
-    lidx2 = LinearIndices((1:d,1:M)) # for z
-    tidx = TriVecIndices(n)
+    d, n, = D.d, D.n
+
+    # initialize for accumulation
     fill!(x, 0)
 
-    @inbounds for j in 1:n, i in j+1:n
-        l = tidx[i,j]
-        @simd for k in 1:d
-            ki = lidx1[k,i]
-            kl = lidx2[k,l]
-            x[ki] += z[kl]
+    offset = 0
+    for i in 1:n-1
+        # apply with block with subtractions
+        for j in 1:n-i, k in 1:d
+            @inbounds x[d*(i-1)+k] -= z[offset+d*(j-1)+k]
         end
-        @simd for k in 1:d
-            kj = lidx1[k,j]
-            kl = lidx2[k,l]
-            x[kj] -= z[kl]
+
+        # apply block with additions
+        for j in 1:n-i, k in 1:d
+            @inbounds x[d*(i-1)+d*j+k] += z[offset+d*(j-1)+k]
         end
+
+        offset += d*(n-i)
     end
 end
 
@@ -95,22 +100,45 @@ function instantiate_fusion_matrix(D::CvxClusterFM{T}) where {T<:Number}
     return S
 end
 
-# """
-# ```
-# __evaluate_weighted_gradient_norm(Q)
-# ```
-# """
-# function __evaluate_weighted_gradient_norm(Q)
-#     d, n = size(Q)
-#     val = zero(eltype(Q))
-#
-#     for j in 1:n, i in j+1:n
-#         # @views δ_ij = SqEuclidean()(Q[:,i], Q[:,j])
-#         for k in 1:d
-#             δ_ijk = Q[k,i] - Q[k,j]
-#             val = val + δ_ijk^2
-#         end
-#     end
-#
-#     return val
-# end
+struct CvxClusterFGM{T} <: FusionGramMatrix{T}
+    d::Int  # number of features
+    n::Int  # number of samples
+    N::Int  # total number of variables
+end
+
+# constructors
+function CvxClusterFGM{T}(d::Integer, n::Integer) where T<:Number
+    return CvxClusterFGM{T}(d, n, d*n)
+end
+
+# default to Int64
+CvxClusterFGM(d, n) = CvxClusterFGM{Int}(d, n)
+
+# implementation
+Base.size(DtD::CvxClusterFGM) = (DtD.N, DtD.N)
+
+function apply_fusion_gram_matrix!(y, DtD::CvxClusterFGM, x)
+    d, n = DtD.d, DtD.n
+
+    for j in 1:n, k in 1:d
+        s = zero(eltype(y))
+
+        # apply terms below diagonal
+        for i in 1:j-1
+            @inbounds s -= x[d*(i-1)+k]
+        end
+
+        @inbounds s += (n-1)*x[d*(j-1)+k]
+
+        # apply terms above diagonal
+        for i in j+1:n
+            @inbounds s -= x[d*(i-1)+k]
+        end
+
+        @inbounds y[d*(j-1)+k] = s
+    end
+
+    return y
+end
+
+Base.:(*)(Dt::TransposeMap{T,CvxClusterFM{T}}, D::CvxClusterFM{T}) where T = CvxClusterFGM{T}(D.d, D.n, D.N)
