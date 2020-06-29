@@ -86,11 +86,9 @@ export CvxClusterFM
 
 # example: total variation image denoising
 include(joinpath("image_denoising", "operators.jl"))
-# include(joinpath("image_denoising", "steepest_descent.jl"))
-# include(joinpath("image_denoising", "MM.jl"))
-include(joinpath("image_denoising", "utilities.jl"))
+include(joinpath("image_denoising", "implementation.jl"))
 
-export image_denoise
+export denoise_image
 export ImgTvdFM
 
 # example: improving condition number
