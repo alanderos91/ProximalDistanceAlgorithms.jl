@@ -28,7 +28,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
 
     # generate operators
-    D = [CvxRegBlockA(n) CvxRegBlockB(covariates)]
+    D = CvxRegFM(covariates)
     P(x) = min.(x, 0)
     a = response
     if needs_hessian(algorithm)
