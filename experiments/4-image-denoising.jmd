@@ -1,0 +1,142 @@
+---
+title: Example 4, Image Denoising
+weave_options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms, Plots, UnicodePlots
+using Random, Images, TestImages, LinearAlgebra
+include("plotutils.jl")
+gr(lw = 2)
+```
+
+```{julia}
+Random.seed!(5357)
+cameraman = testimage("cameraman")
+cameraman = cameraman[33:end-33,33:end-100]
+noisy = Gray.(cameraman .+ 0.2 * randn(size(cameraman)))
+[cameraman noisy]
+```
+
+```{julia}
+function solve(img, sparsity, algorithm, maxiters, penalty)
+    # track original loss, penalized objective, gradient, etc.
+    history = initialize_history(maxiters+1)
+
+    # use Nesterov acceleration unless we're running ADMM
+    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+
+    # convert to numerical array
+    W = Float64.(img)
+    m, n = size(W)
+    constraints = (m-1)*n + m*(n-1) + 1
+
+    if sparsity ≤ 0.5
+        # use a search method that finds the largest elements
+        K = round(Int, sparsity*constraints)
+        o = Base.Order.Reverse
+    else
+        # use a search method that finds the smallest elements
+        K = constraints - round(Int, sparsity*constraints)
+        o = Base.Order.Forward
+    end
+
+    # warm-up
+    @time denoise_image(algorithm, W,
+        maxiters = 100,
+        penalty = penalty,
+        accel = accel,
+        history = history,
+        K = K,
+        o = o)
+
+    # real timing
+    history = initialize_history(maxiters+1)
+    solution = @time denoise_image(algorithm, W,
+        maxiters = maxiters,
+        penalty = penalty,
+        accel = accel,
+        history = history,
+        K = K,
+        o = o)
+
+    return solution, history
+end
+```
+
+### Fusion matrix
+
+```{julia}
+D = ImgTvdFM(size(noisy)...)
+Dt = D'
+DtD = D'D
+
+x = vec(Float64.(noisy))
+z = zeros(size(D, 1))
+y = similar(x)
+
+@time mul!(z, D, x);
+@time mul!(y, Dt, z);
+@time mul!(y, DtD, x);
+```
+
+### Annealing schedule
+
+```{julia}
+penalty(ρ₀, n) = min(1e6, 1.2 ^ floor(n/20))
+
+maxiters = 500
+xs = 1:maxiters
+ys = penalty.(1, xs)
+plot(xs, ys, legend = nothing)
+```
+
+### MM
+
+```{julia}
+solution_MM, trace_MM = solve(noisy, 0.2, MM(), maxiters, penalty)
+solution_MM
+```
+
+```{julia}
+plot_summary(trace_MM)
+```
+
+### Steepest Descent
+
+```{julia}
+solution_SD, trace_SD = solve(noisy, 0.2, SteepestDescent(), maxiters, penalty)
+solution_SD
+```
+
+```{julia}
+plot_summary(trace_SD)
+```
+
+### ADMM
+
+```{julia}
+solution_ADMM, trace_ADMM = solve(noisy, 0.2, ADMM(), maxiters, penalty)
+solution_ADMM
+```
+
+```{julia}
+plot_summary(trace_ADMM)
+```
+
+### Quality of solutions
+
+```{julia}
+[Gray.(solution_MM) Gray.(solution_SD) Gray.(solution_ADMM)]
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```

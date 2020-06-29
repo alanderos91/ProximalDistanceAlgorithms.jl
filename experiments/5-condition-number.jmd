@@ -1,0 +1,127 @@
+---
+title: Example 5, Reducing Condition Numbers
+weave_options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms, Plots, UnicodePlots
+using Random, LinearAlgebra
+include("plotutils.jl")
+gr(lw = 2)
+```
+
+```{julia}
+Random.seed!(5357)
+A = rand(50, 1000)
+M = A'A
+cond(M)
+```
+
+```{julia}
+F = svd(M)
+F.S
+```
+
+```{julia}
+function solve(c, A, algorithm, maxiters, penalty)
+    # track original loss, penalized objective, gradient, etc.
+    history = initialize_history(maxiters+1)
+
+    # use Nesterov acceleration unless we're running ADMM
+    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+
+    # warm-up
+    @time reduce_cond(algorithm, c, F,
+        maxiters = 100,
+        penalty = penalty,
+        accel = accel,
+        history = history)
+
+    # real timing
+    history = initialize_history(maxiters+1)
+    solution = @time reduce_cond(algorithm, c, F,
+        maxiters = maxiters,
+        penalty = penalty,
+        accel = accel,
+        history = history)
+
+    return solution, history
+end
+```
+
+### Fusion matrix
+
+```{julia}
+c = 10.0
+D = CondNumFM(c, size(M,1)); S = instantiate_fusion_matrix(D)
+size(D)
+```
+
+```{julia}
+UnicodePlots.spy(S, width = 50, height = 15)
+```
+
+```{julia}
+UnicodePlots.spy(S'S, width = 50, height = 15)
+```
+
+### Annealing schedule
+
+```{julia}
+penalty(ρ₀, n) = min(1e6, 1.1 ^ floor(n/50))
+
+maxiters = 2000
+xs = 1:maxiters
+ys = penalty.(1, xs)
+plot(xs, ys, legend = nothing)
+```
+
+### MM
+
+```{julia}
+solution_MM, trace_MM = solve(c, F, MM(), maxiters, penalty)
+solution_MM
+```
+
+```{julia}
+plot_summary(trace_MM)
+```
+
+### Steepest Descent
+
+```{julia}
+solution_SD, trace_SD = solve(c, F, SteepestDescent(), maxiters, penalty)
+solution_SD
+```
+
+```{julia}
+plot_summary(trace_SD)
+```
+
+### ADMM
+
+```{julia}
+solution_ADMM, trace_ADMM = solve(c, F, ADMM(), maxiters, penalty)
+solution_ADMM
+```
+
+```{julia}
+plot_summary(trace_ADMM)
+```
+
+### Quality of solutions
+
+```{julia}
+cond(solution_MM), cond(solution_SD), cond(solution_ADMM)
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```

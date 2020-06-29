@@ -1,0 +1,119 @@
+---
+title: Example 2, Convex Regression
+weave_options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms, Plots, UnicodePlots
+using LinearAlgebra, Random
+include("plotutils.jl")
+gr(lw = 2)
+```
+
+```{julia}
+φ(x) = dot(x, x)
+d = 1       # number of covariates
+n = 50      # number of samples
+σ = 0.1     # std dev in noise
+response, truth, covariates = cvxreg_example(φ, d, n, σ)
+# response, covariates = mazumder_standardization(response, covariates)
+# truth, _ = mazumder_standardization(truth, covariates)
+fig = plot(xlabel = "x", ylabel = "phi(x)")
+plot!(fig, vec(covariates), truth, label = "ground truth")
+scatter!(fig, vec(covariates), response, label = "observed", markersize = 4)
+```
+
+```{julia}
+function solve(response, covariates, algorithm, maxiters, penalty)
+    # track original loss, penalized objective, gradient, etc.
+    history = initialize_history(maxiters+1)
+
+    # use Nesterov acceleration unless we're running ADMM
+    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+
+    # warm-up
+    @time cvxreg_fit(algorithm, response, covariates,
+        maxiters = 100,
+        penalty = penalty,
+        accel = accel,
+        history = history, atol = 1e-8)
+
+    # real timing
+    history = initialize_history(maxiters+1)
+    solution = @time cvxreg_fit(algorithm, response, covariates,
+        maxiters = maxiters,
+        penalty = penalty,
+        accel = accel,
+        history = history, atol = 1e-8)
+
+    return solution, history
+end
+```
+
+### Fusion matrix
+
+```{julia}
+D = CvxRegFM(covariates); S = instantiate_fusion_matrix(D)
+size(D)
+```
+
+```{julia}
+UnicodePlots.spy(S, width = 50, height = 15)
+```
+
+```{julia}
+UnicodePlots.spy(S'S, width = 50, height = 15)
+```
+
+### Annealing schedule
+
+```{julia}
+penalty(ρ₀, n) = min(1e6, 1.15 ^ floor(n/50))
+
+maxiters = 5000
+xs = 1:maxiters
+ys = penalty.(1, xs)
+plot(xs, ys, legend = nothing)
+```
+
+### MM
+
+```{julia}
+solution_MM, trace_MM = solve(response, covariates, MM(), maxiters, penalty)
+plot_summary(trace_MM)
+```
+
+### Steepest Descent
+
+```{julia}
+solution_SD, trace_SD = solve(response, covariates, SteepestDescent(), maxiters, penalty)
+plot_summary(trace_SD)
+```
+
+### ADMM
+
+```{julia}
+solution_ADMM, trace_ADMM = solve(response, covariates, ADMM(), maxiters, penalty)
+plot_summary(trace_ADMM)
+```
+
+### Quality of solutions
+
+```{julia}
+fig = plot(xlabel = "x", ylabel = "phi(x)")
+plot!(fig, vec(covariates), truth, label = "ground truth")
+scatter!(fig, vec(covariates), solution_MM[1], label = "MM", markersize = 4)
+scatter!(fig, vec(covariates), solution_SD[1], label = "SD", markersize = 4)
+scatter!(fig, vec(covariates), solution_ADMM[1], label = "ADMM", markersize = 4)
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```

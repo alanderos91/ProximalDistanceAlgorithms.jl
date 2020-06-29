@@ -1,0 +1,127 @@
+---
+title: Example 1, Metric Projection
+weave_options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms, Plots, UnicodePlots
+include("plotutils.jl")
+gr(lw = 2)
+```
+
+```{julia}
+nodes = 64
+_, Y = metric_example(64)
+Y
+```
+
+```{julia}
+function trivec(Y)
+    n = size(Y, 1)
+    y = zeros(binomial(n, 2))
+    k = 0
+    for j in 1:n, i in j+1:n
+        y[k+=1] = Y[i,j]
+    end
+    return y
+end
+
+y = trivec(Y)
+```
+
+```{julia}
+function solve(A, algorithm, maxiters, penalty)
+    # track original loss, penalized objective, gradient, etc.
+    history = initialize_history(maxiters+1)
+
+    # use Nesterov acceleration unless we're running ADMM
+    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+
+    # warm-up
+    @time metric_projection(algorithm, nothing, A,
+        maxiters = 100,
+        penalty = penalty,
+        accel = accel,
+        history = history)
+
+    # real timing
+    history = initialize_history(maxiters+1)
+    solution = @time metric_projection(algorithm, nothing, A,
+        maxiters = maxiters,
+        penalty = penalty,
+        accel = accel,
+        history = history)
+
+    return solution, history
+end
+```
+
+### Fusion matrix
+
+```{julia}
+D = MetricFM(nodes); S = instantiate_fusion_matrix(D)
+size(D)
+```
+
+```{julia}
+UnicodePlots.spy(S, width = 50, height = 15)
+```
+
+```{julia}
+UnicodePlots.spy(S'S, width = 50, height = 15)
+```
+
+### Annealing schedule
+
+```{julia}
+penalty(ρ₀, n) = min(1e6, 1.2 ^ floor(n/50))
+
+maxiters = 2000
+xs = 1:maxiters
+ys = penalty.(1, xs)
+plot(xs, ys, legend = nothing)
+```
+
+### MM
+
+```{julia}
+solution_MM, trace_MM = solve(Y, MM(), maxiters, penalty)
+solution_MM
+```
+
+```{julia}
+plot_summary(trace_MM)
+```
+
+### Steepest Descent
+
+```{julia}
+solution_SD, trace_SD = solve(Y, SteepestDescent(), maxiters, penalty)
+solution_SD
+```
+
+```{julia}
+plot_summary(trace_SD)
+```
+
+### ADMM
+
+```{julia}
+solution_ADMM, trace_ADMM = solve(Y, ADMM(), maxiters, penalty)
+solution_ADMM
+```
+
+```{julia}
+plot_summary(trace_ADMM)
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```
