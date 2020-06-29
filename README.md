@@ -11,11 +11,11 @@
 
 **Driver code**
 
-- `acceleration.jl`: Implements Nesterov acceleration and MM subspace methods. These are generic and designed to work for any problem and solver.
+- `acceleration.jl`: Implements Nesterov acceleration and MM subspace methods (TODO). These are generic and designed to work for any problem and solver.
 
 - `optimize.jl`: Implements `optimize!`, a generic driver that handles the logic of iterating an algorithm, checking convergence, and logging.
 
-- `common.jl`: 
+- `common.jl`: Defines a standard interface for logging convergence histories, implements sparse projections, and provides the `FusionMatrix <: LinearMap`, `FusionGramMatrix <: LinearMap`, and `ProxDistHessian <: LinearMap` types to handle fusion matrices. Specifically, these types allow for parameterized linear operators which are needed to make linear solves efficient (via IterativeSolvers.jl).
 
 **Problem-specific code** is isolated in its own folder within `src`: `condition_number`, `convex_clustering`, `convex_regression`, `image_denoising`, and `metric_nearness`.
 Each of these subfolders contains the files
