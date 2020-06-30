@@ -19,12 +19,12 @@ function DtD_mul_x(D, x, y, z)
 end
 
 function get_test_string(f)
-    if f === D_mul_x
-        str = "z = D*x  "
-    elseif f === Dt_mul_z
-        str = "x = Dt*z "
-    elseif f === DtD_mul_x
+    if occursin("DtD_mul", string(f))
         str = "y = DtD*x"
+    elseif occursin("D_mul", string(f))
+        str = "z = D*x  "
+    elseif occursin("Dt_mul", string(f))
+        str = "x = Dt*z "
     end
     return str
 end
