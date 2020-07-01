@@ -1,94 +1,126 @@
 \documentclass{article}
 
 \input{preamble.tex}
+\usepackage{booktabs}
 
-\title{Proximal Distance Application: Metric Projection}
-\author{Alfonso Landeros}
-\date{\today}
+\title{Example 1: Metric Projection}
+\author{}
 
 \begin{document}
 \maketitle
 
-The nearest metric problem \cite{sra2005} can be attacked with the penalty method of optimization.
-Given a \(n \times n\) dissimilarity matrix \(\bY = (y_{ij})\) with entries weighted by \(\bW = (w_{ij})\), our goal is to find a semi-metric \(\bX = (x_{ij})\) by solving a minimization problem of the form
+\section*{\center Model}
+
+Given a \(n \times n\) dissimilarity matrix $\bC = (c_{ij})$ with non-negative weights $w_{ij}$, our goal is to find a semi-metric \(\bX = (x_{ij})\) by solving the constrainted problem
 \begin{equation*}
-    h_{\rho}(\bX)
+    f(\bX)
     =
-    \frac{1}{2} \sum_{i>j} w_{ij}(x_{ij} - y_{ij})^{2}
-    +
-    \frac{\rho}{2} \sum_{i,j,k} c_{ijk}(\bX) + c_{jik}(\bX) + c_{kij}(\bX),
+    \frac{1}{2} \sum_{i>j} w_{ij}(x_{ij} - c_{ij})^{2}
+    \qquad
+    \text{subject to}
+    \quad
+    x_{ij} - x_{ik} \le x_{kj},
+    \quad
+    x_{ij} \ge 0.
 \end{equation*}
-where the indices \((i,j,k)\) enumerate triangles.
-The functions \(c_{\cdot \cdot \cdot}(\bX)\) denote one of three constraints associated with each triangle.
-Symmetry allows one to store the matrices \(\bY\), \(\bW\), and \(\bX\) using entries from one of the strictly triangular regions.
-It is therefore useful to define the ``\(\mathrm{trivec}\)'' operation which maps \(\bX\) to a vectorized version of itself, \(\bx\) (Figure \ref{fig:trivec-operation}).
-The objective can then be expressed as
+The $\mathrm{trivec}$ operation admits a minimal representation of \(\bX\), \(\bx = \mathrm{trivec}(\bX)\) (Figure \ref{fig:trivec-operation}).
+In the proximal distance framework, we work with the objective
 \begin{equation*}
   h_{\rho}(\bx)
   =
-  \frac{1}{2} \lVert{\bW^{1/2}(\bx - \by)}\rVert^{2}_{2}
-  +
-  \frac{\rho}{2} \sum_{i,j,k} c_{ijk}(\bx) + c_{jik}(\bx) + c_{kij}(\bx).
+  \frac{1}{2} \|\bW^{1/2}(\bx - \bc)\|^{2}_{2}
+  + \frac{\rho}{2} \dist(\bT \bx, \Real_{+}^{m_{1}})
+  + \frac{\rho}{2} \dist(\bx, \Real_{+}^{m_{2}})
 \end{equation*}
 \begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.5\textwidth]{figures/trivec.pdf}
     \caption{
-      Example of a symmetric matrix \(\bX\) and its vectorized counterpart \(\bx = \mathrm{trivec}(\bX)\).
+      Example of a symmetric matrix \(\bX\) and its minimal representation \(\bx = \mathrm{trivec}(\bX)\).
     }
     \label{fig:trivec-operation}
   \end{figure}
-Through an abuse of notation, the matrix \(\bW\) is now diagonal with entries \(w_{ij}\) and has the shape \(\binom{n}{2} \times \binom{n}{2}\).
-It is also useful to introduce the constraint matrix \(\bT \in \Real^{p \times r}\) used to encode each triangle inequality where \(p = 3 \binom{n}{3}\) and \(r = \binom{n}{2}\).
-Specifically, the row \(\bT_{ijk}\) is defined by its action on vectors;  \(\bT_{ijk} \bx = x_{i} - x_{j} - x_{k}\).
-Our approach enforces non-negativity and metric constraints using distance functions
-\begin{equation}
-  \label{eq:objective}
-  h_{\rho}(\bx)
-  =
-  \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
-    +
-  \frac{\rho}{2} \dist(\bT \bx, \mathbb{R}_{-}^{p})^{2}
-    +
-  \frac{\rho}{2} \dist(\bx, \mathbb{R}_{+}^{r})^{2},
-\end{equation}
-where \(\bx = \mathrm{trivec}(\bX)\) and \(\by = \mathrm{trivec}(\bY)\).
-The first distance penalty represents the triangle inequality constraints \(\bT \bx \le {\bf 0}\) while the second term enforces non-negativity.
-Fortunately, both distance functions have simple majorizations that yield a twice differentiable, strongly convex, and Lipschitz smooth surrogate
-\begin{equation}
-    \label{eq:surrogate}
+Here $\bT$ encodes triangle inequalities and the $m_{i}$ count the number of contraints of each type.
+The usual distance majorization furnishes a surrogate
+\begin{align*}
     g_{\rho}(\bx \mid \bx_{n})
-    =
-    \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
+    &=
+    \frac{1}{2} \|\bW^{1/2} (\bx - \bc)\|^{2}_{2}
     +
-    \frac{\rho}{2} \lVert{\bT \bx - P(\bT \bx_{n}, \mathbb{R}_{-}^{p})}\rVert^{2}_{2}
+    \frac{\rho}{2} \|\bT \bx - \mathcal{P}(\bT \bx_{n}, \mathbb{R}_{+}^{m_{1}})\|^{2}_{2}
     +
-    \frac{\rho}{2} \lVert{\bx - P(\bx_{n}, \mathbb{R}_{+}^{r})}\rVert^{2}_{2}.
-\end{equation}
-The notation \(P(\cdot, S)\) denotes projection onto a set \(S\).
-For convenience, we reduce the number of constriants by projecting onto the Cartesian product \(C = \Real_{+}^{r} \times \Real_{-}^{p}\) by defining the \textit{fusion matrix}
-\(\bD = \begin{bmatrix}
-    \bI & \bT^{\ast}
-\end{bmatrix}^{\ast}\)
-Thus, our surrogate~(\ref{eq:surrogate}) admits an equivalent representation
-\begin{equation*}
-    g_{\rho}(\bx \mid \bx_{n})
-    =
-    \frac{1}{2} \lVert{\bW^{1/2} (\bx - \by)}\rVert^{2}_{2}
+    \frac{\rho}{2} \lVert{\bx - \mathcal{P}(\bx_{n}, \mathbb{R}_{+}^{m_{2}})}\rVert^{2}_{2} \\
+    &=
+    \frac{1}{2} \|\bW^{1/2} (\bx - \bc)\|^{2}_{2}
     +
-    \frac{\rho}{2} \lVert{\bD \bx - P(\bD \bx_{n}, C)}\rVert^{2}_{2},
-\end{equation*}
-with gradient
-\begin{equation}
-    \label{eq:surrogate-gradient}
-    \bq_{n}
-    =
-    \bW (\bx - \by)
-    +
-    \rho \bD^{\ast} [\bD \bx - P(\bD \bx_{n}, C)].
-\end{equation}
+    \frac{\rho}{2} \|\bD \bx - \mathcal{P}(\bD \bx_{n})\|_{2}^{2}
+\end{align*}
+The notation \(\mathcal{P}(\cdot, S)\) denotes projection onto a set \(S\).
+The fusion matrix $\bD = [\bT; \bI]$ stacks the two operators; the joint projection operates in a block-wise fashion.
 
-\section*{\center Structure of Constraints}
+\section*{\center Algorithm Maps}
+
+\subsection*{MM}
+
+Rewrite the surrogate explicitly a least squares problem minimizing $\|\bA \bx - \bb_{n}\|^{2}_{2}$:
+\begin{equation*}
+  \bx_{n+1} = \underset{\bx}{\argmin} \frac{1}{2} \left\|
+    \begin{bmatrix}
+      \bW^{1/2} \\
+      \sqrt{\rho} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bc \\
+      \sqrt{\rho} \mathcal{P}(\bD \bx_{n})
+    \end{bmatrix}
+  \right\|_{2}^{2}
+\end{equation*}
+Updating the RHS $\bb_{n}$ in the linear system reduces to evaluating the projection and copy operations.
+It is worth noting that triangle fixing algorithms that solve the metric nearness problem operate in the same fashion, except they work one triangle a time.
+That is, each iteration solves $\binom{n}{3}$ least squares problem compared to 1 in this formulation.
+A conjugate gradient type algorithm solves the normal equations directly using $\bA^{t}\bA$, whereas bidiagonalization methods use only $\bA$.
+
+\subsection*{Steepest Descent}
+
+The updates $\bx_{n+1} = \bx_{n} - \gamma_{n} \nabla h_{\rho}(\bx_{n})$ admit an exact solution for the line search parameter $\gamma_{n}$.
+Taking $\bq_{n} = \nabla h_{\rho}(\bx_{n})$ we have
+\begin{align*}
+  \nabla h_{\rho}(\bx_{n})
+  &= \bW(\bx_{n} - \bc) + \rho \bD^{t} [\bD \bx_{n} - \mathcal{P}(\bD \bx_{n})] \\
+  &= \bW(\bx_{n} - \bc) + \rho (\bI + \bT^{t}\bT) \bx_{n} - \rho[\bT^{t} \mathcal{P}(\bT \bx_{n}, \Real_{+}^{m_{1}}) + \mathcal{P}(\bx_{n}, \Real_{+}^{m_{1}})] \\
+  \gamma_{n}
+  &=
+  \frac{\|q_{n}\|^{2}}{\|\bW^{1/2} \bq\|^{2} + \rho \|\bD \bq\|^{2}}
+\end{align*}
+
+\subsection*{ADMM}
+
+Taking $\by$ as the dual variable and $\blambda$ as scaled multipliers, the updates for each ADMM block are
+
+\begin{align*}
+  \bx_{n+1}
+  &= \underset{\bx}{\argmin} \left\|
+    \begin{bmatrix}
+      \bW^{1/2} \\
+      \sqrt{\rho} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bc \\
+      \sqrt{\rho} (\blambda_{n} - \by_{n}))
+    \end{bmatrix}
+  \right\|_{2}^{2} \\
+  \by_{n+1}
+  &= \frac{\alpha}{1+\alpha} \mathcal{P}(\bz_{n}) + \frac{1}{1+\alpha} \bz_{n};
+  \qquad \bz_{n} = \bD \bx_{n+1} + \blambda_{n},~\alpha = \rho / \mu
+\end{align*}
+Multipliers follow the standard update.
+
+\section*{\center Properties of the Triangle Inequality Matrix}
+
+These results were documented by Sra et al. in a technical report.
+Here the symbol $m$ counts the number of nodes/measurements in the problem.
 
 \begin{proposition}
     The matrix \(\bT\) has \(3 \binom{m}{3}\) rows and \(\binom{m}{2}\) columns.
@@ -187,166 +219,9 @@ Given that an edge \((i,j)\) appears in \(3 (m-2)\) constraints, divide this qua
     The matrix \(\bT^{\ast}\bT\) has at most \(3\) distinct eigenvalues of the form \(m-2\), \(2m-2\), and \(3m-4\) with multiplicities \(1\), \(m-1\), and \(\frac{1}{2} m (m-3)\), respectively.
 \end{proposition}
 
-\section*{\center Required Operators}
-
-Let \(\bz = \bT^{\ast} \bT \bx - \bT^{\ast} (\bT \bx)_{+}\) with \(\bz = \vec(\bZ)\).
-One can compute the required operation with a matrix-free algorithm in a single loop in \(\mathcal{O}(n^{3})\) operations.
-The recipe accumulates
-\begin{equation*}
-    \begin{split}
-        z_{ij}
-        &=
-        z_{ij}
-        + 3 x_{ij} - x_{ki} - x_{kj}
-        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
-        \qquad j = 1,\ldots,n-2 \\
-        z_{ki}
-        &=
-        z_{ki}
-        + 3 x_{ki} - x_{ij} - x_{kj}
-        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
-        \qquad i = j+1,\ldots,n-1 \\
-        z_{kj}
-        &=
-        z_{kj}
-        + 3 x_{kj} - x_{ij} - x_{ki}
-        - (x_{ij})_{-} + (x_{ki})_{-} + (x_{kj})_{-}
-        \qquad k = i+1,\ldots,n
-    \end{split}
-\end{equation*}
-by visiting each triangle \((i,j,k)\) exactly once.
-Note that the algorithm operates on two columns at a time.
-Computing \(\bw = \bT \bx\) has a similar computational complexity:
-\begin{equation*}
-    \begin{split}
-        y_{ijk} &= x_{ij} - x_{ki} - x_{kj} \\
-        y_{jik} &= x_{ki} - x_{ij} - x_{kj} \\
-        y_{kij} &= x_{kj} - x_{ij} - x_{ki}. \\
-    \end{split}
-\end{equation*}
-Numerical experiments suggest that these two algorithms are superior to explicit matrix-vector with sparse matrix data structures despite \(>99\%\) sparsity for \(n \gg 1\).
-This is likely due to the large bandwidth of both matrices \(\bT\) and \(\bT^{\ast} \bT\).
-
-\section*{\center Algorithm 1: Proximal Distance}
-
-The stationary condition \(\nabla g_{\rho}(\bx \mid \bx_{n}) = {\bf 0}\) produces the iteration scheme
-\begin{equation*}
-  \begin{split}
-    \bx_{n+1}
-    &=
-    \left(
-      \frac{1}{\rho} \bW + \bI + \bT^{\ast} \bT
-    \right)^{-1}
-    \left[
-      \frac{1}{\rho} \bW \by
-      +
-      \bT^{\ast} (\bT \bx_{n})_{-}
-      +
-      (\bx_{n})_{+}
-    \right] \\
-    &=
-    \rho [\nabla^{2} g_{\rho}(\bx \mid \bx_{n})]^{-1}
-    \left[
-      \frac{1}{\rho} \bW \by
-      +
-      \bT^{\ast} (\bT \bx_{n})_{-}
-      +
-      (\bx_{n})_{+}
-    \right].
-  \end{split}
-\end{equation*}
-The Gram matrix \(\bT^{\ast} \bT\) preserves sparsity because rows of \(\bT\) are sparse except when \(m \le 4\).
-Moreover, one can avoid repeated evaluation of the requisite matrix inverse by computing its spectral decomposition.
-Woodbury's identity can further simplify matters:
-\begin{equation}
-  \label{eq:matrix-inverse}
-  \begin{split}
-    \left(
-      \frac{1}{\rho} \bW + \bI + \bT^{\ast} \bT
-    \right)^{-1}
-    &= \cdots
-    % &=
-    % \frac{1}{\rho} \bW
-    % -
-    % \left(\frac{1}{\rho}\right)^{2} \bV \left(
-    %   \bLambda^{-1} + \frac{1}{\rho} \bW
-    % \right)^{-1} \bV^{-1} \\
-    % &=
-    % \frac{1}{\rho} \bW
-    % -
-    % \left(\frac{1}{\rho}\right)^{2} \bV \bZ \bV^{-1},
-  \end{split}
-\end{equation}
-% and identify the entries \(z_{ii} = \lambda_{ii} (\frac{1}{\rho} \lambda_{ii} + w_{ii})^{-1}\) of the diagonal matrix \(\bZ\).
-Unfortunately, the number of parameters is \(\binom{n}{2}\) so the cost of the decomposition is  \(\mathcal{O}(n^{6})\).
-Savings from caching the decomposition become marginal as the number of nodes increases.
-One can show that the positive definite matrix \(\bT^{\ast} \bT\) possesses three distinct eigenvalues.
-However, the eigenvectors spanning each eigenspace are difficult to describe with exact formulas.
-In lieu of the explicit eigenstructure, one can take advantage of sparsity by using the method of conjugate gradients to solve the required linear system.
-
-Observe that \(h_{\rho}(\bx)\) is strongly convex for fixed \(\rho\) and possesses a global minimum in the limit \(\rho \to \infty\) provided the penalty terms vanish.
-Unfortunately, the Hessian of the surrogate, \(g_{\infty}(\bx \mid \bx_{\infty})\), is not bounded so it is not obvious that the MM iterates converge to a limit point.
-The equality
-\begin{equation*}
-  \bx_{\infty}
-  =
-  \left(
-      \bI + \bT^{\ast} \bT
-    \right)^{-1}
-    \left[
-      \bT^{\ast} (\bT \bx_{\infty})_{-}
-      +
-      (\bx_{\infty})_{+}
-    \right],
-\end{equation*}
-holds precisely when the putative limit point \(\bx_{\infty}\) respects both constraints.
-Hence, the MM iterates \(\{\bx_{n}\}_{n \ge 0}\) converge to a no-progress point.
-
-\section*{\center Algorithm 2: Proximal Distance + Steepest Descent}
-
-Linearity of the gradient~(\ref{eq:surrogate-gradient}) suggests an explicit formula for the optimal step size \(\gamma_{n}\) along \(\bq_{n} = \nabla g_{\rho}(\bx \mid \bx_{n})\).
-This follows easily from the chain rule
-\begin{equation*}
-  \begin{split}
-    \frac{\partial}{\partial \gamma} g_{\rho}(\bx - \gamma \bq_{n} \mid \bx_{n})
-    &=
-    \langle{\nabla g_{\rho}(\bx - \gamma \bq \mid \bx_{n}), \bq_{n}}\rangle \\
-    &=
-    \langle{
-      \bq_{n}
-        - \gamma \bW \bq_{n}
-        - \gamma \rho \bD^{\ast} \bD \bq_{n},
-     \bq_{n}}\rangle \\
-    &=
-    \lVert{\bq_{n}}\rVert^{2}
-    - \gamma (\lVert{\bW^{1/2} \bq_{n}}\rVert^{2} + \rho \lVert{\bT \bq_{n}}\rVert^{2}) \\
-    \implies \gamma_{n}
-    &=
-    \frac{\lVert{\bq_{n}}\rVert^{2}}{
-        \lVert{\bW^{1/2} \bq_{n}}\rVert^{2}
-        + \rho \lVert{\bq_{n}}\rVert^{2}
-        + \rho \lVert{\bT \bq_{n}}\rVert^{2}
-    }
-  \end{split}
-\end{equation*}
-Explicitly, the iterative algorithm is given by
-\begin{equation*}
-    \bx_{n+1}
-    =
-    \bx_{n}
-    - \gamma \left[
-    \bW (\bx - \by) + \rho \{
-        \bx - (\bx_{n})_{+}
-        + \bT^{\ast} \bT \bx - \bT^{\ast} (\bT \bx_{n})_{-}
-        \}
-    \right].
-\end{equation*}
 %%%%% BIBLIOGRAPHY %%%%%
 \begin{thebibliography}{99}
     \bibitem{sra2005}
     Sra S, Tropp J, Dhillon IS (2005) {Triangle fixing algorithms for the metric nearness problem}. {\it Advances in Neural Information Processing Systems} 361-368
-    
-    \bibitem{langeMM2016}
-    Lange, K (2016) {\it MM Optimization Algorithms}. SIAM
 \end{thebibliography}
 \end{document}
