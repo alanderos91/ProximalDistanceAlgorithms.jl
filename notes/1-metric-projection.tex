@@ -1,0 +1,227 @@
+\documentclass{article}
+
+\input{preamble.tex}
+\usepackage{booktabs}
+
+\title{Example 1: Metric Projection}
+\author{}
+
+\begin{document}
+\maketitle
+
+\section*{\center Model}
+
+Given a \(n \times n\) dissimilarity matrix $\bC = (c_{ij})$ with non-negative weights $w_{ij}$, our goal is to find a semi-metric \(\bX = (x_{ij})\) by solving the constrainted problem
+\begin{equation*}
+    f(\bX)
+    =
+    \frac{1}{2} \sum_{i>j} w_{ij}(x_{ij} - c_{ij})^{2}
+    \qquad
+    \text{subject to}
+    \quad
+    x_{ij} - x_{ik} \le x_{kj},
+    \quad
+    x_{ij} \ge 0.
+\end{equation*}
+The $\mathrm{trivec}$ operation admits a minimal representation of \(\bX\), \(\bx = \mathrm{trivec}(\bX)\) (Figure \ref{fig:trivec-operation}).
+In the proximal distance framework, we work with the objective
+\begin{equation*}
+  h_{\rho}(\bx)
+  =
+  \frac{1}{2} \|\bW^{1/2}(\bx - \bc)\|^{2}_{2}
+  + \frac{\rho}{2} \dist(\bT \bx, \Real_{+}^{m_{1}})
+  + \frac{\rho}{2} \dist(\bx, \Real_{+}^{m_{2}})
+\end{equation*}
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{figures/trivec.pdf}
+    \caption{
+      Example of a symmetric matrix \(\bX\) and its minimal representation \(\bx = \mathrm{trivec}(\bX)\).
+    }
+    \label{fig:trivec-operation}
+  \end{figure}
+Here $\bT$ encodes triangle inequalities and the $m_{i}$ count the number of contraints of each type.
+The usual distance majorization furnishes a surrogate
+\begin{align*}
+    g_{\rho}(\bx \mid \bx_{n})
+    &=
+    \frac{1}{2} \|\bW^{1/2} (\bx - \bc)\|^{2}_{2}
+    +
+    \frac{\rho}{2} \|\bT \bx - \mathcal{P}(\bT \bx_{n}, \mathbb{R}_{+}^{m_{1}})\|^{2}_{2}
+    +
+    \frac{\rho}{2} \lVert{\bx - \mathcal{P}(\bx_{n}, \mathbb{R}_{+}^{m_{2}})}\rVert^{2}_{2} \\
+    &=
+    \frac{1}{2} \|\bW^{1/2} (\bx - \bc)\|^{2}_{2}
+    +
+    \frac{\rho}{2} \|\bD \bx - \mathcal{P}(\bD \bx_{n})\|_{2}^{2}
+\end{align*}
+The notation \(\mathcal{P}(\cdot, S)\) denotes projection onto a set \(S\).
+The fusion matrix $\bD = [\bT; \bI]$ stacks the two operators; the joint projection operates in a block-wise fashion.
+
+\section*{\center Algorithm Maps}
+
+\subsection*{MM}
+
+Rewrite the surrogate explicitly a least squares problem minimizing $\|\bA \bx - \bb_{n}\|^{2}_{2}$:
+\begin{equation*}
+  \bx_{n+1} = \underset{\bx}{\argmin} \frac{1}{2} \left\|
+    \begin{bmatrix}
+      \bW^{1/2} \\
+      \sqrt{\rho} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bc \\
+      \sqrt{\rho} \mathcal{P}(\bD \bx_{n})
+    \end{bmatrix}
+  \right\|_{2}^{2}
+\end{equation*}
+Updating the RHS $\bb_{n}$ in the linear system reduces to evaluating the projection and copy operations.
+It is worth noting that triangle fixing algorithms that solve the metric nearness problem operate in the same fashion, except they work one triangle a time.
+That is, each iteration solves $\binom{n}{3}$ least squares problem compared to 1 in this formulation.
+A conjugate gradient type algorithm solves the normal equations directly using $\bA^{t}\bA$, whereas bidiagonalization methods use only $\bA$.
+
+\subsection*{Steepest Descent}
+
+The updates $\bx_{n+1} = \bx_{n} - \gamma_{n} \nabla h_{\rho}(\bx_{n})$ admit an exact solution for the line search parameter $\gamma_{n}$.
+Taking $\bq_{n} = \nabla h_{\rho}(\bx_{n})$ we have
+\begin{align*}
+  \nabla h_{\rho}(\bx_{n})
+  &= \bW(\bx_{n} - \bc) + \rho \bD^{t} [\bD \bx_{n} - \mathcal{P}(\bD \bx_{n})] \\
+  &= \bW(\bx_{n} - \bc) + \rho (\bI + \bT^{t}\bT) \bx_{n} - \rho[\bT^{t} \mathcal{P}(\bT \bx_{n}, \Real_{+}^{m_{1}}) + \mathcal{P}(\bx_{n}, \Real_{+}^{m_{1}})] \\
+  \gamma_{n}
+  &=
+  \frac{\|q_{n}\|^{2}}{\|\bW^{1/2} \bq\|^{2} + \rho \|\bD \bq\|^{2}}
+\end{align*}
+
+\subsection*{ADMM}
+
+Taking $\by$ as the dual variable and $\blambda$ as scaled multipliers, the updates for each ADMM block are
+
+\begin{align*}
+  \bx_{n+1}
+  &= \underset{\bx}{\argmin} \left\|
+    \begin{bmatrix}
+      \bW^{1/2} \\
+      \sqrt{\mu} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bc \\
+      \sqrt{\mu} (\blambda_{n} - \by_{n}))
+    \end{bmatrix}
+  \right\|_{2}^{2} \\
+  \by_{n+1}
+  &= \frac{\alpha}{1+\alpha} \mathcal{P}(\bz_{n}) + \frac{1}{1+\alpha} \bz_{n};
+  \qquad \bz_{n} = \bD \bx_{n+1} + \blambda_{n},~\alpha = \rho / \mu
+\end{align*}
+Multipliers follow the standard update.
+
+\section*{\center Properties of the Triangle Inequality Matrix}
+
+These results were documented by Sra et al. in a technical report.
+Here the symbol $m$ counts the number of nodes/measurements in the problem.
+
+\begin{proposition}
+    The matrix \(\bT\) has \(3 \binom{m}{3}\) rows and \(\binom{m}{2}\) columns.
+\end{proposition}
+\begin{proof}
+    Interpret \(\bX\) as the adjacency matrix for a complete directed graph on \(m\) nodes without self-edges.
+    When \(\bX\) is symmetric the number of free parameters is therefore \(\binom{m}{2}\).
+    An oriented \(3\)-cycle is formed by fixing \(3\) nodes so there are \(\binom{m}{3}\) such cycles.
+    Now fix the orientation of the \(3\)-cycles and note that each triangle encodes \(3\) metric constraints.
+    The number of constraints is therefore \(3 \binom{m}{3}\).
+\end{proof}
+
+\begin{proposition}
+    Each column of \(\bT\) has \(3 (m-2)\) nonzero entries.
+\end{proposition}
+\begin{proof}
+    In view of the previous result, the entries \(T_{ij}\) encode whether edge \(j\) participates in constraint \(i\).
+    We proceed by induction on the number of nodes \(m\).
+    The base case \(m = 3\) involves one triangle and is trivial.
+    Note that a triangle encodes \(3\) inequalities.
+
+    Now consider a complete graph on \(m\) nodes and suppose the claim holds.
+    Without loss of generality, consider the collection of \(3\)-cycles oriented clockwise and fix an edge \(j\).
+    Adding a node to the graph yields \(2 m\) new edges, two for each of the existing \(m\) nodes.
+    This action also creates one new triangle for each existing edge.
+    Thus, edge \(j\) appears in \(3(m-2) + 3 = 3 [(m+1)-2]\) triangle inequality constraints based on the induction hypothesis.
+\end{proof}
+% TODO: Add a picture for "proof by picture".
+
+\begin{proposition}
+    Each column of \(\bT\) has \(m-2\) \(+1\)s and \(2(m-2)\) \(-1\)s.
+\end{proposition}
+\begin{proof}
+Interpret the inequality \(x_{ij} \le x_{ik} + x_{kj}\) with \(i > k > j\) as the ordered triple \(x_{ij}, x_{ik}, x_{kj}\).
+The statement is equivalent to counting
+\begin{align*}
+    a(N)
+    &=
+    \text{number of times \(x_{ij}\) appears in position 1, and}\\
+    b(N)
+    &=
+    \text{number of times \(x_{ij}\) appears in position 2 or 3},
+\end{align*}
+where \(N\) denotes the number of constraints.
+In view of the previous proposition, it is enough to prove \(a(N) = m-2\).
+Note that \(a(3) = 1\), meaning that \(x_{ij}\) appears in position \(1\) exactly once within a given triangle.
+Given that an edge \((i,j)\) appears in \(3 (m-2)\) constraints, divide this quantity by the number of constraints per triangle to arrive at the stated result.
+\end{proof}
+
+\begin{proposition}
+    The matrix \(\bT\) has full column rank.
+\end{proposition}
+\begin{proof}
+    It is enough to show that \(\bA = \bT^{\ast}\bT\) is full rank.
+    The first two propositions imply
+    \begin{equation*}
+        a_{ii}
+        =
+        \langle{\bT_{i}, \bT_{i}}\rangle
+        =
+        \sum (\pm 1)^{2}
+        =
+        3 (m-2).
+    \end{equation*}
+    To compute the off-diagonal entries, fix a triangle and note that two edges \(i\) and \(j\) appear in all three of its constraints of the form \(x_{i} \le x_{j} + x_{k}\).
+    There are three possibilities for a given constraint \(c\):
+    \begin{equation*}
+        T_{c,i} T_{c,j} \amp = \amp
+        \begin{cases}
+            -1, &\text{if \(i\) LHS, \(j\) RHS or vice-versa} \\
+            \amp 1,  &\text{if \(i\) and \(j\) both appear on RHS} \\
+            \amp 0,  &\text{if one of \(i\) or \(j\) is missing}.
+        \end{cases}
+    \end{equation*}
+    It follows that
+    \begin{equation*}
+        a_{ij}
+        =
+        \langle{\bT_{i}, \bT_{j}}\rangle
+        =
+        \begin{cases}
+            -1, &\text{if}\ldots \\
+            \amp 0, &\text{otherwise}.
+        \end{cases}
+    \end{equation*}
+    By Proposition 2, an edge \(i\) appears in \(3 (m-2)\) constraints.
+    Imposing the condition that edge \(j\) also appears reduces this number by \(m-2\), the number of remaining nodes that can contribute edges in our accounting.
+    The calculation
+    \begin{equation*}
+        \sum_{j \neq i} |a_{ij}| = 2 (m-2) < 3 (m-2) = |a_{ii}|
+    \end{equation*}
+    establishes that \(\bA\) is strictly diagonally dominant and hence full rank.
+\end{proof}
+
+\begin{proposition}
+    The matrix \(\bT^{\ast}\bT\) has at most \(3\) distinct eigenvalues of the form \(m-2\), \(2m-2\), and \(3m-4\) with multiplicities \(1\), \(m-1\), and \(\frac{1}{2} m (m-3)\), respectively.
+\end{proposition}
+
+%%%%% BIBLIOGRAPHY %%%%%
+\begin{thebibliography}{99}
+    \bibitem{sra2005}
+    Sra S, Tropp J, Dhillon IS (2005) {Triangle fixing algorithms for the metric nearness problem}. {\it Advances in Neural Information Processing Systems} 361-368
+\end{thebibliography}
+\end{document}
