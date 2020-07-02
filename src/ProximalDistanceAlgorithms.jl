@@ -2,14 +2,13 @@ module ProximalDistanceAlgorithms
 
 using Distances, Clustering
 using Parameters
-using LinearAlgebra, Statistics, SparseArrays, IterativeSolvers
+using LinearAlgebra, Statistics, SparseArrays
 using Convex
 using RecipesBase
 using CSV, DataFrames
 
+using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv
 using DataStructures: heapify!, percolate_down!
-
-import IterativeSolvers: CGStateVariables
 import LinearMaps
 import LinearMaps: LinearMap, AdjointMap, TransposeMap
 
@@ -56,6 +55,7 @@ export SteepestDescent, MM, BlackBox, ADMM
 
 # convergence metrics + common operations
 include("common.jl")
+include("linsolve.jl")
 include("optimize.jl")
 include("acceleration.jl")
 

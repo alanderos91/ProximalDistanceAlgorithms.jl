@@ -9,6 +9,9 @@ struct ProxDistProblem{VAR,DER,OPS,BUF,VWS,LS}
     linsolver::LS
 end
 
+uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F} = false
+uses_CG(::ProxDistProblem{A,B,C,D,E,CGWrapper}) where {A,B,C,D,E} = true
+
 ##### checking convergence #####
 
 """
@@ -31,20 +34,32 @@ function check_convergence(loss, dist, rtol, atol)
     return flag1 || flag2 || flag3
 end
 
-##### remaking immutables #####
+##### for computing adaptive stepsize in ADMM #####
 
-remake_hessian(H::ProxDistHessian, ρ) = ProxDistHessian(H.N, ρ, H.∇²f, H.DtD)
+function update_admm_residuals!(prob, μ)
+    @unpack y = prob.variables
+    @unpack z, r, s = prob.buffers
+    @. r = z - y        # assumes z = D*x
+    @. s = μ * (y - s)  # assumes s = y_prev
 
-remake_operators(::AlgorithmOption, prob, ρ) = prob
+    r_error = sqrt(BLAS.nrm2(length(r), r, 1))
+    s_error = sqrt(BLAS.nrm2(length(s), r, 1))
 
-function remake_operators(::MM, prob::ProxDistProblem{A,B,C,D,E,F}, ρ) where {A,B,C,D,E,F<:CGIterable}
+    return r_error, s_error
+end
+
+##### "mutating" immutables #####
+
+update_hessian(H::ProxDistHessian, ρ) = ProxDistHessian(H.N, ρ, H.∇²f, H.DtD)
+
+function update_operators(prob::ProxDistProblem, ρ)
     @unpack variables, derivatives, operators, buffers, views, linsolver = prob
-    @unpack x, r, c, u, reltol, residual, prev_residual, maxiter, mv_products = linsolver
 
-    H = remake_hessian(operators.H, ρ)
+    # mutate the field `H` in `operators`
+    H = update_hessian(operators.H, ρ)
     operators = (operators..., H = H)
-    linsolver = CGIterable(H, x, r, c, u, reltol, residual, prev_residual, maxiter, mv_products)
 
+    # new instance of ProxDistProblem
     return ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
 end
 
@@ -73,6 +88,13 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
 
     # main optimization loop
     while not_converged && iteration ≤ maxiters
+        # check that this branch does in fact disappear for non-ADMM methods
+        if algorithm isa ADMM
+            @unpack y = prob.variables
+            @unpack s = prob.buffers
+            copyto!(s, y)
+        end
+
         # apply algorithm map
         stepsize = algmap(algorithm, prob, ρ, μ)
 
@@ -80,7 +102,11 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
         ρ_new = penalty(ρ, iteration)
         if ρ != ρ_new
             restart!(accelerator, prob.variables)
-            prob = remake_operators(algorithm, prob, ρ_new)
+
+            # only when using CG for linsolve
+            if uses_CG(prob)
+                prob = update_operators(prob, ρ_new)
+            end
         end
         apply_momentum!(accelerator, prob.variables)
         ρ = ρ_new
@@ -94,6 +120,18 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
         dist = (old = dist.new, new = h_dist)
         not_converged = check_convergence(loss, dist, rtol, atol)
         iteration += 1
+
+        # check that this branch does in fact disappear for non-ADMM methods
+        if algorithm isa ADMM
+            r_error, s_error = update_admm_residuals!(prob, μ)
+
+            if r_error / s_error > 10   # emphasize dual feasibility
+                μ = μ * 2
+            end
+            if s_error / r_error > 10   # emphasize primal feasibility
+                μ = μ / 2
+            end
+        end
     end
 
     converged = !not_converged
