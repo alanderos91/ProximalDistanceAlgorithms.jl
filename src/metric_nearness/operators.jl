@@ -27,7 +27,7 @@ MetricFM(n::Integer, M::Integer, N::Integer) = MetricFM{Int}(n, M, N)
 # implementation
 Base.size(D::MetricFM) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::MetricFM, x)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::MetricFM, x::AbstractVector)
     edge = 0 # edge counter
     n = D.n
     T = D.I
@@ -48,19 +48,19 @@ function apply_fusion_matrix!(z, D::MetricFM, x)
     end
 
     # I*x = x
-    unsafe_copyto!(z, edge+1, x, 1, length(x))
+    copyto!(z, edge+1, x, 1, length(x))
 
     return z
 end
 
-function apply_fusion_matrix_transpose!(x, D::MetricFM, z)
+function LinearMaps.At_mul_B!(x::AbstractVector, D::MetricFM, z::AbstractVector)
     edge = 0
     N = size(D, 2)
     n = D.n
-    T = D.I
+    I = D.I
 
     # I*z[block2]
-    unsafe_copyto!(x, 1, z, N*(n-2)+1, N)
+    copyto!(x, 1, z, N*(n-2)+1, N)
 
     # T'*z[block1]
     @inbounds for j in 1:n-2, i in j+1:n-1, k in i+1:n
@@ -68,9 +68,9 @@ function apply_fusion_matrix_transpose!(x, D::MetricFM, z)
         bac = z[edge += 1]
         cab = z[edge += 1]
 
-        x[T[i,j]] += -abc + bac + cab
-        x[T[k,j]] += -cab + abc + bac
-        x[T[k,i]] += -bac + abc + cab
+        x[I[i,j]] += -abc + bac + cab
+        x[I[k,j]] += -cab + abc + bac
+        x[I[k,i]] += -bac + abc + cab
     end
 
     return z
@@ -136,12 +136,12 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 # implementation
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-function apply_fusion_gram_matrix!(y, DtD::MetricFGM, x)
+function LinearMaps.A_mul_B!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
     n = DtD.n
     indices = DtD.indices
 
     # apply I block of D'D
-    unsafe_copyto!(y, 1, x, 1, length(x))
+    copyto!(y, 1, x, 1, length(x))
 
     # apply T'T block of D'D
     @inbounds for j in 1:n-2, i in j+1:n-1

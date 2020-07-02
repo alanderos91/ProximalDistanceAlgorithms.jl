@@ -17,7 +17,7 @@ ImgTvdFM(m::Integer, n::Integer) = ImgTvdFM{Int}(m, n)
 # implementation
 Base.size(D::ImgTvdFM) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::ImgTvdFM, x)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -45,7 +45,7 @@ function apply_fusion_matrix!(z, D::ImgTvdFM, x)
     return z
 end
 
-function apply_fusion_matrix_transpose!(x, D::ImgTvdFM, z)
+function LinearMaps.At_mul_B!(x::AbstractVector, D::ImgTvdFM, z::AbstractVector)
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -130,7 +130,7 @@ ImgTvdFGM(m::Integer, n::Integer) = ImgTvdFGM{Int}(m, n)
 # implementation
 Base.size(DtD::ImgTvdFGM) = (DtD.N, DtD.N)
 
-function apply_fusion_gram_matrix!(y, DtD::ImgTvdFGM, x)
+function LinearMaps.A_mul_B!(y::AbstractVector, DtD::ImgTvdFGM, x::AbstractVector)
     m, n = DtD.m, DtD.n
     imind = LinearIndices((1:m, 1:n))
 

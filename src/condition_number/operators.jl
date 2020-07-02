@@ -11,7 +11,7 @@ end
 # implementation
 Base.size(D::CondNumFM) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::CondNumFM, x)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
     p = size(D, 2)
     c = D.c
     for j in eachindex(x)
@@ -24,7 +24,7 @@ function apply_fusion_matrix!(z, D::CondNumFM, x)
     return z
 end
 
-function apply_fusion_matrix_transpose!(x, D::CondNumFM, z)
+function LinearMaps.At_mul_B!(x::AbstractVector, D::CondNumFM, z::AbstractVector)
     p = size(D, 2)
     c = D.c
 
@@ -64,7 +64,7 @@ end
 
 Base.size(DtD::CondNumFGM) = (DtD.N, DtD.N)
 
-function apply_fusion_gram_matrix!(y, DtD::CondNumFGM, x)
+function LinearMaps.A_mul_B!(y::AbstractVector, DtD::CondNumFGM, x::AbstractVector)
     p = DtD.N
     c = DtD.c
 

@@ -6,8 +6,9 @@ using LinearAlgebra, Statistics, SparseArrays
 using Convex
 using RecipesBase
 using CSV, DataFrames
+using Printf
 
-using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv
+using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv, ConvergenceHistory
 using DataStructures: heapify!, percolate_down!
 import LinearMaps
 import LinearMaps: LinearMap, AdjointMap, TransposeMap

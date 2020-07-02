@@ -10,7 +10,7 @@ end
 # constructors
 
 function CvxRegBlockA{T}(n::Integer) where {T<:Number}
-   M = n*n
+   M = n*(n-1)
    N = n
 
    return CvxRegBlockA{T}(n, M, N)
@@ -22,27 +22,41 @@ CvxRegBlockA(n::Integer) = CvxRegBlockA{Int}(n)
 # implementation
 Base.size(D::CvxRegBlockA) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::CvxRegBlockA, θ)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVector)
    n = D.n
-   indices = LinearIndices((1:n, 1:n))
 
    # apply A block of D = [A B]
-   @inbounds for j in 1:n, i in 1:n
-      z[indices[i,j]] = θ[j] - θ[i]
+   k = 0
+   for j in 1:n
+      for i in 1:j-1
+         @inbounds z[k+=1] = θ[j] - θ[i]
+      end
+
+      for i in j+1:n
+         @inbounds z[k+=1] = θ[j] - θ[i]
+      end
    end
 
    return z
 end
 
-function apply_fusion_matrix_transpose!(θ, D::CvxRegBlockA, z)
+function LinearMaps.At_mul_B!(θ::AbstractVector, D::CvxRegBlockA, z::AbstractVector)
    n = D.n
-   indices = LinearIndices((1:n, 1:n))
 
-   fill!(θ, 0)
+   for j in 1:n
+      @inbounds θ[j] = sum(z[(n-1)*(j-1)+i] for i in 1:n-1)
+   end
 
-   for j in 1:n, i in 1:n # may benefit from BLAS approach?
-      θ[i] -= z[indices[i,j]] # accumulate Z*1
-      θ[i] += z[indices[j,i]] # accumulate Z'*1
+   for j in 1:n
+      # subtraction above dense row
+      for i in 1:j-1
+         @inbounds θ[i] -= z[(n-1)*(j-1)+i]
+      end
+
+      # subtraction below dense row
+      for i in j+1:n
+         @inbounds θ[i] -= z[(n-1)*(j-1)+i-1]
+      end
    end
 
    return θ
@@ -50,16 +64,21 @@ end
 
 function instantiate_fusion_matrix(D::CvxRegBlockA)
    n = D.n
-   A = spzeros(Int, n*n, n)
+   A = spzeros(Int, n*(n-1), n)
 
    # form A block of D = [A B]
    k = 1
-   for j in 1:n, i in 1:n
-      if i != j
+   for j in 1:n
+      for i in 1:j-1
          A[k,i] = -1
          A[k,j] = 1
+         k += 1
       end
-      k += 1
+      for i in j+1:n
+         A[k,i] = -1
+         A[k,j] = 1
+         k += 1
+      end
    end
 
    return A
@@ -75,7 +94,7 @@ CvxRegAGM(n::Integer) = CvxRegAGM{Int}(n)
 # implementation
 Base.size(D::CvxRegAGM) = (D.N, D.N)
 
-function apply_fusion_gram_matrix!(z, D::CvxRegAGM, θ)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegAGM, θ::AbstractVector)
    N = D.N
    c = sum(θ)
    @inbounds for i in 1:N
@@ -103,7 +122,7 @@ end
 
 function CvxRegBlockB(X::AbstractMatrix)
    d, n = size(X)
-   M = n*n
+   M = n*(n-1)
    N = d*n
 
    return CvxRegBlockB(d, n, M, N, X)
@@ -112,39 +131,62 @@ end
 # implementation
 Base.size(D::CvxRegBlockB) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::CvxRegBlockB, ξ)
+function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVector)
    d = D.d
    n = D.n
    X = D.X
 
-   indices1 = LinearIndices((1:n, 1:n))
-   indices2 = LinearIndices((1:d, 1:n))
-
-   for j in 1:n, i in 1:n
-      s = 0
-      for k in 1:d # need views to SIMD
-         ξ_kj = ξ[indices2[k,j]]
-         s = s + ξ_kj * (X[k,i] - X[k,j])
+   for j in 1:n
+      block = d*(j-1)
+      offset = (n-1)*(j-1)
+      xj = view(X, 1:d, j)
+      for i in 1:j-1
+         xi = view(X, 1:d, i)
+         zrow = zero(eltype(z))
+         @simd for k in 1:d
+            @inbounds zrow += ξ[block+k] * (xi[k] - xj[k])
+         end
+         @inbounds z[offset+i] = zrow
       end
-      z[indices1[i,j]] = s
+
+      for i in j+1:n
+         xi = view(X, 1:d, i)
+         zrow = zero(eltype(z)) # sum() allocates generator?
+         @simd for k in 1:d
+            @inbounds zrow += ξ[block+k] * (xi[k] - xj[k])
+         end
+         @inbounds z[offset+i-1] = zrow
+      end
    end
 
    return z
 end
 
-function apply_fusion_matrix_transpose!(ξ, D::CvxRegBlockB, z)
+function LinearMaps.At_mul_B!(ξ::AbstractVector, D::CvxRegBlockB, z::AbstractVector)
    d = D.d
    n = D.n
    X = D.X
 
-   indices1 = LinearIndices((1:n, 1:n))
-   indices2 = LinearIndices((1:d, 1:n))
    fill!(ξ, 0)
-   for j in 1:n, i in 1:n
-      z_ij = z[indices1[i,j]]
-      for k in 1:d
-         J = indices2[k,j]
-         ξ[J] = ξ[J] + z_ij * (X[k,i] - X[k,j])
+
+   for j in 1:n
+      block = d*(j-1)
+      offset = (n-1)*(j-1)
+      xj = view(X, 1:d, j)
+      for i in 1:j-1
+         xi = view(X, 1:d, i)
+         @inbounds zi = z[offset+i]
+         for k in 1:d
+            @inbounds ξ[block+k] += zi * (xi[k] - xj[k])
+         end
+      end
+
+      for i in j+1:n
+         xi = view(X, 1:d, i)
+         @inbounds zi = z[offset+i-1]
+         for k in 1:d
+            @inbounds ξ[block+k] += zi * (xi[k] - xj[k])
+         end
       end
    end
 
@@ -159,11 +201,21 @@ function instantiate_fusion_matrix(D::CvxRegBlockB)
 
    B = spzeros(eltype(D), M, N)
 
-   for j in 1:n, i in 1:n, k in 1:d
-      I = (j-1)*n + i # column j, row i
-      J = (j-1)*d + k # block j, index k
+   constraint = 1
+   for j in 1:n
+      for i in 1:j-1
+         for k in 1:d
+            @inbounds B[constraint,d*(j-1)+k] = X[k,i] - X[k,j]
+         end
+         constraint += 1
+      end
 
-      B[I,J] = X[k,i] - X[k,j]
+      for i in j+1:n
+         for k in 1:d
+            @inbounds B[constraint,d*(j-1)+k] = X[k,i] - X[k,j]
+         end
+         constraint += 1
+      end
    end
 
    return B
@@ -182,7 +234,7 @@ end
 
 function CvxRegFM(X)
    d, n = size(X)
-   M = n*n
+   M = n*(n-1)
    N = n*(1+d)
    A = CvxRegBlockA(n)
    B = CvxRegBlockB(X)
@@ -197,7 +249,7 @@ end
 # implementation
 Base.size(D::CvxRegFM) = (D.M, D.N)
 
-function apply_fusion_matrix!(z, D::CvxRegFM, x)
+function LinearMaps.A_mul_B!(z, D::CvxRegFM, x)
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))
@@ -206,7 +258,7 @@ function apply_fusion_matrix!(z, D::CvxRegFM, x)
    return z
 end
 
-function apply_fusion_matrix_transpose!(x, D::CvxRegFM, z)
+function LinearMaps.At_mul_B!(x, D::CvxRegFM, z)
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))
