@@ -79,19 +79,23 @@ Rewrite the surrogate explicitly a least squares problem minimizing $\|\bA \bx -
 Updating the RHS $\bb_{n}$ in the linear system reduces to evaluating the projection and copy operations.
 It is worth noting that triangle fixing algorithms that solve the metric nearness problem operate in the same fashion, except they work one triangle a time.
 That is, each iteration solves $\binom{n}{3}$ least squares problem compared to 1 in this formulation.
-A conjugate gradient type algorithm solves the normal equations directly using $\bA^{t}\bA$, whereas bidiagonalization methods use only $\bA$.
+A conjugate gradient type algorithm solves the normal equations directly using $\bA^{t}\bA$, whereas LSQR type methods use only $\bA$ and $\bA^{t}$.
 
 \subsection*{Steepest Descent}
 
 The updates $\bx_{n+1} = \bx_{n} - \gamma_{n} \nabla h_{\rho}(\bx_{n})$ admit an exact solution for the line search parameter $\gamma_{n}$.
-Taking $\bq_{n} = \nabla h_{\rho}(\bx_{n})$ we have
+Recall the generic formula from the main text ($\gamma_{n} \equiv t_{n}$ and $\bq_{n} \equiv \bv_{n}$ to match notation):
+\begin{equation*}
+  \gamma_{n} = \frac{\|\bq_{n}\|^{2}}{\bq_{n}^{t}\bA\bq_{n} + \rho \|\bD \bq_{n}\|^{2}}
+\end{equation*}
+Identifying $\bq_{n}$ with $\nabla h_{\rho}(\bx_{n})$ we have
 \begin{align*}
   \nabla h_{\rho}(\bx_{n})
   &= \bW(\bx_{n} - \bc) + \rho \bD^{t} [\bD \bx_{n} - \mathcal{P}(\bD \bx_{n})] \\
   &= \bW(\bx_{n} - \bc) + \rho (\bI + \bT^{t}\bT) \bx_{n} - \rho[\bT^{t} \mathcal{P}(\bT \bx_{n}, \Real_{+}^{m_{1}}) + \mathcal{P}(\bx_{n}, \Real_{+}^{m_{1}})] \\
   \gamma_{n}
   &=
-  \frac{\|q_{n}\|^{2}}{\|\bW^{1/2} \bq\|^{2} + \rho \|\bD \bq\|^{2}}
+  \frac{\|\bq_{n}\|^{2}}{\|\bW^{1/2} \bq\|^{2} + \rho \|\bD \bq\|^{2}}.
 \end{align*}
 
 \subsection*{ADMM}
