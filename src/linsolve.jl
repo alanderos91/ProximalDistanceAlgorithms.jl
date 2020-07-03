@@ -2,7 +2,7 @@
 #   solving linear system directly, i.e. A'A*x = A'b    #
 #########################################################
 
-struct CGWrapper{matT,solT,vecT,CGSV}
+struct CGWrapper{CGSV}
     statevars::CGSV
 end
 

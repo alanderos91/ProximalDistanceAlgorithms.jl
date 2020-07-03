@@ -4,7 +4,7 @@ metric_projection(algorithm::AlgorithmOption, W, A; kwargs...)
 ```
 """
 function metric_projection(algorithm::AlgorithmOption, W, A;
-    rho::Real = 1.0, mu::Real = 1.0, kwargs...)
+    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem dimensions
     n = size(A, 1)      # number of nodes
@@ -58,17 +58,27 @@ function metric_projection(algorithm::AlgorithmOption, W, A;
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    b = needs_linsolver(algorithm) ? similar(x) : nothing
-    buffers = (z = z, Pz = Pz, v = v, b = b)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        b1 = similar(x)
-        b2 = similar(x)
-        b3 = similar(x)
-        linsolver = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), N+M) # b has two block
+            linsolver = LSQRWrapper([I;D], x, b)
+        else
+            b = similar(x) # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
     else
+        b = nothing
         linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b)
     end
 
     # create views, if needed
@@ -123,7 +133,7 @@ end
 function metric_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
+    @unpack D, H = prob.operators
     @unpack z = prob.buffers
 
     # evaluate step size, γ
@@ -140,42 +150,80 @@ function metric_iter(::SteepestDescent, prob, ρ, μ)
 end
 
 function metric_iter(::MM, prob, ρ, μ)
-    @unpack D, a = prob.operators
+    @unpack x = prob.variables
+    @unpack D, H, a = prob.operators
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
-    # build RHS of Ax = b
-    mul!(b, D', Pz)
-    axpby!(1, a, ρ, b)
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √ρ*D]
 
-    # solve the linear system; assuming x bound to linsolver
-    __do_linear_solve!(linsolver, b)
+        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
+        n = length(a)
+        copyto!(b, 1, a, 1, n)
+        for k in eachindex(Pz)
+            b[n+k] = √ρ * Pz[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + ρ*D'P(D*x)
+        mul!(b, D', Pz)
+        axpby!(1, a, ρ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
 
     return 1.0
 end
 
 function metric_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, P, a = prob.operators
+    @unpack D, H, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
 
+    # x block update
+    @. v = y - λ
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √μ*D]
+
+        # build RHS of A*x = b; b = [a; √μ * (y-λ)]
+        n = length(a)
+        copyto!(b, 1, a, 1, length(a))
+        for k in eachindex(v)
+            @inbounds b[n+k] = √μ * v[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+        @assert H.ρ == μ
+        # build RHS of A*x = b; b = a + μ*D'(y-λ)
+        mul!(b, D', v)
+        axpby!(1, a, μ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
+
     # y block update
     α = (ρ / μ)
+    mul!(z, D, x)
     @inbounds @simd for j in eachindex(y)
         y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
     end
 
-    # x block update
-    @. v = y - λ
-    mul!(b, D', v)
-    axpby!(1, a, μ, b)
-    __do_linear_solve!(linsolver, b)
-
     # λ block update
-    mul!(z, D, x)
     @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] / μ + z[j] - y[j]
+        λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 
     return μ

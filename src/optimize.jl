@@ -9,8 +9,8 @@ struct ProxDistProblem{VAR,DER,OPS,BUF,VWS,LS}
     linsolver::LS
 end
 
-uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F} = false
-uses_CG(::ProxDistProblem{A,B,C,D,E,CGWrapper}) where {A,B,C,D,E} = true
+uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F<:Any} = false
+uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F<:CGWrapper} = true
 
 ##### checking convergence #####
 
@@ -104,7 +104,7 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
             restart!(accelerator, prob.variables)
 
             # only when using CG for linsolve
-            if uses_CG(prob)
+            if uses_CG(prob) && algorithm isa MM
                 prob = update_operators(prob, ρ_new)
             end
         end
@@ -127,9 +127,15 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
 
             if r_error / s_error > 10   # emphasize dual feasibility
                 μ = μ * 2
+                if uses_CG(prob)
+                    prob = update_operators(prob, μ)
+                end
             end
             if s_error / r_error > 10   # emphasize primal feasibility
                 μ = μ / 2
+                if uses_CG(prob)
+                    prob = update_operators(prob, μ)
+                end
             end
         end
     end
