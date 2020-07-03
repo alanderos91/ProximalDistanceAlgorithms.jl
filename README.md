@@ -5,7 +5,7 @@
 * `data`: example data sets for problems (mainly convex clustering)
 * `experiments`: demos and benchmark scripts
 * `figures` (stale): output from benchmark scripts
-* `notes` (stale): derivations related to fusion matrices
+* `notes`: derivations, explicit formulas used in code
 * `test`: test suite (only linear operators for now)
 * `src`: source code
 
@@ -15,7 +15,9 @@
 
 - `optimize.jl`: Implements `optimize!`, a generic driver that handles the logic of iterating an algorithm, checking convergence, and logging.
 
-- `common.jl`: Defines a standard interface for logging convergence histories, implements sparse projections, and provides the `FusionMatrix <: LinearMap`, `FusionGramMatrix <: LinearMap`, and `ProxDistHessian <: LinearMap` types to handle fusion matrices. Specifically, these types allow for parameterized linear operators which are needed to make linear solves efficient (via IterativeSolvers.jl).
+- `linsolve.jl`: Provides wrappers for algorithms in IterativeSolvers.jl.
+
+- `common.jl`: Defines a standard interface for logging convergence histories, implements sparse projections, and provides the `FusionMatrix <: LinearMap`, `FusionGramMatrix <: LinearMap`, and `ProxDistHessian <: LinearMap` types to avoid expense linear algebra operations. Specifically, these types allow for parameterized linear operators which are needed to make linear solves efficient (via IterativeSolvers.jl).
 
 **Problem-specific code** is isolated in its own folder within `src`: `condition_number`, `convex_clustering`, `convex_regression`, `image_denoising`, and `metric_nearness`.
 Each of these subfolders contains the files
@@ -33,5 +35,5 @@ function problem_algmap(::SteepestDescent, prob, ρ, μ)
 end
 ```
 
-Note that these functions should also return a `stepsize` to account for the possibility of a Newton step.
-We use the convention `stepsize = 1.0` by default.
+These functions should also return a `stepsize` that is recorded elsewhere.
+Use the convention `stepsize = 1.0` as a default.

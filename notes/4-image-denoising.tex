@@ -1,0 +1,102 @@
+\documentclass[11pt]{article}
+
+\input{preamble.tex}
+
+\title{Example 4: Image Denoising}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+Here we restate the total variation denoising problem to take advantage of sparsity.
+Let \(S_{\nu}\) denote the set of vectors with $\nu$ nonzero components.
+We minimize the penalized objective
+\begin{align*}
+    h_{\rho}(\bX)
+    &=
+    \frac{1}{2}\|\bx - \bw\|_{F}^{2}
+    +
+    \frac{\rho}{2} \dist(\bD \bx, S_{\nu})^{2},
+\end{align*}
+where $\bw = \vec(\bw)$ is a noisy image.
+The fusion matrix $\bD = [\bD_{x},\bD_{y}]$ encodes forward difference operators along rows and columns; that is,
+\begin{equation*}
+    \mathrm{TV}_{1}(\bW)
+    =
+    |\bD_{x} \bW| + |\bW \bD_{y}|
+    =
+    \sum_{i,j} |W_{i+1,j} - W_{i,j}| + |W_{i,j+1} - W_{i,j}|.
+\end{equation*}
+Distance majorization yields the surrogate
+\begin{equation*}
+    g_{\rho}(\bx \mid \bx_{n})
+    =
+    \frac{1}{2}\|\bx - \bw\|_{2}^{2}
+    +
+    \frac{\rho}{2} \|\bD \bx - \mathcal{P}_{\nu}(\bD \bx_{n})\|^{2}.
+\end{equation*}
+Here $\mathcal{P}_{\nu}(\bD \bx)$ directly enforces sparsity in all derivatives.
+Computing this projection reduces to a search problem just as in evaluating $\mathrm{prox}_{c|\cdot|}(\bz)$.
+Because $\bD$ is ill-conditioned, we append an additional row with zeros everywhere except the last entry; that is, $\bD = [\bD_{x}, \bD_{y}, \be_{p}]$ with $\bx \in \Real^{p}$.
+
+\section*{\center Algorithm Maps}
+
+\subsection*{MM}
+Rewrite the surrogate explicitly a least squares problem minimizing $\|\bA \bx - \bb_{n}\|^{2}_{2}$:
+\begin{equation*}
+  \bx_{n+1} = \underset{\bx}{\argmin} \frac{1}{2} \left\|
+    \begin{bmatrix}
+      \bI \\
+      \sqrt{\rho} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bw \\
+      \sqrt{\rho} \mathcal{P}_{\nu}(\bD \bx_{n})
+    \end{bmatrix}
+  \right\|_{2}^{2}
+\end{equation*}
+
+\subsection*{Steepest Descent}
+
+The updates $\bx_{n+1} = \bx_{n} - \gamma_{n} \nabla h_{\rho}(\bx_{n})$ admit an exact solution for the line search parameter $\gamma_{n}$.
+Taking $\bq_{n} = \nabla h_{\rho}(\bx_{n})$ as the gradient we have
+\begin{align*}
+  \bq_{n}
+  &= (\bx_{n} - \bu) + \rho \bD^{t} [\bD \bx_{n} - \mathcal{P}_{\nu}(\bD \bx_{n})] \\
+  \gamma_{n}
+  &=
+  \frac{\|\bq_{n}\|^{2}}{\|\bq_{n}\|^{2} + \rho \|\bD \bq_{n}\|^{2}}.
+\end{align*}
+Note that elements $[\bD \bx_{n} - \mathcal{P}_{\nu}(\bD\bx_{n})]_{k}$ are equal to $0$ whenever the projection of $[\bD \bx_{n}]_{k}$ is non-zero.
+
+\subsection*{ADMM}
+
+Take $\by$ as the dual variable and $\blambda$ as scaled multipliers.
+Minimizing the $\bx$ block involves solving a single linear system:
+\begin{align*}
+    \bx_{n+1}
+    &=
+    \underset{\bx}{\argmin} \frac{1}{2} \left\|
+        \begin{bmatrix}
+        \bI \\
+        \sqrt{\mu} \bD
+        \end{bmatrix} \bx
+        -
+        \begin{bmatrix}
+        \bw \\
+        \sqrt{\mu} (\by_{n} - \blambda_{n})
+        \end{bmatrix}
+    \right\|_{2}^{2} \\
+    \by_{n+1}
+    &= \frac{\alpha}{1+\alpha} \mathcal{P}_{\nu}(\bz_{n}) + \frac{1}{1+\alpha} \bz_{n};
+    \qquad \bz_{n} = \bD \bx_{n+1} + \blambda_{n},~\alpha = \rho / \mu
+    \end{align*}
+Multipliers follow the standard update.
+
+%%%%% References %%%%%
+\begin{thebibliography}{99}
+    \bibitem{rof1992} Rudin, L. I., Osher, S., \& Fatemi, E. (1992). Nonlinear total variation based noise removal algorithms. Physica D: Nonlinear Phenomena, 60(1–4), 259–268. https://doi.org/10.1016/0167-2789(92)90242-F
+\end{thebibliography}
+\end{document}
