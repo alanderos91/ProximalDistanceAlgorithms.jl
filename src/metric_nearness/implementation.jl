@@ -1,10 +1,72 @@
-"""
+@doc raw"""
+    metric_projection(algorithm::AlgorithmOption, A, [W = I]; kwargs...)
+
+Project a symmetric matrix `A` to its nearest semimetric in the sense of the Frobenius norm.
+
+Diagonal entries are assumed to be zero and are ignored. Only the lower triangular part is used. The entries `W[i,j]` act as weights on `A[i,j]`, which are assumed to be non-negative.
+
+The penalized objective used is
+
+``
+h_{\rho}(x) = \frac{1}{2} \|W^{1/2}(x-a)\|^{2} + \frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}
+``
+
+where ``a = \mathrm{trivec}(A)`` is a vectorized version of `A` with non-redundant entries and ``C`` is the intersection of the metric cone on semimetrics with a compatible non-negative orthant.
+
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref)
+
+# Keyword Arguments
+
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver in `MM()` and `ADMM()`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR and conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(D*x,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
+
+# Examples
+
+**How to define an annealing schedule**:
+```jldoctest
+julia> f(rho, iter) = min(1e6, 1.1^floor(iter/20))
+f (generic function with 1 method)
+
+julia> f(1.0, 5)
+1.0
+
+julia> f(1.0, 20)
+1.1
+
+julia> g(rho, iter) = iter % 20 == 0 ? min(1e6, 1.1*rho) : rho
+g (generic function with 1 method)
+
+julia> f(1.0, 21) == g(1.0, 21)
+true
 ```
-metric_projection(algorithm::AlgorithmOption, W, A; kwargs...)
+
+**How to use `metric_projection`**:
+```jldoctest
+julia> A = [0.0 8.0 6.0; 8.0 0.0 1.0; 6.0 1.0 0.0]
+3×3 Array{Float64,2}:
+ 0.0  8.0  6.0
+ 8.0  0.0  1.0
+ 6.0  1.0  0.0
+
+julia> f(rho, iter) = min(1e6, 1.1^floor(iter/20))
+f (generic function with 1 method)
+
+julia> metric_projection(SteepestDescent(), A, penalty=f, maxiters=200)
+3×3 Array{Float64,2}:
+ 0.0      7.70795  6.29205
+ 7.70795  0.0      1.29205
+ 6.29205  1.29205  0.0
 ```
 """
-function metric_projection(algorithm::AlgorithmOption, W, A;
-    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
+function metric_projection(algorithm::AlgorithmOption, A, W=I;
+    rho::Real=1.0, mu::Real=1.0, ls=Val(:LSQR), kwargs...)
     #
     # extract problem dimensions
     n = size(A, 1)      # number of nodes
@@ -138,9 +200,9 @@ function metric_iter(::SteepestDescent, prob, ρ, μ)
 
     # evaluate step size, γ
     mul!(z, D, ∇h)
-    a = dot(∇h, ∇h)     # ||∇h(x)||^2
-    b = dot(z, z)       # ||D*∇h(x)||^2
-    c = a               # ||W^1/2 * ∇h(x)||^2
+    a = dot(∇h, ∇h) # ||∇h(x)||^2
+    b = dot(z, z)   # ||D*∇h(x)||^2
+    c = a           # ||W^1/2 * ∇h(x)||^2
     γ = a / (c + ρ*b + eps())
 
     # steepest descent, x_new = x_old - γ*∇h(x_old)
@@ -233,7 +295,12 @@ end
 #   simulate problem instance   #
 #################################
 
-function metric_example(n; weighted = false)
+@doc """
+    metric_example(n::Integer; weighted::Bool=false)
+
+Simulate a dissimilarity matrix `D` on `n` nodes with weights `W`, if desired, and return the result as `(W, D)`.
+"""
+function metric_example(n::Integer; weighted::Bool=false)
     n < 3 && error("number of nodes must be ≥ 3")
 
     D = zeros(n, n)
