@@ -7,7 +7,8 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     K::Integer=0,
     o::Base.Ordering=Base.Order.Forward,
     rho::Real=1.0,
-    mu::Real=1.0, kwargs...)
+    mu::Real=1.0,
+    ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(data)
@@ -54,17 +55,27 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    b = needs_linsolver(algorithm) ? similar(x) : nothing
-    buffers = (z = z, Pz = Pz, v = v, b = b)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        b1 = similar(x)
-        b2 = similar(x)
-        b3 = similar(x)
-        linsolver = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), N+M) # b has two blocks
+            linsolver = LSQRWrapper([I;D], x, b)
+        else
+            b = similar(x)  # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
     else
+        b = nothing
         linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b)
     end
 
     # create views, if needed
@@ -79,6 +90,155 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
 
     return X
+end
+
+"""
+```
+convex_clustering_path()
+```
+"""
+function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
+    rho::Real=1.0,
+    mu::Real=1.0,
+    ls::LS=Val(:LSQR), kwargs...) where LS
+    #
+    # extract problem information
+    d, n = size(data)
+    m = binomial(n, 2)
+    M = d*m
+    N = d*n
+
+    # allocate optimization variable
+    X = copy(data)
+    x = vec(X)
+    if algorithm isa ADMM
+        y = zeros(M)
+        λ = zeros(M)
+        variables = (x = x, y = y, λ = λ)
+    else
+        variables = (x = x,)
+    end
+
+    # allocate derivatives
+    ∇f = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇q = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇h = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇²f = needs_hessian(algorithm) ? I : nothing
+    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    # generate operators
+    a = copy(x)
+    D = CvxClusterFM(d, n)
+
+    ρ₀ = algorithm isa ADMM ? mu : rho
+
+    if algorithm isa SteepestDescent
+        H = nothing
+    elseif algorithm isa MM
+        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
+    else
+        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
+    end
+
+    # use two versions of operators; probably not a good idea
+    T2 = eltype(data)
+    block_norm = zeros(m)   # stores column-wise distances
+    cache = zeros(m)        # mirrors block_norm; cache for pivot search
+
+    P1 = BlockSparseProjection{MaxParamT,T2}(d, block_norm, cache, 0)
+    operators1 = (D = D, P = P1, H = H, a = a)
+
+    P2 = BlockSparseProjection{MinParamT,T2}(d, block_norm, cache, 0)
+    operators2 = (D = D, P = P2, H = H, a = a)
+
+    # allocate buffers for mat-vec multiplication, projections, and so on
+    z = similar(Vector{eltype(x)}, M)
+    Pz = similar(z)
+    v = similar(z)
+
+    # select linear solver, if needed
+    if needs_linsolver(algorithm)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), N+M) # b has two blocks
+            linsolver = LSQRWrapper([I;D], x, b)
+        else
+            b = similar(x)  # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
+    else
+        b = nothing
+        linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b)
+    end
+
+    # create views, if needed
+    views = nothing
+
+    # pack everything into ProxDistProblem container
+    objective = cvxclst_objective
+    algmap = cvxclst_iter
+
+    prob1 = ProxDistProblem(variables, derivatives, operators1, buffers, views, linsolver)
+
+    prob2 = ProxDistProblem(variables, derivatives, operators2, buffers, views, linsolver)
+
+    # allocate output
+    X_path = typeof(X)[]
+    ν_path = Int[]
+
+    # initialize solution path heuristic
+    νmax = binomial(n, 2)
+    ν = νmax-1
+
+    while ν ≥ 0
+        # this is an unavoidable branch made worse by parameterization of
+        # projection operator
+        if ν ≤ (νmax >> 1)
+            P1 = BlockSparseProjection{MaxParamT,T2}(d, block_norm, cache, ν)
+            operators1 = (D = D, P = P1, H = H, a = a)
+            prob1 = ProxDistProblem(variables, derivatives, operators1, buffers, views, linsolver)
+            if uses_CG(prob2)
+                prob1 = update_operators(prob1, ρ₀)
+            end
+            optimize!(algorithm, objective, algmap, prob1, rho, mu; kwargs...)
+        else
+            P2 = BlockSparseProjection{MinParamT,T2}(d, block_norm, cache, νmax - ν)
+            operators2 = (D = D, P = P2, H = H, a = a)
+            prob2 = ProxDistProblem(variables, derivatives, operators2, buffers, views, linsolver)
+            if uses_CG(prob2)
+                prob2 = update_operators(prob2, ρ₀)
+            end
+            optimize!(algorithm, objective, algmap, prob2, rho, mu; kwargs...)
+        end
+
+        # record current solution
+        push!(X_path, copy(X))
+        push!(ν_path, ν)
+
+        # count satisfied constraints
+        nconstraint = 0
+        distance = pairwise(SqEuclidean(), X, dims = 2)
+        for j in 1:n, i in j+1:n
+            # distances within 10^-3 are 0
+            nconstraint += (log(10, abs(weights[i,j] * distance[i,j])) ≤ -3)
+        end
+
+        @show ν, nconstraint
+
+        # decrease ν with a heuristic that guarantees a decrease
+        ν = min(ν - 1, νmax - nconstraint - 1)
+    end
+
+     solution_path = (U = X_path, ν = ν_path)
+
+    return solution_path
 end
 
 #########################
@@ -131,25 +291,69 @@ function cvxclst_iter(::SteepestDescent, prob, ρ, μ)
 end
 
 function cvxclst_iter(::MM, prob, ρ, μ)
-    @unpack D, a = prob.operators
+    @unpack x = prob.variables
+    @unpack D, H, a = prob.operators
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
-    # build RHS of Ax = b
-    mul!(b, D', Pz)
-    axpby!(1, a, ρ, b)
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √ρ*D]
 
-    # solve the linear system; assuming x bound to linsolver
-    __do_linear_solve!(linsolver, b)
+        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
+        n = length(a)
+        copyto!(b, 1, a, 1, n)
+        for k in eachindex(Pz)
+            b[n+k] = √ρ * Pz[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + ρ*D'P(D*x)
+        mul!(b, D', Pz)
+        axpby!(1, a, ρ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
 
     return 1.0
 end
 
 function cvxclst_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, P, a = prob.operators
+    @unpack D, H, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
+
+    # x block update
+    @. v = y - λ
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √μ*D]
+
+        # build RHS of A*x = b; b = [a; √μ * (y-λ)]
+        n = length(a)
+        copyto!(b, 1, a, 1, length(a))
+        for k in eachindex(v)
+            @inbounds b[n+k] = √μ * v[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + μ*D'(y-λ)
+        mul!(b, D', v)
+        axpby!(1, a, μ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
 
     # y block update
     α = (ρ / μ)
@@ -158,16 +362,10 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
         y[j] = α/(1+α) * Pv[j] + 1/(1+α) * v[j]
     end
 
-    # x block update
-    @. v = y - λ
-    mul!(b, D', v)
-    axpby!(1, a, μ, b)
-    __do_linear_solve!(linsolver, b)
-
     # λ block update
     mul!(z, D, x)
     @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] / μ + z[j] - y[j]
+        λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 
     return μ
