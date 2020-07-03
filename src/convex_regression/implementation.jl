@@ -3,15 +3,15 @@
 cvxreg_fit(algorithm::SteepestDescent, response, covariates; kwargs...)
 """
 function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
-    rho::Real=1.0, mu::Real=1.0, kwargs...)
+    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(covariates) # features × samples
-    M = n*n                 # number of subradient constraints
+    M = n*(n-1)             # number of subradient constraints
     N = n*(d+1)             # total number of optimization variables
 
     # allocate optimization variables
-    x = zeros(N)
+    x = zeros(N); copyto!(x, response)
     if algorithm isa ADMM
         y = zeros(M)
         λ = zeros(M)
@@ -24,12 +24,22 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     ∇f = needs_gradient(algorithm) ? similar(x) : nothing
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
-    ∇²f = needs_hessian(algorithm) ? I : nothing
+
+    if needs_hessian(algorithm)
+        ∇²f = spzeros(N, N)
+        for j in 1:n
+            ∇²f[j,j] = 1
+        end
+    else
+        ∇²f = nothing
+    end
     derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
 
     # generate operators
-    D = CvxRegFM(covariates)
+    D = instantiate_fusion_matrix(CvxRegFM(covariates))
+    # D = CvxRegFM(covariates)
     P(x) = min.(x, 0)
+    A₁ = [LinearMap(I, n) LinearMap(0*I, n)] # needed to reduce to 1 vector
     a = response
     if needs_hessian(algorithm)
         if algorithm isa MM
@@ -40,23 +50,33 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     else
         H = nothing
     end
-    operators = (D = D, P = P, H = H, a = a)
+    operators = (D = D, P = P, H = H, A₁ = A₁, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    b = needs_linsolver(algorithm) ? similar(x) : nothing
-    buffers = (z = z, Pz = Pz, v = v, b = b)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        b1 = similar(x)
-        b2 = similar(x)
-        b3 = similar(x)
-        linsolver = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
+            linsolver = LSQRWrapper([A₁;LinearMap(D)], x, b)
+        else
+            b = similar(x)  # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
     else
+        b = nothing
         linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        r = similar(y)
+        s = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, r = r, s = s)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b)
     end
 
     # create views, if needed
@@ -132,46 +152,84 @@ function cvxreg_iter(::SteepestDescent, prob, ρ, μ)
 end
 
 function cvxreg_iter(::MM, prob, ρ, μ)
-    @unpack D, a = prob.operators
+    @unpack x = prob.variables
+    @unpack D, H, A₁, a = prob.operators   # a is bound to response
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
-    # build RHS of Ax = b
-    mul!(b, D', Pz)
-    @inbounds @simd ivdep for j in eachindex(a)
-        b[j] = a[j] + ρ*b[j]
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [A₁; √ρ*LinearMap(D)]
+
+        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
+        n = length(a)
+        copyto!(b, 1, a, 1, n)
+        for k in eachindex(Pz)
+            b[n+k] = √ρ * Pz[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + ρ*D'P(D*x)
+        mul!(b, D', Pz)
+        @inbounds @simd ivdep for j in eachindex(a)
+            b[j] = a[j] + ρ*b[j] # can't do axpby! due to shape
+        end
     end
 
-    # solve the linear system; assuming x bound to linsolver
-    __do_linear_solve!(linsolver, b)
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
 
     return 1.0
 end
 
 function cvxreg_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, P, a = prob.operators
+    @unpack A₁, D, H, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
 
+    # x block update
+    @. v = y - λ
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [A₁; √μ*LinearMap(D)]
+
+        # build RHS of A*x = b; b = [a; √μ * (y-λ)]
+        n = length(a)
+        copyto!(b, 1, a, 1, length(a))
+        for k in eachindex(v)
+            @inbounds b[n+k] = √μ * v[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + μ*D'(y-λ)
+        mul!(b, D', v)
+        @inbounds @simd ivdep for j in eachindex(a)
+            b[j] = a[j] + μ*b[j] # can't do axpby! due to shape
+        end
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
+
     # y block update
     α = (ρ / μ)
+    mul!(z, D, x)
     @inbounds @simd for j in eachindex(y)
         y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
     end
 
-    # x block update
-    @. v = y - λ
-    mul!(b, D', v)
-    @simd ivdep for j in eachindex(a)
-        @inbounds b[j] = a[j] + μ*b[j]
-    end
-    __do_linear_solve!(linsolver, b)
-
     # λ block update
-    mul!(z, D, x)
-    @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] / μ + z[j] - y[j]
+    @inbounds for j in eachindex(λ)
+        λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 
     return μ
