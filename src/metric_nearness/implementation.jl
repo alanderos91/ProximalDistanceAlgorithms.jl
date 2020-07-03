@@ -205,7 +205,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
     else
         # LHS of A*x = b is already stored
         A = H
-        @assert H.ρ == μ
+
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
         axpby!(1, a, μ, b)
