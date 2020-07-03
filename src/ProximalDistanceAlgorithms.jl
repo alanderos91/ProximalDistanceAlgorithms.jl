@@ -8,10 +8,13 @@ using RecipesBase
 using CSV, DataFrames
 using Printf
 
-using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv, ConvergenceHistory
+using IterativeSolvers
+using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv, ConvergenceHistory, nextiter!
 using DataStructures: heapify!, percolate_down!
-import LinearMaps
-import LinearMaps: LinearMap, AdjointMap, TransposeMap
+
+using LinearMaps
+using LinearMaps: TransposeMap
+import LinearMaps: A_mul_B!, At_mul_B!
 
 # algorithm types
 abstract type AlgorithmOption end
