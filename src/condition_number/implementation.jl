@@ -4,7 +4,7 @@ reduce_cond(algorithm::AlgorithmOption, c, M; kwargs...)
 ```
 """
 function reduce_cond(algorithm::AlgorithmOption, c, M;
-    rho::Real = 1.0, mu::Real = 1.0, kwargs...)
+    rho::Real=1.0, mu::Real=1.0, ls=Val(:LSQR), kwargs...)
     #
     # extract problem dimensions
     σ, U, Vt = extract_svd(M)       # svs, left sv-vecs, right sv-vecs
@@ -44,7 +44,15 @@ function reduce_cond(algorithm::AlgorithmOption, c, M;
     z = similar(Vector{eltype(x)}, M)   # cache for D*x
     Pz = similar(z)                     # cache for P(D*x)
     v = similar(z)                      # cache for D*x - P(D*x)
-    buffers = (z = z, Pz = Pz, v = v)
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        mul!(y, D, x)
+        buffers = (z = z, Pz = Pz, v = v, s = s, r = r)
+    else
+        buffers = (z = z, Pz = Pz, v = v)
+    end
 
     # select linear solver, if needed
     # not used, H⁻¹ has an explicit inverse
@@ -124,12 +132,12 @@ function condnum_iter(::MM, prob, ρ, μ)
     c = D.c
     p = D.N
     α = (1 + ρ*p*(c^2+1))
-    β = -2*c*ρ
-    u = 1 / α
-    v = sum(x) / (α/β + p)
+    β = 2*c*ρ
+    u = 1/α
+    w = sum(x) / (p - α/β)
 
     @simd ivdep for k in eachindex(x)
-        @inbounds x[k] = u*(x[k] - v)
+        @inbounds x[k] = u*(x[k] - w)
     end
 
     return 1.0
@@ -137,16 +145,9 @@ end
 
 function condnum_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack ∇f = prob.derivatives
     @unpack D, P, σ = prob.operators
     @unpack z, Pz, v = prob.buffers
     linsolver = prob.linsolver
-
-    # y block update
-    α = (ρ / μ)
-    @inbounds @simd for j in eachindex(y)
-        y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
-    end
 
     # x block update
     @. v = y - λ
@@ -155,19 +156,25 @@ function condnum_iter(::ADMM, prob, ρ, μ)
 
     c = D.c
     p = D.N
-    α = (1 + μ*p*(c^2+1))
-    β = -2*c*μ
+    α = 1 + μ*p*(c^2+1)
+    β = 2*c*μ
     u = 1 / α
-    v = sum(x) / (α/β + μ)
+    w = sum(x) / (p-α/β)
 
     @simd for k in eachindex(x)
-        @inbounds x[k] = u*(x[k] - v)
+        @inbounds x[k] = u*(x[k] - w)
+    end
+
+    # y block update
+    α = (ρ / μ)
+    mul!(z, D, x)
+    @simd for j in eachindex(y)
+        @inbounds y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
     end
 
     # λ block update
-    mul!(z, D, x)
-    @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] / μ + z[j] - y[j]
+    @simd for j in eachindex(λ)
+        @inbounds λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 
     return μ
