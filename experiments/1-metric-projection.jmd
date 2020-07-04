@@ -5,13 +5,22 @@ weave_options:
 ---
 
 ```{julia}
-using ProximalDistanceAlgorithms, Plots, UnicodePlots
+using ProximalDistanceAlgorithms
+using Random, Plots, DataFrames
 include("plotutils.jl")
-gr(lw = 2)
 ```
+
+### Introduction
+
+```{julia}
+@doc metric_projection
+```
+
+### Example
 
 ```{julia}
 nodes = 64
+Random.seed!(5357)
 _, Y = metric_example(64)
 Y
 ```
@@ -30,34 +39,88 @@ end
 y = trivec(Y)
 ```
 
-```{julia}
-function solve(A, algorithm, maxiters, penalty)
-    # track original loss, penalized objective, gradient, etc.
-    history = initialize_history(maxiters+1)
+#### Setup
 
+```{julia}
+function solve(A, algorithm, maxiters, penalty; mu = 1.0)
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
-    # warm-up
-    @time metric_projection(algorithm, nothing, A,
-        maxiters = 100,
-        penalty = penalty,
-        accel = accel,
-        history = history)
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
 
-    # real timing
-    history = initialize_history(maxiters+1)
-    solution = @time metric_projection(algorithm, nothing, A,
-        maxiters = maxiters,
-        penalty = penalty,
-        accel = accel,
-        history = history)
+        # track loss, penalized objective, gradient, etc.
+        history = initialize_history(maxiters+1)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time metric_projection(algorithm, A,
+            maxiters = 100,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history = initialize_history(maxiters+1)
+        solution = @time metric_projection(algorithm, A,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+    else
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        h1 = initialize_history(maxiters+1)
+        h2 = initialize_history(maxiters+1)
+        history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            tmp = initialize_history(maxiters+1)
+            @time metric_projection(algorithm, A,
+                maxiters = 100,
+                penalty = penalty,
+                accel = accel,
+                history = tmp,
+                ls = ls,
+                mu = mu)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            s = @time metric_projection(algorithm, A,
+                maxiters = maxiters,
+                penalty = penalty,
+                accel = accel,
+                history = h,
+                ls = ls,
+                mu = mu)
+
+            push!(sol, s)
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
+    end
 
     return solution, history
 end
 ```
 
-### Fusion matrix
+#### Fusion matrix
 
 ```{julia}
 D = MetricFM(nodes); S = instantiate_fusion_matrix(D)
@@ -65,55 +128,63 @@ size(D)
 ```
 
 ```{julia}
-UnicodePlots.spy(S, width = 50, height = 15)
+unicodeplots()
+spy(S)
 ```
 
 ```{julia}
-UnicodePlots.spy(S'S, width = 50, height = 15)
+spy(S'S)
 ```
 
-### Annealing schedule
+#### Annealing schedules
 
 ```{julia}
-penalty(ρ₀, n) = min(1e6, 1.2 ^ floor(n/50))
+penalty1(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
+penalty2(ρ, n) = min(1e6, 1.1 ^ floor(n/50))
+gr(linewidth=2)
 
 maxiters = 2000
 xs = 1:maxiters
-ys = penalty.(1, xs)
-plot(xs, ys, legend = nothing)
+plot(xs, penalty1.(1, xs), label = "MM/SD")
+plot!(xs, penalty2.(1, xs), label = "ADMM")
+xlabel!("iteration")
+ylabel!("rho")
 ```
 
-### MM
+#### MM
 
 ```{julia}
-solution_MM, trace_MM = solve(Y, MM(), maxiters, penalty)
-solution_MM
-```
-
-```{julia}
-plot_summary(trace_MM)
-```
-
-### Steepest Descent
-
-```{julia}
-solution_SD, trace_SD = solve(Y, SteepestDescent(), maxiters, penalty)
-solution_SD
+MM_sol, MM_trace = solve(Y, MM(), maxiters, penalty1)
+plot_summary(MM_trace.lsqr)
 ```
 
 ```{julia}
-plot_summary(trace_SD)
+plot_summary(MM_trace.cg)
 ```
 
-### ADMM
+#### Steepest Descent
 
 ```{julia}
-solution_ADMM, trace_ADMM = solve(Y, ADMM(), maxiters, penalty)
-solution_ADMM
+SD_sol, SD_trace = solve(Y, SteepestDescent(), maxiters, penalty1)
+plot_summary(SD_trace)
+```
+
+#### ADMM
+
+```{julia}
+ADMM_sol, ADMM_trace = solve(Y, ADMM(), maxiters, penalty2, mu = 7.5e-2)
+plot_summary(ADMM_trace.lsqr)
 ```
 
 ```{julia}
-plot_summary(trace_ADMM)
+plot_summary(ADMM_trace.cg)
+```
+
+### Summary
+
+
+```{julia}
+table_summary(MM_trace, SD_trace, ADMM_trace)
 ```
 
 ### Appendix
