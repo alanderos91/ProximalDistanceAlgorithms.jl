@@ -40,6 +40,8 @@ end
 
 # for solving linear system as a least-squares problem, i.e. min |Ax-b|^2
 struct LSQRWrapper{vecT,solT}
+    u::vecT
+    v::solT
     tmpm::vecT
     tmpn::solT
 end
@@ -47,14 +49,16 @@ end
 function LSQRWrapper(A, x::solT, b::vecT) where {solT,vecT}
     T = Adivtype(A, b)
     m, n = size(A)
+    u = similar(b, T, m)
+    v = similar(x, T, n)
     tmpm = similar(b, T, m)
     tmpn = similar(x, T, n)
-    return LSQRWrapper(tmpm, tmpn)
+    return LSQRWrapper(u, v, tmpm, tmpn)
 end
 
 function linsolve!(lsqrw::LSQRWrapper, x, A, b)
     history = ConvergenceHistory(partial=true)
-    __lsqr__!(history, x, A, b, lsqrw.tmpm, lsqrw.tmpn)
+    __lsqr__!(history, x, A, b, lsqrw.u, lsqrw.v, lsqrw.tmpm, lsqrw.tmpn, verbose=false)
     return nothing
 end
 
@@ -62,7 +66,7 @@ end
 # Adapted from IterativeSolvers.jl:
 # https://github.com/JuliaMath/IterativeSolvers.jl/blob/master/src/lsqr.jl
 #
-# All this does is lift the tmpm and tmpn allocations outside the function.
+# All this does is lift array allocations outside the function.
 #----------------------------------------------------------------------
 #
 # Michael Saunders, Systems Optimization Laboratory,
@@ -72,7 +76,7 @@ end
 #    - Allow an initial guess for x
 #    - Eliminate printing
 #----------------------------------------------------------------------
-function __lsqr__!(log::ConvergenceHistory, x, A, b, tmpm, tmpn;
+function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn;
     damp=0, atol=sqrt(eps(real(Adivtype(A,b)))), btol=sqrt(eps(real(Adivtype(A,b)))),
     conlim=real(one(Adivtype(A,b)))/sqrt(eps(real(Adivtype(A,b)))),
     maxiter::Int=maximum(size(A)), verbose::Bool=false,
@@ -102,8 +106,8 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, tmpm, tmpn;
 
     # Set up the first vectors u and v for the bidiagonalization.
     # These satisfy  beta*u = b-A*x,  alpha*v = A'u.
-    u = b - A*x
-    v = copy(x)
+    mul!(u, A, x); axpby!(true, b, -1, u)  # u = b - A*x
+    copyto!(v, x)               #v = copy(x)
     beta = norm(u)
     alpha = zero(Tr)
     adjointA = adjoint(A)
