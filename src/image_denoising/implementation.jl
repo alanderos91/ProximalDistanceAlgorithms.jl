@@ -5,12 +5,14 @@ image_denoise(algorithm::AlgorithmOption, image;)
 """
 function denoise_image(algorithm::AlgorithmOption, image;
     K::Integer=0,
-    o::Base.Ordering=Base.Order.Forward,
+    o::Base.Ordering=Base.Order.Reverse,
     rho::Real=1.0,
-    mu::Real=1.0, kwargs...)
+    mu::Real=1.0, ls=Val(:LSQR), kwargs...)
     #
     # extract problem information
-    n, p = size(image)      # n pixels × p pixels
+    # n, p = size(image)      # n pixels × p pixels
+    n = size(image, 1)
+    p = size(image, 2)
     m1 = (n-1)*p            # number of column derivatives
     m2 = n*(p-1)            # number of row derivatives
     M = m1 + m2 + 1         # add extra row for PSD matrix
@@ -52,17 +54,27 @@ function denoise_image(algorithm::AlgorithmOption, image;
     Pz = similar(z)
     v = similar(z)
     cache = zeros(M-1)
-    b = needs_linsolver(algorithm) ? similar(x) : nothing
-    buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        b1 = similar(x)
-        b2 = similar(x)
-        b3 = similar(x)
-        linsolver = CGIterable(H, x, b1, b2, b3, 1e-8, 0.0, 1.0, N, 0)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), N+M) # b has two block
+            linsolver = LSQRWrapper([I;D], x, b)
+        else
+            b = similar(x) # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
     else
+        b = nothing
         linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache)
     end
 
     # create views, if needed
@@ -141,27 +153,72 @@ function imgtvd_iter(::SteepestDescent, prob, ρ, μ)
 end
 
 function imgtvd_iter(::MM, prob, ρ, μ)
-    @unpack D, a = prob.operators
+    @unpack x = prob.variables
+    @unpack D, H, a = prob.operators
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
-    # build RHS of Ax = b
-    mul!(b, D', Pz)
-    axpby!(1, a, ρ, b)
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √ρ*D]
 
-    # solve the linear system; assuming x bound to linsolver
-    __do_linear_solve!(linsolver, b)
+        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
+        n = length(a)
+        copyto!(b, 1, a, 1, n)
+        for k in eachindex(Pz)
+            b[n+k] = √ρ * Pz[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + ρ*D'P(D*x)
+        mul!(b, D', Pz)
+        axpby!(1, a, ρ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
 
     return 1.0
 end
 
 function imgtvd_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, compute_proj, a = prob.operators
+    @unpack D, H, compute_proj, a = prob.operators
     @unpack z, v, b, cache = prob.buffers
     linsolver = prob.linsolver
 
+    # x block update
+    @. v = y - λ
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A = [I; √μ*D]
+
+        # build RHS of A*x = b; b = [a; √μ * (y-λ)]
+        n = length(a)
+        copyto!(b, 1, a, 1, length(a))
+        for k in eachindex(v)
+            @inbounds b[n+k] = √μ * v[k]
+        end
+    else
+        # LHS of A*x = b is already stored
+        A = H
+
+        # build RHS of A*x = b; b = a + μ*D'(y-λ)
+        mul!(b, D', v)
+        axpby!(1, a, μ, b)
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
+
     # compute pivot for projection operator
+    mul!(z, D, x)
     @. v = z + λ
     copyto!(cache, 1, v, 1, length(cache))
     @. cache = abs(cache)
@@ -174,18 +231,11 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
         indicator = P(abs(zpλj)) == abs(zpλj)
         y[j] = α/(1+α) * indicator*zpλj + 1/(1+α) * zpλj
     end
-    y[end] = z[end] + λ[end]
-
-    # x block update
-    @. v = y - λ
-    mul!(b, D', v)
-    axpby!(1, a, μ, b)
-    __do_linear_solve!(linsolver, b)
+    y[end] = z[end] + λ[end] # corresponds to extra constraint
 
     # λ block update
-    mul!(z, D, x)
     @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] / μ + z[j] - y[j]
+        λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 
     return μ
