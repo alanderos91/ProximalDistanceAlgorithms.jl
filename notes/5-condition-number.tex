@@ -1,0 +1,124 @@
+\documentclass[11pt]{article}
+
+\input{preamble.tex}
+
+\title{Example 5: Reducing Condition Numbers}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+Given a matrix $\bA = \bU \bSigma \bV^{-1}$ with singular values $\sigma_{1} \ge \sigma_{2} \ge \ldots \ge \sigma_{p}$, we seek a new matrix $\bB = \bU \bX \bV^{-1}$ such that $\mathrm{cond}(\bB) = x_{1} / x_{p} \le c$.
+We minimize the penalized objective
+\begin{align*}
+    h_{\rho}(\bx)
+    &=
+    \frac{1}{2}\|\bx - \bsigma\|^{2}
+    +
+    \frac{\rho}{2} \dist(\bD \bx, \Real^{p^{2}}_{-})^{2},
+\end{align*}
+as suggested by the Von Neumann-Fan inequality.
+The fusion matrix $\bD = \bC + \bS$ encodes the constraints $x_{i} - c x_{j} \le 0$; that is, $\bC = -c \boldsymbol{1}_{p} \otimes \bI_{p}$ and $\bS = \bI_{p} \otimes \boldsymbol{1}_{p}$.
+Distance majorization yields the surrogate
+\begin{equation*}
+    g_{\rho}(\bx \mid \bx_{n})
+    =
+    \frac{1}{2}\|\bx - \bw\|_{2}^{2}
+    +
+    \frac{\rho}{2} \|\bD \bx - \mathcal{P}_{-}(\bD \bx_{n})\|^{2}.
+\end{equation*}
+
+\section*{\center Explicit Matrix Inverse}
+
+Both ADMM and MM reduce to solving a linear system.
+Fortunately, the Hessian for $h_{\rho}(\bx)$ reduces to a Householder-like matrix.
+Concretely, $\nabla h_{\rho}^{2} = \bI_{p} + \rho \bD^{t} \bD$ where
+\begin{equation*}
+    \rho \bD^{t} \bD
+    =
+    \rho p (c^{2} + 1) \bI_{p} + 2 c \boldsymbol{1}_{p} \boldsymbol{1}_{p}^{t}.
+\end{equation*}
+Applying the Sherman-Morrison formula to results in
+\begin{align*}
+    [\bI_{p} + \rho \bD^{t} \bD]^{-1}
+    &=
+    [a \bI_{p} - b \boldsymbol{1}_{p} \boldsymbol{1}_{p}^{t}]^{-1} \\
+    &=
+    -b^{-1} \left[
+        -(b/a) \bI_{p} - \frac{(b/a)^{2} \boldsymbol{1}_{p} \boldsymbol{1}_{p}^{t}}{1 - (a/b) \boldsymbol{1}_{p}^{t} \boldsymbol{1}_{p}}
+    \right] \\
+    &=
+    \frac{1}{a} \left[
+        \bI_{p} - \frac{\boldsymbol{1}_{p} \boldsymbol{1}_{p}^{t}}{p - a/b}
+    \right],
+\end{align*}
+where $a = 1+\rho p (c^{2} + 1)$ and $b = 2\rho c$.
+
+\section*{\center Algorithm Maps}
+
+\subsection*{MM}
+Rewrite the surrogate explicitly a least squares problem minimizing $\|\bA \bx - \bb_{n}\|^{2}_{2}$:
+\begin{equation*}
+  \bx_{n+1} = \underset{\bx}{\argmin} \frac{1}{2} \left\|
+    \begin{bmatrix}
+      \bI \\
+      \sqrt{\rho} \bD
+    \end{bmatrix} \bx
+    -
+    \begin{bmatrix}
+      \bsigma \\
+      \sqrt{\rho} \mathcal{P}(\bD \bx_{n})
+    \end{bmatrix}
+  \right\|_{2}^{2}
+\end{equation*}
+Applying the matrix inverse from before yields an explicit formula (with $a$ and $b$ defined as before):
+\begin{equation*}
+    \bx_{n+1}
+    =
+    \frac{1}{a}\left[
+        \bz_{n} - \frac{\mathrm{sum}(\bz_{n})}{p - (a/b)} \boldsymbol{1}
+    \right];
+    \qquad
+    \bz_{n} = \bsigma + \rho \bD^{t} \mathcal{P}(\bD \bx_{n}),
+    ~a = 1 + \rho p (c^{2} + 1), ~b = 2 \rho c.
+\end{equation*}
+
+\subsection*{Steepest Descent}
+
+The updates $\bx_{n+1} = \bx_{n} - \gamma_{n} \nabla h_{\rho}(\bx_{n})$ admit an exact solution for the line search parameter $\gamma_{n}$.
+Taking $\bq_{n} = \nabla h_{\rho}(\bx_{n})$ as the gradient we have
+\begin{align*}
+  \bq_{n}
+  &= (\bx_{n} - \bu) + \rho \bD^{t} [\bD \bx_{n} - \mathcal{P}_{\nu}(\bD \bx_{n})] \\
+  \gamma_{n}
+  &=
+  \frac{\|\bq_{n}\|^{2}}{\|\bq_{n}\|^{2} + \rho \|\bD \bq_{n}\|^{2}}.
+\end{align*}
+
+\subsection*{ADMM}
+
+Take $\by$ as the dual variable and $\blambda$ as scaled multipliers.
+The formula for the MM algorithm applies in updating $\bx_{n}$, except we replace $\rho$ with $\mu$ and $\mathcal{P}(\bD \bx_{n})$ with $\by_{n} - \blambda_{n}$:
+\begin{align*}
+    \bx_{n+1}
+    &=
+    \frac{1}{a}\left[
+        \bz^{1}_{n} - \frac{\mathrm{sum}(\bz^{1}_{n})}{p - (a/b)} \boldsymbol{1}
+    \right];
+    \qquad
+    \bz_{n}^{1}
+    =
+    \bsigma + \mu \bD^{t} (\by_{n} - \blambda_{n}),
+    ~a = 1 + \mu p (c^{2} + 1), ~b = 2 \mu c \\
+    \by_{n+1}
+    &= \frac{\alpha}{1+\alpha} \mathcal{P}(\bz^{2}_{n}) + \frac{1}{1+\alpha} \bz^{2}_{n};
+    \qquad \bz^{2}_{n} = \bD \bx_{n+1} + \blambda_{n},~\alpha = \rho / \mu
+    \end{align*}
+Multipliers follow the standard update.
+
+%%%%% References %%%%%
+\begin{thebibliography}{99}
+    \bibitem{borwein2010} J. Borwein \& A. S. Lewis. {Convex Analysis and Nonlinear Optimization: Theory and Examples}.Springer Science \& Business Media, 2010.    
+\end{thebibliography}
+\end{document}
