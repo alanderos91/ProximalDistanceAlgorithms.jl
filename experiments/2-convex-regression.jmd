@@ -5,47 +5,107 @@ weave_options:
 ---
 
 ```{julia}
-using ProximalDistanceAlgorithms, Plots, UnicodePlots
-using LinearAlgebra, Random
+using ProximalDistanceAlgorithms
+using LinearAlgebra, Random, Plots, DataFrames
 include("plotutils.jl")
-gr(lw = 2)
 ```
+
+### Introduction
+
+```{julia}
+@doc cvxreg_fit
+```
+
+### Example
 
 ```{julia}
 φ(x) = dot(x, x)
 d = 1       # number of covariates
 n = 50      # number of samples
 σ = 0.1     # std dev in noise
+Random.seed!(5357)
 response, truth, covariates = cvxreg_example(φ, d, n, σ)
-# response, covariates = mazumder_standardization(response, covariates)
-# truth, _ = mazumder_standardization(truth, covariates)
 fig = plot(xlabel = "x", ylabel = "phi(x)")
 plot!(fig, vec(covariates), truth, label = "ground truth")
 scatter!(fig, vec(covariates), response, label = "observed", markersize = 4)
 ```
 
-```{julia}
-function solve(response, covariates, algorithm, maxiters, penalty)
-    # track original loss, penalized objective, gradient, etc.
-    history = initialize_history(maxiters+1)
+#### Setup
 
+```{julia}
+function solve(response, covariates, algorithm, maxiters, penalty; mu = 1.0)
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
-    # warm-up
-    @time cvxreg_fit(algorithm, response, covariates,
-        maxiters = 100,
-        penalty = penalty,
-        accel = accel,
-        history = history, atol = 1e-8)
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
 
-    # real timing
-    history = initialize_history(maxiters+1)
-    solution = @time cvxreg_fit(algorithm, response, covariates,
-        maxiters = maxiters,
-        penalty = penalty,
-        accel = accel,
-        history = history, atol = 1e-8)
+        # track loss, penalized objective, gradient, etc.
+        history = initialize_history(maxiters+1)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time cvxreg_fit(algorithm, response, covariates,
+            maxiters = 100,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history = initialize_history(maxiters+1)
+        solution, _ = @time cvxreg_fit(algorithm, response, covariates,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+    else
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        h1 = initialize_history(maxiters+1)
+        h2 = initialize_history(maxiters+1)
+        history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            tmp = initialize_history(maxiters+1)
+            @time cvxreg_fit(algorithm, response, covariates,
+                maxiters = 100,
+                penalty = penalty,
+                accel = accel,
+                history = tmp,
+                ls = ls,
+                mu = mu)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            s, _ = @time cvxreg_fit(algorithm, response, covariates,
+                maxiters = maxiters,
+                penalty = penalty,
+                accel = accel,
+                history = h,
+                ls = ls,
+                mu = mu)
+
+            push!(sol, s)
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
+    end
 
     return solution, history
 end
@@ -59,53 +119,71 @@ size(D)
 ```
 
 ```{julia}
-UnicodePlots.spy(S, width = 50, height = 15)
+unicodeplots()
+spy(S)
 ```
 
 ```{julia}
-UnicodePlots.spy(S'S, width = 50, height = 15)
+spy(S'S)
 ```
 
-### Annealing schedule
+#### Annealing schedules
 
 ```{julia}
-penalty(ρ₀, n) = min(1e6, 1.15 ^ floor(n/50))
+penalty1(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
+penalty2(ρ, n) = min(1e6, 1.1 ^ floor(n/50))
+gr(linewidth=2)
 
-maxiters = 5000
+maxiters = 2000
 xs = 1:maxiters
-ys = penalty.(1, xs)
-plot(xs, ys, legend = nothing)
+plot(xs, penalty1.(1, xs), label = "MM/SD")
+plot!(xs, penalty2.(1, xs), label = "ADMM")
+xlabel!("iteration")
+ylabel!("rho")
 ```
 
-### MM
+##### MM
 
 ```{julia}
-solution_MM, trace_MM = solve(response, covariates, MM(), maxiters, penalty)
-plot_summary(trace_MM)
+MM_sol, MM_trace = solve(response, covariates, MM(), maxiters, penalty1)
+plot_summary(MM_trace.lsqr)
+```
+
+```{julia}
+plot_summary(MM_trace.cg)
 ```
 
 ### Steepest Descent
 
 ```{julia}
-solution_SD, trace_SD = solve(response, covariates, SteepestDescent(), maxiters, penalty)
-plot_summary(trace_SD)
+SD_sol, SD_trace = solve(response, covariates, SteepestDescent(), maxiters, penalty1)
+plot_summary(SD_trace)
 ```
 
 ### ADMM
 
 ```{julia}
-solution_ADMM, trace_ADMM = solve(response, covariates, ADMM(), maxiters, penalty)
-plot_summary(trace_ADMM)
+ADMM_sol, ADMM_trace = solve(response, covariates, ADMM(), maxiters, penalty2, mu = 1e-1)
+plot_summary(ADMM_trace.lsqr)
+```
+
+```{julia}
+plot_summary(ADMM_trace.cg)
 ```
 
 ### Quality of solutions
 
 ```{julia}
-fig = plot(xlabel = "x", ylabel = "phi(x)")
-plot!(fig, vec(covariates), truth, label = "ground truth")
-scatter!(fig, vec(covariates), solution_MM[1], label = "MM", markersize = 4)
-scatter!(fig, vec(covariates), solution_SD[1], label = "SD", markersize = 4)
-scatter!(fig, vec(covariates), solution_ADMM[1], label = "ADMM", markersize = 4)
+using Statistics
+df = table_summary(MM_trace, SD_trace, ADMM_trace)
+df[!, :MSE] = [
+    mean((MM_sol.lsqr   .- truth) .^ 2),
+    mean((MM_sol.cg     .- truth) .^ 2),
+    mean((SD_sol        .- truth) .^ 2),
+    mean((ADMM_sol.lsqr .- truth) .^ 2),
+    mean((ADMM_sol.cg   .- truth) .^ 2)
+]
+df
 ```
 
 ### Appendix
