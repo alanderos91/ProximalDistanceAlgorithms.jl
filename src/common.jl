@@ -152,6 +152,33 @@ function compute_sparse_projection(xs, ::MinParamT, K)
     return SparseProjection{MinParamT}(pivot)
 end
 
+struct SparseProjection2{T}
+    ismaxparam::Bool
+    pivot::T
+end
+
+function (P::SparseProjection2)(x)
+    if P.ismaxparam
+        x ≥ P.pivot ? x : zero(x)
+    else
+        x > P.pivot ? x : zero(x)
+    end
+end
+
+struct SparseProjectionClosure
+    ismaxparam::Bool
+    ν::Int
+end
+
+function (C::SparseProjectionClosure)(xs)
+    if C.ν > 0
+        pivot = C.ν < length(xs) ? partialsort!(xs, C.ν, rev = C.ismaxparam) : zero(eltype(xs))
+    else
+        pivot = -Inf
+    end
+    return SparseProjection2(C.ismaxparam, pivot)
+end
+
 function swap!(h, i, j)
     h[i], h[j] = h[j], h[i]
     return nothing
