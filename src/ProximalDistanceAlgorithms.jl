@@ -93,7 +93,7 @@ export CvxClusterFM
 include(joinpath("image_denoising", "operators.jl"))
 include(joinpath("image_denoising", "implementation.jl"))
 
-export denoise_image
+export denoise_image, denoise_image_path
 export ImgTvdFM
 
 # example: improving condition number

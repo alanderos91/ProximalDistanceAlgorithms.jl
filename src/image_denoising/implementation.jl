@@ -91,6 +91,126 @@ function denoise_image(algorithm::AlgorithmOption, image;
     return X
 end
 
+"""
+```
+image_denoise_path(algorithm::AlgorithmOption, image; kwargs...)
+```
+"""
+function denoise_image_path(algorithm::AlgorithmOption, image;
+    rho::Real=1.0,
+    mu::Real=1.0,
+    ls::LS=Val(:LSQR), kwargs...) where LS
+    #
+    # extract problem information
+    # n, p = size(image)      # n pixels × p pixels
+    n = size(image, 1)
+    p = size(image, 2)
+    m1 = (n-1)*p            # number of column derivatives
+    m2 = n*(p-1)            # number of row derivatives
+    M = m1 + m2 + 1         # add extra row for PSD matrix
+    N = n*p                 # number of variables
+
+    # allocate optimization variable
+    X = copy(image)
+    x = vec(X)
+    if algorithm isa ADMM
+        y = zeros(M)
+        λ = zeros(M)
+        variables = (x = x, y = y, λ = λ)
+    else
+        variables = (x = x,)
+    end
+
+    # allocate derivatives
+    ∇f = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇q = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇h = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇²f = needs_hessian(algorithm) ? I : nothing
+    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    # generate operators
+    D = ImgTvdFM(n, p)
+    a = copy(x)
+
+    ρ₀ = algorithm isa ADMM ? mu : rho
+
+    if algorithm isa SteepestDescent
+        H = nothing
+    elseif algorithm isa MM
+        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
+    else
+        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
+    end
+
+    # allocate buffers for mat-vec multiplication, projections, and so on
+    z = similar(Vector{eltype(x)}, M)
+    Pz = similar(z)
+    v = similar(z)
+    cache = zeros(M-1)  # mirrors block_norm; cache for pivot search
+
+    # select linear solver, if needed
+    if needs_linsolver(algorithm)
+        if ls isa Val{:LSQR}
+            b = similar(typeof(x), N+M) # b has two blocks
+            linsolver = LSQRWrapper([I;D], x, b)
+        else
+            b = similar(x)  # b has one block
+            linsolver = CGWrapper(D, x, b)
+        end
+    else
+        b = nothing
+        linsolver = nothing
+    end
+
+    if algorithm isa ADMM
+        s = similar(y)
+        r = similar(y)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s)
+    else
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache)
+    end
+
+    # create views, if needed
+    views = nothing
+
+    # pack everything into ProxDistProblem container
+    objective = imgtvd_objective
+    algmap = imgtvd_iter
+
+    # allocate output
+    X_path = typeof(X)[]
+    ν_path = Int[]
+
+    # initialize solution path heuristic
+    νmax = M-1
+    @showprogress 1 "Searching solution path..." for s in range(0.05, step=0.1, stop = 0.95)
+        # this is an unavoidable branch made worse by parameterization of
+        # projection operator
+        if round(Int, s*νmax) > (νmax >> 1)
+            ν = round(Int, (1-s)*νmax)
+            f = SparseProjectionClosure(true, ν)
+        else
+            ν = round(Int, s*νmax)
+            f = SparseProjectionClosure(false, ν)
+        end
+
+        operators = (D = D, compute_proj = f, H = H, a = a)
+        prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+        if uses_CG(prob)
+            prob = update_operators(prob, ρ₀)
+        end
+        optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+
+        # record current solution
+        push!(X_path, copy(X))
+        push!(ν_path, round(Int, s*νmax))
+    end
+
+     solution_path = (img = X_path, ν = ν_path)
+
+    return solution_path
+end
+
 #########################
 #       objective       #
 #########################
@@ -162,7 +282,7 @@ function imgtvd_iter(::MM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = [I; √ρ*D]
+        A = QuadLHS(I, D, √ρ) # A = [I; √ρ*D]
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -197,7 +317,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = [I; √μ*D]
+        A = QuadLHS(I, D, √μ) # A = [I; √μ*D]
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
