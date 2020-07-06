@@ -6,7 +6,7 @@ Project matrix `A` to its nearest matrix `B` (in the sense of the Frobenius norm
 The penalized objective used is
 
 ```math
-    h_{\rho}(x) = \frac{1}{2} \|x-y\|^{2} + \frac{\rho}{2} \mathrm{dist}{Dx,C}^{2}
+    h_{\rho}(x) = \frac{1}{2} \|x-y\|^{2} + \frac{\rho}{2} \mathrm{dist}{(Dx,C)}^{2}
 ```
 
 where ``x`` and ``y`` are the singular values for `B` and `A`, respectively.
@@ -21,8 +21,8 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref)
 - `maxiters::Integer=100`: The maximum number of iterations.
 - `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
 - `history=nothing`
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(D*x,C)^{2}$.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function reduce_cond(algorithm::AlgorithmOption, c, A;
