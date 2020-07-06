@@ -197,6 +197,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     νmax = binomial(n, 2)
     ν = νmax-1
 
+    prog = ProgressThresh(0, "Searching clustering path")
     while ν ≥ 0
         # this is an unavoidable branch made worse by parameterization of
         # projection operator
@@ -230,10 +231,9 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
             nconstraint += (log(10, abs(weights[i,j] * distance[i,j])) ≤ -3)
         end
 
-        @show ν, nconstraint
-
         # decrease ν with a heuristic that guarantees a decrease
         ν = min(ν - 1, νmax - nconstraint - 1)
+        ProgressMeter.update!(prog, ν)
     end
 
      solution_path = (U = X_path, ν = ν_path)
