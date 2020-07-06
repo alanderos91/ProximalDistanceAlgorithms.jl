@@ -44,6 +44,8 @@ struct LSQRWrapper{vecT,solT}
     v::solT
     tmpm::vecT
     tmpn::solT
+    w::solT
+    wrho::solT
 end
 
 function LSQRWrapper(A, x::solT, b::vecT) where {solT,vecT}
@@ -53,12 +55,16 @@ function LSQRWrapper(A, x::solT, b::vecT) where {solT,vecT}
     v = similar(x, T, n)
     tmpm = similar(b, T, m)
     tmpn = similar(x, T, n)
-    return LSQRWrapper(u, v, tmpm, tmpn)
+    w = similar(v)
+    wrho = similar(v)
+    return LSQRWrapper(u, v, tmpm, tmpn, w, wrho)
 end
 
 function linsolve!(lsqrw::LSQRWrapper, x, A, b)
-    history = ConvergenceHistory(partial=true)
-    __lsqr__!(history, x, A, b, lsqrw.u, lsqrw.v, lsqrw.tmpm, lsqrw.tmpn, verbose=false)
+    history = ConvergenceHistory{false,Nothing}(
+        0,0,0,nothing,false,Dict{Symbol, Any}()
+        )
+    __lsqr__!(history, x, A, b, lsqrw.u, lsqrw.v, lsqrw.tmpm, lsqrw.tmpn, lsqrw.w, lsqrw.wrho, verbose=false)
     return nothing
 end
 
@@ -76,7 +82,7 @@ end
 #    - Allow an initial guess for x
 #    - Eliminate printing
 #----------------------------------------------------------------------
-function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn;
+function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
     damp=0, atol=sqrt(eps(real(Adivtype(A,b)))), btol=sqrt(eps(real(Adivtype(A,b)))),
     conlim=real(one(Adivtype(A,b)))/sqrt(eps(real(Adivtype(A,b)))),
     maxiter::Int=maximum(size(A)), verbose::Bool=false,
@@ -120,8 +126,8 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn;
     if alpha > 0
         v .*= inv(alpha)
     end
-    w = copy(v)
-    wrho = similar(w)
+    copyto!(w, v)   # w = copy(v)
+    # wrho = similar(w)
 
     Arnorm = alpha*beta
     if Arnorm == 0
@@ -185,8 +191,8 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn;
         t1      =   phi  /rho
         t2      = - theta/rho
 
-        x .+= t1*w
-        w = t2 .* w .+ v
+        axpy!(t1, w, x)         # x .+= t1*w
+        axpby!(true, v, t2, w)  # w = t2 .* w .+ v
         wrho .= w .* inv(rho)
         ddnorm += norm(wrho)
 
@@ -257,4 +263,52 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn;
     end
     verbose && @printf("\n")
     x
+end
+
+struct QuadLHS{T,matT1,matT2} <: LinearMap{T}
+    A₁::matT1
+    A₂::matT2
+    c::T
+    M::Int
+    N::Int
+
+    function QuadLHS(A₁::matT1, A₂::matT2, c::T) where {T,matT1,matT2}
+        M = size(A₂, 2) + size(A₂, 1)
+        N = size(A₂, 2) # == size(A₂, 2)
+        new{T,matT1,matT2}(A₁, A₂, c, M, N)
+    end
+end
+
+Base.size(H::QuadLHS) = (H.M, H.N)
+
+# LinearAlgebra traits
+LinearAlgebra.issymmetric(H::QuadLHS) = false
+LinearAlgebra.ishermitian(H::QuadLHS) = false
+LinearAlgebra.isposdef(H::QuadLHS)    = false
+
+function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
+    M₁ = size(op.A₂, 2)
+    M = size(op, 1)
+
+    y₁ = view(y, 1:M₁)
+    mul!(y₁, op.A₁, x)
+    y₂ = view(y, M₁+1:M)
+    mul!(y₂, op.A₂, x)
+    for k in eachindex(y₂)
+        y₂[k] *= op.c
+    end
+
+    return y
+end
+
+function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
+    M₁ = size(op.A₂, 2)
+    M = size(op, 1)
+
+    y₁ = view(y, 1:M₁)
+    mul!(x, op.A₁', y₁)
+    y₂ = view(y, M₁+1:M)
+    mul!(x, op.A₂', y₂, 1, op.c)
+
+    return x
 end
