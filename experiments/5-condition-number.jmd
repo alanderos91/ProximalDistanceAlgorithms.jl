@@ -5,16 +5,22 @@ weave_options:
 ---
 
 ```{julia}
-using ProximalDistanceAlgorithms, Plots, UnicodePlots
-using Random, LinearAlgebra
+using ProximalDistanceAlgorithms
+using Random, LinearAlgebra, MatrixDepot, Plots, DataFrames
 include("plotutils.jl")
-gr(lw = 2)
 ```
+
+### Introduction
+
+```{julia}
+@doc reduce_cond
+```
+
+### Example
 
 ```{julia}
 Random.seed!(5357)
-A = rand(50, 1000)
-M = A'A
+M = matrixdepot("randcorr", 100)
 cond(M)
 ```
 
@@ -23,28 +29,64 @@ F = svd(M)
 F.S
 ```
 
-```{julia}
-function solve(c, A, algorithm, maxiters, penalty)
-    # track original loss, penalized objective, gradient, etc.
-    history = initialize_history(maxiters+1)
+#### Setup
 
+```{julia}
+function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
-    # warm-up
-    @time reduce_cond(algorithm, c, F,
-        maxiters = 100,
-        penalty = penalty,
-        accel = accel,
-        history = history)
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
 
-    # real timing
-    history = initialize_history(maxiters+1)
-    solution = @time reduce_cond(algorithm, c, F,
-        maxiters = maxiters,
-        penalty = penalty,
-        accel = accel,
-        history = history)
+        # track loss, penalized objective, gradient, etc.
+        history = initialize_history(maxiters+1)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time reduce_cond(algorithm, c, F,
+            maxiters = 100,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history = initialize_history(maxiters+1)
+        solution = @time reduce_cond(algorithm, c, F,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,
+            history = history)
+    else
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        history = initialize_history(maxiters+1)
+
+        println(" | warm-up:")
+        print(" | ")
+        @time reduce_cond(algorithm, c, F,
+            maxiters = 100,
+            penalty = penalty,
+            accel = accel,
+            history = history,
+            mu = mu)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history = initialize_history(maxiters+1)
+        solution = @time reduce_cond(algorithm, c, F,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,
+            history = history,
+            mu = mu)
+    end
 
     return solution, history
 end
@@ -59,61 +101,72 @@ size(D)
 ```
 
 ```{julia}
-UnicodePlots.spy(S, width = 50, height = 15)
+unicodeplots()
+spy(S)
 ```
 
 ```{julia}
-UnicodePlots.spy(S'S, width = 50, height = 15)
+spy(S'S)
 ```
 
-### Annealing schedule
+#### Annealing schedules
 
 ```{julia}
-penalty(ρ₀, n) = min(1e6, 1.1 ^ floor(n/50))
+penalty(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
+gr(linewidth=2)
 
 maxiters = 2000
 xs = 1:maxiters
-ys = penalty.(1, xs)
-plot(xs, ys, legend = nothing)
+plot(xs, penalty.(1, xs), legend = nothing)
+xlabel!("iteration")
+ylabel!("rho")
 ```
 
-### MM
+#### MM
 
 ```{julia}
-solution_MM, trace_MM = solve(c, F, MM(), maxiters, penalty)
-solution_MM
+MM_sol, MM_trace = solve(c, F, MM(), maxiters, penalty)
+plot_summary(MM_trace)
 ```
 
+#### Steepest Descent
+
 ```{julia}
-plot_summary(trace_MM)
+SD_sol, SD_trace = solve(c, F, SteepestDescent(), maxiters, penalty)
+plot_summary(SD_trace)
 ```
 
-### Steepest Descent
+#### ADMM
 
 ```{julia}
-solution_SD, trace_SD = solve(c, F, SteepestDescent(), maxiters, penalty)
-solution_SD
-```
-
-```{julia}
-plot_summary(trace_SD)
-```
-
-### ADMM
-
-```{julia}
-solution_ADMM, trace_ADMM = solve(c, F, ADMM(), maxiters, penalty)
-solution_ADMM
-```
-
-```{julia}
-plot_summary(trace_ADMM)
+ADMM_sol, ADMM_trace = solve(c, F, ADMM(), maxiters, penalty, mu = 5e-1)
+plot_summary(ADMM_trace)
 ```
 
 ### Quality of solutions
 
+Quantify how much structure in the original matrix is preserved by checking signs of components.
+
+$$
+\mathrm{fidelity}(A, B)
+=
+100 \times \frac{\sum_{ij} 1 - |\mathrm{sign}(A_{ij}) - \mathrm{sign}(B_{ij})|}{p^{2}},
+\qquad
+A,B \in \mathbb{R}^{p \times p}
+$$
+
 ```{julia}
-cond(solution_MM), cond(solution_SD), cond(solution_ADMM)
+df = table_summary(MM_trace, SD_trace, ADMM_trace, ls=false)
+
+fidelity(A, B) = 100 * sum(1 .- abs.(sign.(A) .- sign.(B))) / length(B)
+
+df[!, :fidelity] = [
+    fidelity(MM_sol, M),
+    fidelity(SD_sol, M),
+    fidelity(ADMM_sol, M),
+]
+
+df
 ```
 
 ### Appendix

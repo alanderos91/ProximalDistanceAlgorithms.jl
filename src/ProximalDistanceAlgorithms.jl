@@ -7,6 +7,7 @@ using Convex
 using RecipesBase
 using CSV, DataFrames
 using Printf
+using ProgressMeter
 
 using IterativeSolvers
 using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv, ConvergenceHistory, nextiter!

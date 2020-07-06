@@ -28,38 +28,72 @@ function plot_summary(trace)
     return figure
 end
 
-function table_summary(MM_trace, SD_trace, ADMM_trace)
-    algorithm = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"]
+function table_summary(MM_trace, SD_trace, ADMM_trace; ls=true)
+    if ls
+        algorithm = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"]
 
-    iterations = [
-        MM_trace.lsqr.iteration[end], MM_trace.cg.iteration[end],
-        SD_trace.iteration[end],
-        ADMM_trace.lsqr.iteration[end], ADMM_trace.cg.iteration[end]
-    ]
+        iterations = [
+            MM_trace.lsqr.iteration[end], MM_trace.cg.iteration[end],
+            SD_trace.iteration[end],
+            ADMM_trace.lsqr.iteration[end], ADMM_trace.cg.iteration[end]
+        ]
 
-    loss = [
-        MM_trace.lsqr.loss[end], MM_trace.cg.loss[end],
-        SD_trace.loss[end],
-        ADMM_trace.lsqr.loss[end], ADMM_trace.cg.loss[end]
-    ]
+        loss = [
+            MM_trace.lsqr.loss[end], MM_trace.cg.loss[end],
+            SD_trace.loss[end],
+            ADMM_trace.lsqr.loss[end], ADMM_trace.cg.loss[end]
+        ]
 
-    distance = [
-        MM_trace.lsqr.distance[end], MM_trace.cg.distance[end],
-        SD_trace.distance[end],
-        ADMM_trace.lsqr.distance[end], ADMM_trace.cg.distance[end]
-    ]
+        distance = [
+            MM_trace.lsqr.distance[end], MM_trace.cg.distance[end],
+            SD_trace.distance[end],
+            ADMM_trace.lsqr.distance[end], ADMM_trace.cg.distance[end]
+        ]
 
-    objective = [
-        MM_trace.lsqr.objective[end], MM_trace.cg.objective[end],
-        SD_trace.objective[end],
-        ADMM_trace.lsqr.objective[end], ADMM_trace.cg.objective[end]
-    ]
+        objective = [
+            MM_trace.lsqr.objective[end], MM_trace.cg.objective[end],
+            SD_trace.objective[end],
+            ADMM_trace.lsqr.objective[end], ADMM_trace.cg.objective[end]
+        ]
 
-    gradient = [
-        MM_trace.lsqr.gradient[end], MM_trace.cg.gradient[end],
-        SD_trace.gradient[end],
-        ADMM_trace.lsqr.gradient[end], ADMM_trace.cg.gradient[end]
-    ]
+        gradient = [
+            MM_trace.lsqr.gradient[end], MM_trace.cg.gradient[end],
+            SD_trace.gradient[end],
+            ADMM_trace.lsqr.gradient[end], ADMM_trace.cg.gradient[end]
+        ]
+    else
+        algorithm = ["MM", "SD", "ADMM"]
+
+        iterations = [
+            MM_trace.iteration[end],
+            SD_trace.iteration[end],
+            ADMM_trace.iteration[end],
+        ]
+
+        loss = [
+            MM_trace.loss[end],
+            SD_trace.loss[end],
+            ADMM_trace.loss[end],
+        ]
+
+        distance = [
+            MM_trace.distance[end],
+            SD_trace.distance[end],
+            ADMM_trace.distance[end],
+        ]
+
+        objective = [
+            MM_trace.objective[end],
+            SD_trace.objective[end],
+            ADMM_trace.objective[end],
+        ]
+
+        gradient = [
+            MM_trace.gradient[end],
+            SD_trace.gradient[end],
+            ADMM_trace.gradient[end],
+        ]
+    end
 
     DataFrame(
         algorithm = algorithm,
