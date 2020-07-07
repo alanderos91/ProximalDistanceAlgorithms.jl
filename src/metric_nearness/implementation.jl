@@ -105,16 +105,7 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     for j in 1:n, i in j+1:n
         a[k+=1] = A[i,j]
     end
-    if needs_hessian(algorithm)
-        if algorithm isa MM
-            H = ProxDistHessian(N, rho, ∇²f, D'D)
-        else
-            H = ProxDistHessian(N, mu, ∇²f, D'D)
-        end
-    else
-        H = nothing
-    end
-    operators = (D = D, P = P, H = H, a = a)
+    operators = (D = D, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -125,7 +116,7 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     if needs_linsolver(algorithm)
         if ls isa Val{:LSQR}
             b = similar(typeof(x), N+M) # b has two block
-            linsolver = LSQRWrapper([I;D], x, b)
+            linsolver = LSQRWrapper(QuadLHS(I, D, 1.0), x, b)
         else
             b = similar(x) # b has one block
             linsolver = CGWrapper(D, x, b)
@@ -136,6 +127,7 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     end
 
     if algorithm isa ADMM
+        mul!(y, D, x)
         s = similar(y)
         r = similar(y)
         buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
@@ -195,7 +187,7 @@ end
 function metric_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇h = prob.derivatives
-    @unpack D, H = prob.operators
+    @unpack D = prob.operators
     @unpack z = prob.buffers
 
     # evaluate step size, γ
@@ -213,7 +205,8 @@ end
 
 function metric_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack D, H, a = prob.operators
+    @unpack ∇²f = prob.derivatives
+    @unpack D, a = prob.operators
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
@@ -231,7 +224,7 @@ function metric_iter(::MM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = H
+        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
@@ -246,7 +239,8 @@ end
 
 function metric_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, H, P, a = prob.operators
+    @unpack ∇²f = prob.derivatives
+    @unpack D, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
 
@@ -266,7 +260,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = H
+        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
@@ -279,12 +273,12 @@ function metric_iter(::ADMM, prob, ρ, μ)
     # y block update
     α = (ρ / μ)
     mul!(z, D, x)
-    @inbounds @simd for j in eachindex(y)
+    @inbounds for j in eachindex(y)
         y[j] = α/(1+α) * P(z[j] + λ[j]) + 1/(1+α) * (z[j] + λ[j])
     end
 
     # λ block update
-    @inbounds @simd for j in eachindex(λ)
+    @inbounds for j in eachindex(λ)
         λ[j] = λ[j] + μ * (z[j] - y[j])
     end
 

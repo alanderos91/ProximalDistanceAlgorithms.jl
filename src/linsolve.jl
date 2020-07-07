@@ -311,7 +311,6 @@ function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
     y₁ = view(y, 1:M₁)
     mul!(x, op.A₁', y₁)
     y₂ = view(y, M₁+1:M)
-    mul!(x, op.A₂', y₂, 1, op.c)
-
+    mul!(x, op.A₂', y₂, op.c, true)
     return x
 end
