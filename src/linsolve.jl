@@ -60,11 +60,11 @@ function LSQRWrapper(A, x::solT, b::vecT) where {solT,vecT}
     return LSQRWrapper(u, v, tmpm, tmpn, w, wrho)
 end
 
-function linsolve!(lsqrw::LSQRWrapper, x, A, b)
-    history = ConvergenceHistory{false,Nothing}(
-        0,0,0,nothing,false,Dict{Symbol, Any}()
-        )
-    __lsqr__!(history, x, A, b, lsqrw.u, lsqrw.v, lsqrw.tmpm, lsqrw.tmpn, lsqrw.w, lsqrw.wrho, verbose=false)
+@noinline function linsolve!(lsqrw::LSQRWrapper, x, A, b)
+    # history = ConvergenceHistory{false,Nothing}(
+    #     0,0,0,nothing,false,Dict{Symbol, Any}()
+    #     )
+    __lsqr__!(x, A, b, lsqrw.u, lsqrw.v, lsqrw.tmpm, lsqrw.tmpn, lsqrw.w, lsqrw.wrho)
     return nothing
 end
 
@@ -82,12 +82,12 @@ end
 #    - Allow an initial guess for x
 #    - Eliminate printing
 #----------------------------------------------------------------------
-function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
+function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
     damp=0, atol=sqrt(eps(real(Adivtype(A,b)))), btol=sqrt(eps(real(Adivtype(A,b)))),
     conlim=real(one(Adivtype(A,b)))/sqrt(eps(real(Adivtype(A,b)))),
-    maxiter::Int=maximum(size(A)), verbose::Bool=false,
+    maxiter::Int=maximum(size(A)),
     )
-    verbose && @printf("=== lsqr ===\n%4s\t%7s\t\t%7s\t\t%7s\t\t%7s\n","iter","resnorm","anorm","cnorm","rnorm")
+    # verbose && @printf("=== lsqr ===\n%4s\t%7s\t\t%7s\t\t%7s\t\t%7s\n","iter","resnorm","anorm","cnorm","rnorm")
     # Sanity-checking
     m = size(A,1)
     n = size(A,2)
@@ -106,9 +106,9 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
     cs2 = -one(Tr)
     dampsq = abs2(damp)
 
-    log[:atol] = atol
-    log[:btol] = btol
-    log[:ctol] = ctol
+    # log[:atol] = atol
+    # log[:btol] = btol
+    # log[:ctol] = ctol
 
     # Set up the first vectors u and v for the bidiagonalization.
     # These satisfy  beta*u = b-A*x,  alpha*v = A'u.
@@ -118,7 +118,7 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
     alpha = zero(Tr)
     adjointA = adjoint(A)
     if beta > 0
-        log.mtvps=1
+        # log.mtvps=1
         u .*= inv(beta)
         mul!(v, adjointA, u)
         alpha = norm(v)
@@ -131,17 +131,17 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
 
     Arnorm = alpha*beta
     if Arnorm == 0
-        return
+        return x
     end
 
     rhobar = alpha
     phibar = bnorm = rnorm = r1norm = r2norm = beta
-
+    isconverged = false
     #------------------------------------------------------------------
     #     Main iteration loop.
     #------------------------------------------------------------------
-    while (itn < maxiter) & !log.isconverged
-        nextiter!(log,mvps=1)
+    while (itn < maxiter) & !isconverged
+        # nextiter!(log,mvps=1)
         itn += 1
 
         # Perform the next step of the bidiagonalization to obtain the
@@ -152,16 +152,18 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
         # Note that the following three lines are a band aid for a GEMM: X: C := αAB + βC.
         # This is already supported in mul! for sparse and distributed matrices, but not yet dense
         mul!(tmpm, A, v)
-        u .= -alpha .* u .+ tmpm
+        # u .= -alpha .* u .+ tmpm
+        axpby!(true, tmpm, -alpha, u)
         beta = norm(u)
         if beta > 0
-            log.mtvps+=1
+            # log.mtvps+=1
             u .*= inv(beta)
             Anorm = sqrt(abs2(Anorm) + abs2(alpha) + abs2(beta) + dampsq)
             # Note that the following three lines are a band aid for a GEMM: X: C := αA'B + βC.
             # This is already supported in mul! for sparse and distributed matrices, but not yet dense
             mul!(tmpn, adjointA, u)
-            v .= -beta .* v .+ tmpn
+            # v .= -beta .* v .+ tmpn
+            axpby!(true, tmpn, -beta, v)
             alpha  = norm(v)
             if alpha > 0
                 v .*= inv(alpha)
@@ -230,7 +232,7 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
         r1sq    =   abs2(rnorm) - dampsq*xxnorm
         r1norm  =   sqrt(abs(r1sq));   if r1sq < 0 r1norm = - r1norm; end
         r2norm  =   rnorm
-        push!(log, :resnorm, r1norm)
+        # push!(log, :resnorm, r1norm)
 
         # Now use these norms to estimate certain other quantities,
         # some of which will be small near a solution.
@@ -239,10 +241,10 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
         test3   =   inv(Acond)
         t1      =   test1/(1 + Anorm*xnorm/bnorm)
         rtol    =   btol + atol*Anorm*xnorm/bnorm
-        push!(log, :cnorm, test3)
-        push!(log, :anorm, test2)
-        push!(log, :rnorm, test1)
-        verbose && @printf("%3d\t%1.2e\t%1.2e\t%1.2e\t%1.2e\n",itn,r1norm,test2,test3,test1)
+        # push!(log, :cnorm, test3)
+        # push!(log, :anorm, test2)
+        # push!(log, :rnorm, test1)
+        # verbose && @printf("%3d\t%1.2e\t%1.2e\t%1.2e\t%1.2e\n",itn,r1norm,test2,test3,test1)
 
         # The following tests guard against extremely small values of
         # atol, btol  or  ctol.  (The user may have set any or all of
@@ -259,10 +261,11 @@ function __lsqr__!(log::ConvergenceHistory, x, A, b, u, v, tmpm, tmpn, w, wrho;
         if  test2 <= atol  istop = 2; end
         if  test1 <= rtol  istop = 1; end
 
-        setconv(log, istop > 0)
+        # setconv(log, istop > 0)
+        isconverged = istop > 0
     end
-    verbose && @printf("\n")
-    x
+    # verbose && @printf("\n")
+    return x
 end
 
 struct QuadLHS{T,matT1,matT2} <: LinearMap{T}
