@@ -9,9 +9,6 @@ struct ProxDistProblem{VAR,DER,OPS,BUF,VWS,LS}
     linsolver::LS
 end
 
-uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F<:Any} = false
-uses_CG(::ProxDistProblem{A,B,C,D,E,F}) where {A,B,C,D,E,F<:CGWrapper} = true
-
 ##### checking convergence #####
 
 """
@@ -50,7 +47,7 @@ end
 
 ##### common solution interface #####
 
-function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
+@noinline function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
     maxiters::Integer = 100,
     penalty::Function = __default_schedule,
     history::histT    = nothing,
