@@ -50,7 +50,7 @@ end
 update_history!(::Nothing, data, iteration) = nothing
 
 # implementation: object with named fields
-function update_history!(history, data, iteration)
+function update_history!(history::NamedTuple, data, iteration)
     if iteration % history.sample_rate == 0
         push!(history.loss, data.loss)
         push!(history.distance, data.distance)
@@ -61,7 +61,7 @@ function update_history!(history, data, iteration)
         push!(history.iteration, iteration)
     end
 
-    return history
+    return nothing
 end
 
 ##### linear operators #####
