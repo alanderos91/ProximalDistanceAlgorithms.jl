@@ -48,21 +48,6 @@ function update_admm_residuals!(prob, μ)
     return r_error, s_error
 end
 
-##### "mutating" immutables #####
-
-update_hessian(H::ProxDistHessian, ρ) = ProxDistHessian(H.N, ρ, H.∇²f, H.DtD)
-
-function update_operators(prob::ProxDistProblem, ρ)
-    @unpack variables, derivatives, operators, buffers, views, linsolver = prob
-
-    # mutate the field `H` in `operators`
-    H = update_hessian(operators.H, ρ)
-    operators = (operators..., H = H)
-
-    # new instance of ProxDistProblem
-    return ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
-end
-
 ##### common solution interface #####
 
 function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
@@ -102,11 +87,6 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
         ρ_new = penalty(ρ, iteration)
         if ρ != ρ_new
             restart!(accelerator, prob.variables)
-
-            # only when using CG for linsolve
-            if uses_CG(prob) && algorithm isa MM
-                prob = update_operators(prob, ρ_new)
-            end
         end
         apply_momentum!(accelerator, prob.variables)
         ρ = ρ_new
@@ -125,17 +105,11 @@ function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
         if algorithm isa ADMM
             r_error, s_error = update_admm_residuals!(prob, μ)
 
-            if r_error / s_error > 10   # emphasize dual feasibility
+            if (r_error / s_error) > 10   # emphasize dual feasibility
                 μ = μ * 2
-                if uses_CG(prob)
-                    prob = update_operators(prob, μ)
-                end
             end
-            if s_error / r_error > 10   # emphasize primal feasibility
+            if (s_error / r_error) > 10   # emphasize primal feasibility
                 μ = μ / 2
-                if uses_CG(prob)
-                    prob = update_operators(prob, μ)
-                end
             end
         end
     end
