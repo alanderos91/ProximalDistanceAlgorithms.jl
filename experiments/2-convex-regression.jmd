@@ -23,7 +23,7 @@ include("plotutils.jl")
 d = 1       # number of covariates
 n = 50      # number of samples
 σ = 0.1     # std dev in noise
-Random.seed!(5357)
+Random.seed!(512)
 response, truth, covariates = cvxreg_example(φ, d, n, σ)
 fig = plot(xlabel = "x", ylabel = "phi(x)")
 plot!(fig, vec(covariates), truth, label = "ground truth")
@@ -130,11 +130,11 @@ spy(S'S)
 #### Annealing schedules
 
 ```{julia}
-penalty1(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
-penalty2(ρ, n) = min(1e6, 1.1 ^ floor(n/50))
+penalty1(ρ, n) = min(10.0, 2.0 ^ floor(n/100))
+penalty2(ρ, n) = min(10.0, 2.0 ^ floor(n/100))
 gr(linewidth=2)
 
-maxiters = 2000
+maxiters = 1000
 xs = 1:maxiters
 plot(xs, penalty1.(1, xs), label = "MM/SD")
 plot!(xs, penalty2.(1, xs), label = "ADMM")
@@ -156,7 +156,7 @@ plot_summary(MM_trace.cg)
 ### Steepest Descent
 
 ```{julia}
-SD_sol, SD_trace = solve(response, covariates, SteepestDescent(), maxiters, penalty1)
+SD_sol, SD_trace = solve(response, covariates, SteepestDescent(), maxiters, penalty2);
 plot_summary(SD_trace)
 ```
 
@@ -171,17 +171,55 @@ plot_summary(ADMM_trace.lsqr)
 plot_summary(ADMM_trace.cg)
 ```
 
+### MM Subspace
+
+```{julia}
+MMS3_sol, MMS3_trace = solve(response, covariates, MMSubSpace(3), maxiters, penalty2);
+plot_summary(MMS3_trace.lsqr)
+```
+
+```{julia}
+plot_summary(MMS3_trace.cg)
+```
+
+```{julia}
+MMS5_sol, MMS5_trace = solve(response, covariates, MMSubSpace(5), maxiters, penalty2);
+plot_summary(MMS5_trace.lsqr)
+```
+
+```{julia}
+plot_summary(MMS5_trace.cg)
+```
+
+```{julia}
+MMS10_sol, MMS10_trace = solve(response, covariates, MMSubSpace(10), maxiters, penalty2);
+plot_summary(MMS10_trace.lsqr)
+```
+
+```{julia}
+plot_summary(MMS10_trace.cg)
+```
+
 ### Quality of solutions
 
 ```{julia}
 using Statistics
-df = table_summary(MM_trace, SD_trace, ADMM_trace)
+algorithm = ["MM", "SD", "ADMM", "MMS(3)", "MMS(5)", "MMS(10)"]
+traces = (MM_trace, SD_trace, ADMM_trace, MMS3_trace, MMS5_trace, MMS10_trace)
+df = table_summary(traces..., algname = algorithm)
+
 df[!, :MSE] = [
-    mean((MM_sol.lsqr   .- truth) .^ 2),
-    mean((MM_sol.cg     .- truth) .^ 2),
-    mean((SD_sol        .- truth) .^ 2),
-    mean((ADMM_sol.lsqr .- truth) .^ 2),
-    mean((ADMM_sol.cg   .- truth) .^ 2)
+    mean((MM_sol.lsqr    .- truth) .^ 2),
+    mean((MM_sol.cg      .- truth) .^ 2),
+    mean((SD_sol         .- truth) .^ 2),
+    mean((ADMM_sol.lsqr  .- truth) .^ 2),
+    mean((ADMM_sol.cg    .- truth) .^ 2),
+    mean((MMS3_sol.lsqr  .- truth) .^ 2),
+    mean((MMS3_sol.cg    .- truth) .^ 2),
+    mean((MMS5_sol.lsqr  .- truth) .^ 2),
+    mean((MMS5_sol.cg    .- truth) .^ 2),
+    mean((MMS10_sol.lsqr .- truth) .^ 2),
+    mean((MMS10_sol.cg   .- truth) .^ 2),
 ]
 df
 ```
