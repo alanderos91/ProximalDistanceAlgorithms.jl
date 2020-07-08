@@ -36,21 +36,12 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
 
     # generate operators
-    D = instantiate_fusion_matrix(CvxRegFM(covariates))
-    # D = CvxRegFM(covariates)
-    P(x) = min.(x, 0)
-    A₁ = [LinearMap(I, n) LinearMap(0*I, n)] # needed to reduce to 1 vector
+    # D = instantiate_fusion_matrix(CvxRegFM(covariates))
+    D = CvxRegFM(covariates)
     a = response
-    if needs_hessian(algorithm)
-        if algorithm isa MM
-            H = ProxDistHessian(N, rho, ∇²f, D'D)
-        else
-            H = ProxDistHessian(N, mu, ∇²f, D'D)
-        end
-    else
-        H = nothing
-    end
-    operators = (D = D, P = P, H = H, A₁ = A₁, a = a)
+    P(x) = min.(x, 0)
+    A₁ = [LinearMap(I, n) LinearMap(spzeros(n, n*d))]
+    operators = (D = D, P = P, A₁ = A₁, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -61,7 +52,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     if needs_linsolver(algorithm)
         if ls isa Val{:LSQR}
             b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
-            linsolver = LSQRWrapper([A₁;LinearMap(D)], x, b)
+            linsolver = LSQRWrapper(QuadLHS(A₁, D, 1.0), x, b)
         else
             b = similar(x)  # b has one block
             linsolver = CGWrapper(D, x, b)
@@ -72,6 +63,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     end
 
     if algorithm isa ADMM
+        mul!(y, D, x)
         r = similar(y)
         s = similar(y)
         buffers = (z = z, Pz = Pz, v = v, b = b, r = r, s = s)
@@ -153,7 +145,8 @@ end
 
 function cvxreg_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack D, H, A₁, a = prob.operators   # a is bound to response
+    @unpack ∇²f = prob.derivatives
+    @unpack D, A₁, a = prob.operators   # a is bound to response
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
@@ -161,7 +154,7 @@ function cvxreg_iter(::MM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = [A₁; √ρ*LinearMap(D)]
+        A = QuadLHS(A₁, D, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -171,12 +164,16 @@ function cvxreg_iter(::MM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = H
+        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
-        @inbounds @simd ivdep for j in eachindex(a)
-            b[j] = a[j] + ρ*b[j] # can't do axpby! due to shape
+        @inbounds for j in eachindex(a)
+            b[j] = a[j] + ρ*b[j]    # can't do axpby! due to shape
+        end
+        n = length(a)
+        @inbounds for j in eachindex(Pz)
+            b[n+j] = ρ*b[j]         # scale remaining components
         end
     end
 
@@ -188,7 +185,8 @@ end
 
 function cvxreg_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack A₁, D, H, P, a = prob.operators
+    @unpack ∇²f = prob.derivatives
+    @unpack D, A₁, P, a = prob.operators
     @unpack z, Pz, v, b = prob.buffers
     linsolver = prob.linsolver
 
@@ -198,7 +196,7 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = [A₁; √μ*LinearMap(D)]
+        A = QuadLHS(A₁, D, √μ)
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
@@ -208,12 +206,16 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = H
+        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
-        @inbounds @simd ivdep for j in eachindex(a)
-            b[j] = a[j] + μ*b[j] # can't do axpby! due to shape
+        @inbounds for j in eachindex(a)
+            b[j] = a[j] + μ*b[j]    # can't do axpby! due to shape
+        end
+        n = length(a)
+        @inbounds for j in eachindex(v)
+            b[n+j] = μ*b[j]         # scale remaining components
         end
     end
 

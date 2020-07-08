@@ -56,14 +56,7 @@ function reduce_cond(algorithm::AlgorithmOption, c, A;
     # generate operators
     D = CondNumFM(c, M, N)
     P(x) = min.(x, 0)
-    if algorithm isa SteepestDescent
-        H = nothing
-    elseif algorithm isa MM
-        H = ProxDistHessian(N, rho, ∇²f, D'D)
-    else
-        H = ProxDistHessian(N, mu, ∇²f, D'D)
-    end
-    operators = (D = D, P = P, H = H, σ = σ)
+    operators = (D = D, P = P, σ = σ)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)   # cache for D*x

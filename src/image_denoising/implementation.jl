@@ -4,8 +4,8 @@ image_denoise(algorithm::AlgorithmOption, image;)
 ```
 """
 function denoise_image(algorithm::AlgorithmOption, image;
-    K::Integer=0,
-    o::Base.Ordering=Base.Order.Reverse,
+    nu::Integer=0,
+    rev::Bool=true,
     rho::Real=1.0,
     mu::Real=1.0, ls=Val(:LSQR), kwargs...)
     #
@@ -39,15 +39,9 @@ function denoise_image(algorithm::AlgorithmOption, image;
     # generate operators
     D = ImgTvdFM(n, p)
     a = copy(x)
-    compute_proj = cache -> compute_sparse_projection(cache, o, K)
-    if algorithm isa SteepestDescent
-        H = nothing
-    elseif algorithm isa MM
-        H = ProxDistHessian(N, rho, ∇²f, D'D)
-    else
-        H = ProxDistHessian(N, mu, ∇²f, D'D)
-    end
-    operators = (D = D, compute_proj = compute_proj, H = H, a = a)
+    f = SparseProjectionClosure(rev, nu)
+
+    operators = (D = D, compute_proj = f, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -59,7 +53,7 @@ function denoise_image(algorithm::AlgorithmOption, image;
     if needs_linsolver(algorithm)
         if ls isa Val{:LSQR}
             b = similar(typeof(x), N+M) # b has two block
-            linsolver = LSQRWrapper([I;D], x, b)
+            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
         else
             b = similar(x) # b has one block
             linsolver = CGWrapper(D, x, b)
@@ -132,16 +126,6 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     D = ImgTvdFM(n, p)
     a = copy(x)
 
-    ρ₀ = algorithm isa ADMM ? mu : rho
-
-    if algorithm isa SteepestDescent
-        H = nothing
-    elseif algorithm isa MM
-        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
-    else
-        H = ProxDistHessian(N, ρ₀, ∇²f, D'D)
-    end
-
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
@@ -152,7 +136,7 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     if needs_linsolver(algorithm)
         if ls isa Val{:LSQR}
             b = similar(typeof(x), N+M) # b has two blocks
-            linsolver = LSQRWrapper([I;D], x, b)
+            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
         else
             b = similar(x)  # b has one block
             linsolver = CGWrapper(D, x, b)
@@ -194,11 +178,9 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
             f = SparseProjectionClosure(false, ν)
         end
 
-        operators = (D = D, compute_proj = f, H = H, a = a)
+        operators = (D = D, compute_proj = f, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
-        if uses_CG(prob)
-            prob = update_operators(prob, ρ₀)
-        end
+
         optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
 
         # record current solution
@@ -274,7 +256,8 @@ end
 
 function imgtvd_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack D, H, a = prob.operators
+    @unpack ∇²f = prob.derivatives
+    @unpack D, a = prob.operators
     @unpack b, Pz = prob.buffers
     linsolver = prob.linsolver
 
@@ -282,7 +265,7 @@ function imgtvd_iter(::MM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(I, D, √ρ) # A = [I; √ρ*D]
+        A = QuadLHS(LinearMap(I, size(D,2)), D, √ρ) # A = [I; √ρ*D]
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -291,8 +274,8 @@ function imgtvd_iter(::MM, prob, ρ, μ)
             b[n+k] = √ρ * Pz[k]
         end
     else
-        # LHS of A*x = b is already stored
-        A = H
+        # assemble LHS
+        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
@@ -307,7 +290,8 @@ end
 
 function imgtvd_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
-    @unpack D, H, compute_proj, a = prob.operators
+    @unpack ∇²f = prob.derivatives
+    @unpack D, compute_proj, a = prob.operators
     @unpack z, v, b, cache = prob.buffers
     linsolver = prob.linsolver
 
@@ -317,7 +301,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(I, D, √μ) # A = [I; √μ*D]
+        A = QuadLHS(LinearMap(I, size(D,2)), D, √μ) # A = [I; √μ*D]
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
@@ -326,8 +310,8 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
             @inbounds b[n+k] = √μ * v[k]
         end
     else
-        # LHS of A*x = b is already stored
-        A = H
+        # assemble LHS
+        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)

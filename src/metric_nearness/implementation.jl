@@ -115,8 +115,9 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     # select linear solver, if needed
     if needs_linsolver(algorithm)
         if ls isa Val{:LSQR}
+            A = QuadLHS(LinearMap(I, N), D, 1.0)
             b = similar(typeof(x), N+M) # b has two block
-            linsolver = LSQRWrapper(QuadLHS(I, D, 1.0), x, b)
+            linsolver = LSQRWrapper(A, x, b)
         else
             b = similar(x) # b has one block
             linsolver = CGWrapper(D, x, b)
@@ -214,7 +215,7 @@ function metric_iter(::MM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(I, D, √ρ)
+        A = QuadLHS(LinearMap(I, size(D, 2)), D, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -250,7 +251,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(I, D, √μ)
+        A = QuadLHS(LinearMap(I, size(D, 2)), D, √μ)
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
