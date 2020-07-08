@@ -49,6 +49,17 @@ needs_gradient(::ADMM) = true
 needs_hessian(::ADMM) = true
 needs_linsolver(::ADMM) = true
 
+"""MM subspace acceleration"""
+struct MMSubSpace{K} <: AlgorithmOption end
+
+MMSubSpace(K::Integer) = MMSubSpace{K}()
+subspace_size(::MMSubSpace{K}) where K = K
+
+# traits
+needs_gradient(::MMSubSpace) = true
+needs_hessian(::MMSubSpace) = true
+needs_linsolver(::MMSubSpace) = true
+
 """
 Build a portable representation of a problem using Convex.jl.
 The problem can be passed to a supported black-box solver.
@@ -56,7 +67,7 @@ See the Convex.jl documentation for more details.
 """
 struct BlackBox <: AlgorithmOption end
 
-export SteepestDescent, MM, BlackBox, ADMM
+export SteepestDescent, MM, BlackBox, ADMM, MMSubSpace
 
 # convergence metrics + common operations
 include("common.jl")

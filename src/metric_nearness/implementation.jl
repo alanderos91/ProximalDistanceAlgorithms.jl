@@ -95,7 +95,14 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
     D = MetricFM(n, M, N)   # fusion matrix
@@ -114,13 +121,28 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            A = QuadLHS(LinearMap(I, N), D, 1.0)
-            b = similar(typeof(x), N+M) # b has two block
-            linsolver = LSQRWrapper(A, x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A = QuadLHS(G, D*G, 1.0)
+                b = similar(typeof(x), N+M)
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                A = G'*(D'D)*G
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(A, β, b)
+            end
         else
-            b = similar(x) # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A = QuadLHS(LinearMap(I, N), D, 1.0)
+                b = similar(typeof(x), N+M) # b has two block
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x) # b has one block
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -132,6 +154,8 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
         s = similar(y)
         r = similar(y)
         buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+    elseif algorithm isa MMSubSpace
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β)
     else
         buffers = (z = z, Pz = Pz, v = v, b = b)
     end
@@ -284,6 +308,47 @@ function metric_iter(::ADMM, prob, ρ, μ)
     end
 
     return μ
+end
+
+function metric_iter(::MMSubSpace, prob, ρ, μ)
+    @unpack x = prob.variables
+    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
+    @unpack D = prob.operators
+    @unpack β, b, v = prob.buffers
+    linsolver = prob.linsolver
+
+    # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
+    if linsolver isa LSQRWrapper
+        # build LHS
+        A₁ = G      # A₁ = W^1/2*G in general
+        A₂ = D*G    # A₂ = √ρ*G*D
+        A = QuadLHS(A₁, A₂, √ρ)
+
+        # build RHS, b = -∇h
+        n = length(∇f)
+        for j in eachindex(∇f)
+            b[j] = -∇f[j]
+        end
+        for j in eachindex(v)
+            b[n+j] = -√ρ*v[j]
+        end
+    else
+        # LHS of A*x = b is already stored
+        # A = ProxDistHessian(size(D, 2), ρ, ∇²f, G'*(D'D)*G)
+        A = G'*(∇²f + ρ*D'D)*G
+
+        # build RHS, b = -G'*∇h
+        mul!(b, G', ∇h)
+        @. b = -b
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, β, A, b)
+
+    # apply the update
+    mul!(x, G, β, true, true)
+
+    return norm(β)
 end
 
 #################################

@@ -45,6 +45,23 @@ function update_admm_residuals!(prob, μ)
     return r_error, s_error
 end
 
+##### for updating subspace in MMSubSpace #####
+
+function update_subspace!(prob, iteration)
+    @unpack ∇h, G = prob.derivatives
+
+    # determine column to update
+    N, K = size(G)
+    modulus = iteration % K
+    j = modulus > 0 ? modulus : K
+
+    # update column j
+    start = N*(j-1)+1
+    copyto!(G, start, ∇h, 1, N)
+
+    return nothing
+end
+
 ##### common solution interface #####
 
 @noinline function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
@@ -75,6 +92,11 @@ end
             @unpack y = prob.variables
             @unpack s = prob.buffers
             copyto!(s, y)
+        end
+
+        # check that this branch does in fact disappear
+        if algorithm isa MMSubSpace
+            update_subspace!(prob, iteration)
         end
 
         # apply algorithm map
