@@ -276,7 +276,7 @@ struct QuadLHS{T,matT1,matT2} <: LinearMap{T}
     N::Int
 
     function QuadLHS(A₁::matT1, A₂::matT2, c::T) where {T,matT1,matT2}
-        M = size(A₂, 2) + size(A₂, 1)
+        M = size(A₁, 1) + size(A₂, 1)
         N = size(A₂, 2) # == size(A₂, 2)
         new{T,matT1,matT2}(A₁, A₂, c, M, N)
     end
@@ -290,7 +290,7 @@ LinearAlgebra.ishermitian(H::QuadLHS) = false
 LinearAlgebra.isposdef(H::QuadLHS)    = false
 
 function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
-    M₁ = size(op.A₂, 2)
+    M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
     y₁ = view(y, 1:M₁)
@@ -305,7 +305,7 @@ function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
 end
 
 function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
-    M₁ = size(op.A₂, 2)
+    M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
     y₁ = view(y, 1:M₁)
