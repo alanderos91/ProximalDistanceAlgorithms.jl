@@ -120,6 +120,7 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     v = similar(z)
 
     # select linear solver, if needed
+    # TODO: check that this gets folded in correctly
     if needs_linsolver(algorithm)
         if algorithm isa MMSubSpace
             K = subspace_size(algorithm)
@@ -155,7 +156,14 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
         r = similar(y)
         buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
     elseif algorithm isa MMSubSpace
-        buffers = (z = z, Pz = Pz, v = v, b = b, β = β)
+        if ls isa Val{:LSQR}
+            tmpGx = zeros(N)
+            buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpGx = tmpGx)
+        else # Val{:CG}
+            tmpGx = zeros(N)
+            tmpHGx = zeros(N)
+            buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpGx, tmpHGx)
+        end
     else
         buffers = (z = z, Pz = Pz, v = v, b = b)
     end
@@ -319,10 +327,14 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper
-        # build LHS
-        A₁ = G      # A₁ = W^1/2*G in general
-        A₂ = D*G    # A₂ = √ρ*G*D
-        A = QuadLHS(A₁, A₂, √ρ)
+        @unpack tmpGx = prob.buffers
+
+        # build LHS, A = [A₁, A₂] * G
+        # A₁ = W^1/2 in general
+        # A₂ = √ρ*D
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = MMSOp1(A₁, A₂, G, tmpGx, √ρ)
 
         # build RHS, b = -∇h
         n = length(∇f)
@@ -333,9 +345,11 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
             b[n+j] = -√ρ*v[j]
         end
     else
-        # LHS of A*x = b is already stored
-        # A = ProxDistHessian(size(D, 2), ρ, ∇²f, G'*(D'D)*G)
-        A = G'*(∇²f + ρ*D'D)*G
+        @unpack tmpGx, tmpHGx = prob.buffers
+
+        # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
+        H = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
+        A = MMSOp2(H, G, tmpGx, tmpHGx)
 
         # build RHS, b = -G'*∇h
         mul!(b, G', ∇h)

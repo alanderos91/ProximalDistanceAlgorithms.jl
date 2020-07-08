@@ -314,3 +314,92 @@ function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
     mul!(x, op.A₂', y₂, op.c, true)
     return x
 end
+
+#####################################################
+#   specialized operators for MM subspace method    #
+#####################################################
+
+# handles A*x = [A₁; A₂]*G*x without allocations
+struct MMSOp1{T,A1T,A2T,GT,vecT} <: LinearMap{T}
+    A1::A1T
+    A2::A2T
+    G::GT
+    tmpGx::vecT
+    c::T
+end
+
+Base.size(A::MMSOp1) = (size(A.A1, 1) + size(A.A2, 1), size(A.G, 2))
+
+function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
+    @unpack A1, A2, G, tmpGx, c = A
+
+    # get dimensions
+    n1, _ = size(A1)
+    n2, _ = size(A2)
+    y1 = view(y, 1:n1)
+    y2 = view(y, n1+1:(n1+n2))
+
+    # (1) tmpGx = G*x
+    mul!(tmpGx, G, x)
+
+    # (2) y1 = A1*tmpGx
+    mul!(y1, A1, tmpGx)
+
+    # (3) y2 = c*A2*tmpGx
+    mul!(y2, A2, tmpGx)
+    # @. y2 = c*y2
+    for j in eachindex(y2)
+        y2[j] = c*y2[j]
+    end
+
+    return y
+end
+
+function LinearMaps.At_mul_B!(x::AbstractVector, A::MMSOp1, y::AbstractVector)
+    @unpack A1, A2, G, tmpGx, c = A
+
+    # get dimensions
+    n1, _ = size(A1)
+    n2, _ = size(A2)
+    y1 = view(y, 1:n1)
+    y2 = view(y, n1+1:(n1+n2))
+
+    # (1) tmpGx = A1'*y1 + c*A2'*y2
+    mul!(tmpGx, A1', y1)
+    mul!(tmpGx, A2', y2, true, c)
+
+    # (2) x = G'*tmpGx
+    mul!(x, G', tmpGx)
+
+    return x
+end
+
+# handles A'A*x = G'*H*G*x
+# where H is a Grammian matrix
+struct MMSOp2{T,HT,GT,vecT} <: LinearMap{T}
+    H::HT
+    G::GT
+    tmpGx::vecT
+    tmpHGx::vecT
+end
+
+function MMSOp2(H::HT, G::GT, tmpGx::vecT, tmpHGx::vecT) where {T,HT,GT,vecT}
+    MMSOp2{eltype(H),HT,GT,vecT}(H, G, tmpGx, tmpHGx)
+end
+
+LinearAlgebra.issymmetric(::MMSOp2) = true
+
+Base.size(A::MMSOp2) = (size(A.G,2), size(A.G,2))
+
+function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
+    @unpack H, G, tmpGx, tmpHGx = A
+
+    # (1) tmpGx = H*G*x
+    mul!(tmpGx, G, x)
+    mul!(tmpHGx, H, tmpGx, true, true)
+
+    # (2) y = G'*tmpHGx
+    mul!(y, G', tmpHGx)
+
+    return y
+end
