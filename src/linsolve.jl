@@ -12,18 +12,63 @@ function CGWrapper(A, x, b)
 end
 
 function linsolve!(cgw::CGWrapper, x, A, b)
-    IterativeSolvers.cg!(x, A, b, statevars=cgw.statevars, log=false)
+    # IterativeSolvers.cg!(x, A, b, statevars=cgw.statevars, log=false)
+    @inbounds __cg__!(x, A, b, cgw.statevars)
     return nothing
 end
 
-struct ProxDistHessian{T,matT1,matT2} <: LinearMap{T}
-    N::Int
-    ρ::T
-    ∇²f::matT1
-    DtD::matT2
+#
+# adapted from IterativeSolvers.jl
+# https://github.com/JuliaMath/IterativeSolvers.jl/blob/master/src/cg.jl
+#
+# all this does is eliminate *tiny* allocations due to .+= and .-=
+function __cg__!(x, A, b, statevars,
+    tol=sqrt(eps(real(eltype(b)))), maxiter=size(A, 2))
+    #
+    u = statevars.u
+    r = statevars.r
+    c = statevars.c
+    fill!(u, zero(eltype(x)))
+    copyto!(r, b)
+
+    # initialize assuming x is not zero
+    mul!(c, A, x)
+    @. r = r - c
+    residual = norm(r)
+    prev_residual = one(residual)
+    reltol = norm(b) * tol
+    iteration = 0
+
+    while iteration < maxiter && residual > reltol
+        # u := r + βu (almost an axpy)
+        β = residual^2 / prev_residual^2
+        @. u = r + β * u
+
+        # c = A * u
+        mul!(c, A, u)
+        α = residual^2 / dot(u, c)
+
+        # Improve solution and residual
+        @. x = x + α * u
+        @. r = r - α * c
+
+        prev_residual = residual
+        residual = norm(r)
+
+        iteration += 1
+    end
+
+    return nothing
 end
 
-Base.size(H::ProxDistHessian) = (H.N, H.N)
+struct ProxDistHessian{T,matT1,matT2,vecT} <: LinearMap{T}
+    ∇²f::matT1
+    DtD::matT2
+    tmpx::vecT
+    ρ::T
+end
+
+Base.size(H::ProxDistHessian) = size(H.DtD)
 
 # LinearAlgebra traits
 LinearAlgebra.issymmetric(H::ProxDistHessian) = true
@@ -33,8 +78,9 @@ LinearAlgebra.isposdef(H::ProxDistHessian)    = false
 # internal API
 
 function LinearMaps.A_mul_B!(y, H::ProxDistHessian, x)
-    mul!(y, H.DtD, x)
-    mul!(y, H.∇²f, x, 1, H.ρ)
+    mul!(H.tmpx, H.DtD, x)
+    mul!(y, H.∇²f, x)
+    axpy!(H.ρ, H.tmpx, y)
     return y
 end
 
@@ -119,7 +165,7 @@ function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
     adjointA = adjoint(A)
     if beta > 0
         # log.mtvps=1
-        u .*= inv(beta)
+        @. u = u * inv(beta) # u .*= inv(beta)
         mul!(v, adjointA, u)
         alpha = norm(v)
     end
@@ -157,7 +203,7 @@ function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
         beta = norm(u)
         if beta > 0
             # log.mtvps+=1
-            u .*= inv(beta)
+            @. u = u * inv(beta) # u .*= inv(beta)
             Anorm = sqrt(abs2(Anorm) + abs2(alpha) + abs2(beta) + dampsq)
             # Note that the following three lines are a band aid for a GEMM: X: C := αA'B + βC.
             # This is already supported in mul! for sparse and distributed matrices, but not yet dense
@@ -166,7 +212,7 @@ function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
             axpby!(true, tmpn, -beta, v)
             alpha  = norm(v)
             if alpha > 0
-                v .*= inv(alpha)
+                @. v = v * inv(alpha) # v .*= inv(alpha)
             end
         end
 
@@ -195,7 +241,7 @@ function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
 
         axpy!(t1, w, x)         # x .+= t1*w
         axpby!(true, v, t2, w)  # w = t2 .* w .+ v
-        wrho .= w .* inv(rho)
+        @. wrho = w * inv(rho)  # wrho .= w .* inv(rho)
         ddnorm += norm(wrho)
 
         # Use a plane rotation on the right to eliminate the
@@ -268,17 +314,18 @@ function __lsqr__!(x, A, b, u, v, tmpm, tmpn, w, wrho;
     return x
 end
 
-struct QuadLHS{T,matT1,matT2} <: LinearMap{T}
+struct QuadLHS{T,matT1,matT2,vecT} <: LinearMap{T}
     A₁::matT1
     A₂::matT2
+    tmpx::vecT
     c::T
     M::Int
     N::Int
 
-    function QuadLHS(A₁::matT1, A₂::matT2, c::T) where {T,matT1,matT2}
+    function QuadLHS(A₁::matT1, A₂::matT2, tmpx::vecT, c::T) where {T,matT1,matT2,vecT}
         M = size(A₁, 1) + size(A₂, 1)
-        N = size(A₂, 2) # == size(A₂, 2)
-        new{T,matT1,matT2}(A₁, A₂, c, M, N)
+        N = size(A₂, 2)
+        new{T,matT1,matT2,vecT}(A₁, A₂, tmpx, c, M, N)
     end
 end
 
@@ -294,8 +341,12 @@ function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
     M = size(op, 1)
 
     y₁ = view(y, 1:M₁)
-    mul!(y₁, op.A₁, x)
     y₂ = view(y, M₁+1:M)
+
+    # (1) y₁ = A₁*x
+    mul!(y₁, op.A₁, x)
+
+    # (2) y₂ = c*A₂*x
     mul!(y₂, op.A₂, x)
     for k in eachindex(y₂)
         y₂[k] *= op.c
@@ -309,9 +360,15 @@ function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
     M = size(op, 1)
 
     y₁ = view(y, 1:M₁)
-    mul!(x, op.A₁', y₁)
     y₂ = view(y, M₁+1:M)
-    mul!(x, op.A₂', y₂, op.c, true)
+
+    # (1) x = A₁'*y₁
+    mul!(x, op.A₁', y₁)
+
+    # (2) x = x + c*A₂'*y₂
+    mul!(op.tmpx, op.A₂', y₂)
+    axpy!(op.c, op.tmpx, x)
+
     return x
 end
 
@@ -324,14 +381,15 @@ struct MMSOp1{T,A1T,A2T,GT,vecT} <: LinearMap{T}
     A1::A1T
     A2::A2T
     G::GT
-    tmpGx::vecT
+    tmpGx1::vecT
+    tmpGx2::vecT
     c::T
 end
 
 Base.size(A::MMSOp1) = (size(A.A1, 1) + size(A.A2, 1), size(A.G, 2))
 
 function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
-    @unpack A1, A2, G, tmpGx, c = A
+    @unpack A1, A2, G, tmpGx1, c = A
 
     # get dimensions
     n1, _ = size(A1)
@@ -340,15 +398,14 @@ function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
     y2 = view(y, n1+1:(n1+n2))
 
     # (1) tmpGx = G*x
-    mul!(tmpGx, G, x)
+    mul!(tmpGx1, G, x)
 
-    # (2) y1 = A1*tmpGx
-    mul!(y1, A1, tmpGx)
+    # (2) y1 = A1*tmpGx1
+    mul!(y1, A1, tmpGx1)
 
-    # (3) y2 = c*A2*tmpGx
-    mul!(y2, A2, tmpGx)
-    # @. y2 = c*y2
-    for j in eachindex(y2)
+    # (3) y2 = c*A2*tmpGx1
+    mul!(y2, A2, tmpGx1)
+    @inbounds for j in eachindex(y2)
         y2[j] = c*y2[j]
     end
 
@@ -356,7 +413,7 @@ function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
 end
 
 function LinearMaps.At_mul_B!(x::AbstractVector, A::MMSOp1, y::AbstractVector)
-    @unpack A1, A2, G, tmpGx, c = A
+    @unpack A1, A2, G, tmpGx1, tmpGx2, c = A
 
     # get dimensions
     n1, _ = size(A1)
@@ -364,12 +421,15 @@ function LinearMaps.At_mul_B!(x::AbstractVector, A::MMSOp1, y::AbstractVector)
     y1 = view(y, 1:n1)
     y2 = view(y, n1+1:(n1+n2))
 
-    # (1) tmpGx = A1'*y1 + c*A2'*y2
-    mul!(tmpGx, A1', y1)
-    mul!(tmpGx, A2', y2, true, c)
+    # (1) tmpGx1 = A1'*y1
+    mul!(tmpGx1, A1', y1)
 
-    # (2) x = G'*tmpGx
-    mul!(x, G', tmpGx)
+    # (2) tmpGx2 = A2'*y2
+    mul!(tmpGx2, A2', y2)
+
+    # (2) x = G'*(tmpGx1 + c*tmpGx2)
+    axpy!(c, tmpGx2, tmpGx1)
+    mul!(x, G', tmpGx1)
 
     return x
 end
@@ -379,12 +439,12 @@ end
 struct MMSOp2{T,HT,GT,vecT} <: LinearMap{T}
     H::HT
     G::GT
-    tmpGx::vecT
-    tmpHGx::vecT
+    tmpGx1::vecT
+    tmpGx2::vecT
 end
 
-function MMSOp2(H::HT, G::GT, tmpGx::vecT, tmpHGx::vecT) where {T,HT,GT,vecT}
-    MMSOp2{eltype(H),HT,GT,vecT}(H, G, tmpGx, tmpHGx)
+function MMSOp2(H::HT, G::GT, tmpGx1::vecT, tmpGx2::vecT) where {T,HT,GT,vecT}
+    MMSOp2{eltype(H),HT,GT,vecT}(H, G, tmpGx1, tmpGx2)
 end
 
 LinearAlgebra.issymmetric(::MMSOp2) = true
@@ -392,14 +452,14 @@ LinearAlgebra.issymmetric(::MMSOp2) = true
 Base.size(A::MMSOp2) = (size(A.G,2), size(A.G,2))
 
 function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
-    @unpack H, G, tmpGx, tmpHGx = A
+    @unpack H, G, tmpGx1, tmpGx2 = A
 
     # (1) tmpGx = H*G*x
-    mul!(tmpGx, G, x)
-    mul!(tmpHGx, H, tmpGx, true, true)
+    mul!(tmpGx1, G, x)
+    mul!(tmpGx2, H, tmpGx1)
 
-    # (2) y = G'*tmpHGx
-    mul!(y, G', tmpHGx)
+    # (2) y = G'*tmpGx2
+    mul!(y, G', tmpGx2)
 
     return y
 end

@@ -10,7 +10,7 @@ using Printf
 using ProgressMeter
 
 using IterativeSolvers
-using IterativeSolvers: cg!, CGStateVariables, Adivtype, setconv, ConvergenceHistory, nextiter!
+using IterativeSolvers: CGStateVariables, Adivtype
 using DataStructures: heapify!, percolate_down!
 
 using LinearMaps

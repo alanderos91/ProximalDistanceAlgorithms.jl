@@ -33,14 +33,25 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     else
         ∇²f = nothing
     end
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
     # D = instantiate_fusion_matrix(CvxRegFM(covariates))
     D = CvxRegFM(covariates)
     a = response
     P(x) = min.(x, 0)
-    A₁ = [LinearMap(I, n) LinearMap(spzeros(n, n*d))]
+    # A₁ = [LinearMap(I, n) LinearMap(spzeros(n, n*d))]
+    A₁ = spzeros(n, n*(d+1))
+    for j in 1:n
+        A₁[j,j] = 1
+    end
     operators = (D = D, P = P, A₁ = A₁, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
@@ -50,12 +61,29 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
-            linsolver = LSQRWrapper(QuadLHS(A₁, D, 1.0), x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(G, β, b)
+            end
         else
-            b = similar(x)  # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x)  # b has one block
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -66,9 +94,16 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
         mul!(y, D, x)
         r = similar(y)
         s = similar(y)
-        buffers = (z = z, Pz = Pz, v = v, b = b, r = r, s = s)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, r = r, s = s, tmpx = tmpx)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -147,14 +182,15 @@ function cvxreg_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, A₁, a = prob.operators   # a is bound to response
-    @unpack b, Pz = prob.buffers
+    @unpack b, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(A₁, D, √ρ)
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -164,16 +200,13 @@ function cvxreg_iter(::MM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
+        @. b = ρ*b
         @inbounds for j in eachindex(a)
-            b[j] = a[j] + ρ*b[j]    # can't do axpby! due to shape
-        end
-        n = length(a)
-        @inbounds for j in eachindex(Pz)
-            b[n+j] = ρ*b[j]         # scale remaining components
+            b[j] = a[j] + b[j]  # can't do axpby! due to shape
         end
     end
 
@@ -187,7 +220,7 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, A₁, P, a = prob.operators
-    @unpack z, Pz, v, b = prob.buffers
+    @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     # x block update
@@ -196,26 +229,23 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(A₁, D, √μ)
+        A = QuadLHS(A₁, D, tmpx, √μ)
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
         copyto!(b, 1, a, 1, length(a))
-        for k in eachindex(v)
-            @inbounds b[n+k] = √μ * v[k]
+        @inbounds for k in eachindex(v)
+            b[n+k] = √μ * v[k]
         end
     else
         # LHS of A*x = b is already stored
-        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
+        @. b = μ*b
         @inbounds for j in eachindex(a)
-            b[j] = a[j] + μ*b[j]    # can't do axpby! due to shape
-        end
-        n = length(a)
-        @inbounds for j in eachindex(v)
-            b[n+j] = μ*b[j]         # scale remaining components
+            b[j] = a[j] + b[j]  # can't do axpby! due to shape
         end
     end
 
@@ -235,6 +265,46 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
     end
 
     return μ
+end
+
+function cvxreg_iter(::MMSubSpace, prob, ρ, μ)
+    @unpack x = prob.variables
+    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack D, A₁ = prob.operators
+    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    linsolver = prob.linsolver
+
+    # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
+    if linsolver isa LSQRWrapper
+        # build LHS, A = [A₁, A₂] * G
+        A₂ = D
+        A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)
+
+        # build RHS, b = -∇h
+        n = size(A₁, 1)
+        @inbounds for j in 1:size(A₁, 1)
+            b[j] = -∇f[j]   # A₁*x - a
+        end
+        @inbounds for j in eachindex(v)
+            b[n+j] = -√ρ*v[j]
+        end
+    else
+        # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
+        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = MMSOp2(H, G, tmpGx1, tmpGx2)
+
+        # build RHS, b = -G'*∇h
+        mul!(b, G', ∇h)
+        @. b = -b
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, β, A, b)
+
+    # apply the update, x = x + G*β
+    mul!(x, G, β, true, true)
+
+    return norm(β)
 end
 
 #################################

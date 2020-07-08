@@ -127,17 +127,20 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
             β = zeros(K)
 
             if ls isa Val{:LSQR}
-                A = QuadLHS(G, D*G, 1.0)
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), N+M)
                 linsolver = LSQRWrapper(A, β, b)
             else
-                A = G'*(D'D)*G
                 b = similar(typeof(x), K)
-                linsolver = CGWrapper(A, β, b)
+                linsolver = CGWrapper(G, β, b)
             end
         else
             if ls isa Val{:LSQR}
-                A = QuadLHS(LinearMap(I, N), D, 1.0)
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), N+M) # b has two block
                 linsolver = LSQRWrapper(A, x, b)
             else
@@ -154,18 +157,16 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
         mul!(y, D, x)
         s = similar(y)
         r = similar(y)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
-        if ls isa Val{:LSQR}
-            tmpGx = zeros(N)
-            buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpGx = tmpGx)
-        else # Val{:CG}
-            tmpGx = zeros(N)
-            tmpHGx = zeros(N)
-            buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpGx, tmpHGx)
-        end
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -240,14 +241,16 @@ function metric_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, a = prob.operators
-    @unpack b, Pz = prob.buffers
+    @unpack b, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D, 2)), D, √ρ)
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -256,12 +259,12 @@ function metric_iter(::MM, prob, ρ, μ)
             b[n+k] = √ρ * Pz[k]
         end
     else
-        # LHS of A*x = b is already stored
-        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
+        # LHS of A'A*x = A'b
+        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
 
-        # build RHS of A*x = b; b = a + ρ*D'P(D*x)
+        # build RHS of A'A*x = A'b; A'b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
-        axpby!(1, a, ρ, b)
+        axpby!(true, a, ρ, b)
     end
 
     # solve the linear system
@@ -274,7 +277,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, P, a = prob.operators
-    @unpack z, Pz, v, b = prob.buffers
+    @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     # x block update
@@ -283,7 +286,9 @@ function metric_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D, 2)), D, √μ)
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √μ)
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
@@ -293,7 +298,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
@@ -320,21 +325,19 @@ end
 
 function metric_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
+    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
     @unpack D = prob.operators
-    @unpack β, b, v = prob.buffers
+    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper
-        @unpack tmpGx = prob.buffers
-
         # build LHS, A = [A₁, A₂] * G
         # A₁ = W^1/2 in general
         # A₂ = √ρ*D
         A₁ = LinearMap(I, size(D, 2))
         A₂ = D
-        A = MMSOp1(A₁, A₂, G, tmpGx, √ρ)
+        A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)
 
         # build RHS, b = -∇h
         n = length(∇f)
@@ -345,11 +348,9 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
             b[n+j] = -√ρ*v[j]
         end
     else
-        @unpack tmpGx, tmpHGx = prob.buffers
-
         # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
-        H = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
-        A = MMSOp2(H, G, tmpGx, tmpHGx)
+        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = MMSOp2(H, G, tmpGx1, tmpGx2)
 
         # build RHS, b = -G'*∇h
         mul!(b, G', ∇h)
@@ -359,7 +360,7 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
     # solve the linear system
     linsolve!(linsolver, β, A, b)
 
-    # apply the update
+    # apply the update, x = x + G*β
     mul!(x, G, β, true, true)
 
     return norm(β)

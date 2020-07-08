@@ -62,6 +62,40 @@ function update_subspace!(prob, iteration)
     return nothing
 end
 
+##### before algorithm map #####
+
+apply_before_algmap!(::AlgorithmOption, prob, iteration, ρ, μ) = nothing
+
+function apply_before_algmap!(::ADMM, prob, iteration, ρ, μ)
+    @unpack y = prob.variables
+    @unpack s = prob.buffers
+    copyto!(s, y)
+    return nothing
+end
+
+function apply_before_algmap!(::MMSubSpace, prob, iteration, ρ, μ)
+    update_subspace!(prob, iteration)
+    return nothing
+end
+
+##### after algorithm map #####
+
+apply_after_algmap!(::AlgorithmOption, prob, iteration, ρ, μ) = nothing
+
+function apply_after_algmap!(::ADMM, prob, iteration, ρ, μ)
+    r_error, s_error = update_admm_residuals!(prob, μ)
+
+    if (r_error / s_error) > 10   # emphasize dual feasibility
+        μ = μ * 2
+    end
+
+    if (s_error / r_error) > 10   # emphasize primal feasibility
+        μ = μ / 2
+    end
+
+    return nothing
+end
+
 ##### common solution interface #####
 
 @noinline function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
@@ -87,17 +121,7 @@ end
 
     # main optimization loop
     while not_converged && iteration ≤ maxiters
-        # check that this branch does in fact disappear for non-ADMM methods
-        if algorithm isa ADMM
-            @unpack y = prob.variables
-            @unpack s = prob.buffers
-            copyto!(s, y)
-        end
-
-        # check that this branch does in fact disappear
-        if algorithm isa MMSubSpace
-            update_subspace!(prob, iteration)
-        end
+        apply_before_algmap!(algorithm, prob, iteration, ρ, μ)
 
         # apply algorithm map
         stepsize = algmap(algorithm, prob, ρ, μ)
@@ -120,17 +144,7 @@ end
         not_converged = check_convergence(loss, dist, rtol, atol)
         iteration += 1
 
-        # check that this branch does in fact disappear for non-ADMM methods
-        if algorithm isa ADMM
-            r_error, s_error = update_admm_residuals!(prob, μ)
-
-            if (r_error / s_error) > 10   # emphasize dual feasibility
-                μ = μ * 2
-            end
-            if (s_error / r_error) > 10   # emphasize primal feasibility
-                μ = μ / 2
-            end
-        end
+        apply_after_algmap!(algorithm, prob, iteration, ρ, μ)
     end
 
     converged = !not_converged
