@@ -48,7 +48,7 @@ end
 # dispatch for arrays
 function restart!(accelerator::Nesterov, optvars::AbstractArray)
     copyto!(accelerator.oldvars, optvars)
-    accelerator.n = 1
+    # accelerator.n = 1
     return nothing
 end
 
@@ -57,6 +57,6 @@ function restart!(accelerator::Nesterov, optvars::NamedTuple)
     for (x, y) in zip(optvars, accelerator.oldvars)
         copyto!(y, x)
     end
-    accelerator.n = 1
+    # accelerator.n = 1
     return nothing
 end
