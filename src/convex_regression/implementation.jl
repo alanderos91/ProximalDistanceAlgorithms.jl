@@ -1,6 +1,34 @@
-"""
+@doc raw"""
+    cvxreg_fit(algorithm::SteepestDescent, response, covariates; kwargs...)
+
+Fit a convex function to `response` data based on the given `covariates`.
+
+The `response` should enter as a vector and samples in `covariates` should be arranged along columns. Returns two values, `(θ, ξ)`, representing function and subgradient estimates, respectively.
+
+The penalized objective used is
+
+```math
+h_{\rho}(x) = \frac{1}{2} \|\theta-y\|^{2} + \frac{\rho}{2} \mathrm{dist}(D_{1}\theta + D_{2}\boldsymbol{\xi},C)^{2}
 ```
-cvxreg_fit(algorithm::SteepestDescent, response, covariates; kwargs...)
+
+where ``Dx = [D_{1} D_{2}] [\theta; \xi]`` encodes subgradient constraints
+``\theta_{i} - \langle{\boldsymbol{\xi}, \boldsymbol{x}_{i} -
+\boldsymbol{x}_{j}}\rangle \le \theta_{j}``. The constraint set ``C``
+represents a compatible non-positive orthant.
+
+See also [`MM`](@ref), [`SteepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+
+# Keyword Arguments
+
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`: An object that logs convergence history.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
@@ -136,7 +164,7 @@ function cvxreg_objective(::AlgorithmOption, prob, ρ)
     @unpack θ = prob.views
 
     # evaulate gradient of loss
-    @inbounds @simd ivdep for j in eachindex(a)
+    @inbounds for j in eachindex(θ)
         ∇f[j] = θ[j] - a[j]
     end
 

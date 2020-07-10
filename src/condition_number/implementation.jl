@@ -1,32 +1,34 @@
 @doc raw"""
     reduce_cond(algorithm::AlgorithmOption, c, A; kwargs...)
 
-Project matrix `A` to its nearest matrix `B` (in the sense of the Frobenius norm) such that `cond(B) ≈ c`.
+Project matrix `A` to its nearest matrix `B` (in the sense of the Frobenius
+norm) such that `cond(B) ≈ c`.
 
 The penalized objective used is
 
 ```math
-    h_{\rho}(x) = \frac{1}{2} \|x-y\|^{2} + \frac{\rho}{2} \mathrm{dist}{(Dx,C)}^{2}
+h_{\rho}(x) = \frac{1}{2} \|x-y\|^{2} + \frac{\rho}{2} \mathrm{dist}{(Dx,C)}^{2}
 ```
 
 where ``x`` and ``y`` are the singular values for `B` and `A`, respectively.
 The object `A` can be a matrix, an `SVD` factorization produced by `svd(A)`, or a vector of singular values in decreasing order.
 
-See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref)
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
 
 # Keyword Arguments
 
 - `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
 - `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver for `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
 - `maxiters::Integer=100`: The maximum number of iterations.
 - `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`
+- `history=nothing`: An object that logs convergence history.
 - `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
 - `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function reduce_cond(algorithm::AlgorithmOption, c, A;
-    rho::Real=1.0, mu::Real=1.0, ls=nothing, kwargs...)
+    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
     if !(ls === nothing)
         @warn "Iterative linear solver not required. Option $(ls) will be ignored."
     end

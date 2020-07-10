@@ -1,7 +1,31 @@
-"""
-```
-image_denoise(algorithm::AlgorithmOption, image;)
-```
+@doc raw"""
+    denoise_image(algorithm::AlgorithmOption, image;)
+
+Remove noise from the input `image` by minimizing its total variation.
+
+A sparsity parameter `nu` enforces derivatives `image[i+1,j] - image[i,j]` and
+`image[i,j+1] - image[i,j]` to be zero. The choice `nu = 0` coerces zero
+variation whereas `nu = (n-1)*p + n*(p-1)` preserves the original image.
+Setting `rev=false` reverses this relationship.
+
+The function [`denoise_image_path`](@ref) provides a solution path.
+
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+
+# Keyword Arguments
+
+- `nu::Integer=0`: A sparsity parameter that controls clusterings.
+- `rev::Bool=true`: A flag that changes the interpretation of `nu` from constraint violations (`rev=true`) to constraints satisfied (`rev=false`).
+This indirectly affects the performance of the algorithm and should only be used when crossing the threshold `nu = [(n-1)*p + n*(p-1)] ÷ 2`.
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`: An object that logs convergence history.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function denoise_image(algorithm::AlgorithmOption, image;
     nu::Integer=0,
@@ -119,10 +143,28 @@ function denoise_image(algorithm::AlgorithmOption, image;
     return X
 end
 
-"""
-```
-image_denoise_path(algorithm::AlgorithmOption, image; kwargs...)
-```
+@doc raw"""
+    image_denoise_path(algorithm::AlgorithmOption, image; kwargs...)
+
+Remove noise from the input `image` by minimizing its total variation.
+
+This function returns images obtained with 5% sparsity up to 95% sparsity, in
+increments of 10%. Results are stored in a  `NamedTuple` with fields `img` and
+`ν_path`.
+
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+
+# Keyword Arguments
+
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`: An object that logs convergence history.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
     rho::Real=1.0,

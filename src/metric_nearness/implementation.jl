@@ -7,27 +7,27 @@ Diagonal entries are assumed to be zero and are ignored. Only the lower triangul
 
 The penalized objective used is
 
-``
+```math
 h_{\rho}(x) = \frac{1}{2} \|W^{1/2}(x-a)\|^{2} + \frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}
-``
+```
 
 where ``a = \mathrm{trivec}(A)`` is a vectorized version of `A` with non-redundant entries and ``C`` is the intersection of the metric cone on semimetrics with a compatible non-negative orthant.
 
-See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref)
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
 
 # Keyword Arguments
 
 - `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
-- `ls=Val(:LSQR)`: Choice of linear solver in `MM()` and `ADMM()`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR and conjugate gradients, respectively.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM`.
+- `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
 - `maxiters::Integer=100`: The maximum number of iterations.
 - `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`
+- `history=nothing`: An object that logs convergence history.
 - `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(D*x,C)^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 
-# Examples
+### Examples
 
 **How to define an annealing schedule**:
 ```jldoctest

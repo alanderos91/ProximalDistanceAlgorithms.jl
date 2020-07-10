@@ -1,7 +1,32 @@
-"""
-```
-convex_clustering(algorithm::AlgorithmOption, weights, data;)
-```
+@doc raw"""
+    convex_clustering(algorithm::AlgorithmOption, weights, data; kwargs...)
+
+Cluster `data` using an approximate convexification of ``k``-means.
+
+**Note**: This function should only be used for exploratory analyses.
+See [`convex_clustering_path`](@ref) for an algorithm that returns a list of candidate clusterings.
+
+The `data` are assumed to be arranged as a `features` by `samples` matrix.
+A sparsity parameter `nu` quantifies the number of constraints `data[:,i] ≈ data[:,j]` that are allowed to be violated. The choice `nu = 0` assigns
+each sample to the same cluster whereas `nu = binomial(samples, 2)` forces
+samples into their own clusters. Setting `rev=false` reverses this relationship.
+
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+
+# Keyword Arguments
+
+- `nu::Integer=0`: A sparsity parameter that controls clusterings.
+- `rev::Bool=true`: A flag that changes the interpretation of `nu` from constraint violations (`rev=true`) to constraints satisfied (`rev=false`).
+This indirectly affects the performance of the algorithm and should only be used when crossing the threshold `nu = binomial(samples, 2) ÷ 2`.
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`: An object that logs convergence history.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering(algorithm::AlgorithmOption, weights, data;
     nu::Integer=0,
@@ -118,10 +143,36 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     return X
 end
 
-"""
-```
-convex_clustering_path()
-```
+@doc raw"""
+convex_clustering_path(algorithm::AlgorithmOption, weights, data; kwargs...)
+
+Cluster `data` using an approximate convexification of ``k``-means.
+
+The `data` are assumed to be arranged as a `features` by `samples` matrix. This
+algorithm performs clustering by varying a sparsity parameter `nu` in a
+monotonic fashion and minimizing a penalized objective. At the end of each
+minimization step, we update `nu` by counting the number of pairs `data[:,i] ≈ data[:,j]`.
+This heuristic defines a solution path that explores the large space of
+possible clusterings in a frugal manner. Sparse weights can greatly accelerate
+the algorithm but may miss clusterings.
+Returns a `NamedTuple` with fields `assignment` and `ν_path`.
+
+Setting `atol` to smaller values will generally improve the quality of clusterings and reduce the number of minimization steps. However, individual
+minimization steps become more expensive as a result.
+
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+
+# Keyword Arguments
+
+- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
+- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `maxiters::Integer=100`: The maximum number of iterations.
+- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
+- `history=nothing`: An object that logs convergence history.
+- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
+- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
+- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     rho::Real=1.0,
