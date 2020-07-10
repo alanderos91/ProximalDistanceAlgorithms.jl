@@ -116,48 +116,12 @@ end
 #   sparse projections  #
 #########################
 
-const MaxParam = Base.Order.Reverse
-const MinParam = Base.Order.Forward
-const MaxParamT = typeof(MaxParam)
-const MinParamT = typeof(MinParam)
-
-struct SparseProjection{order,T} <: Function
-    pivot::T
-end
-
-SparseProjection{order}(pivot::T) where {order,T} = SparseProjection{order,T}(pivot)
-SparseProjection(order,pivot) = SparseProjection{typeof(order)}(pivot)
-
-# parameterize by largest entries
-(P::SparseProjection{MaxParamT})(x) = x ≥ P.pivot ? x : zero(x)
-
-# parameterize by smallest entries
-(P::SparseProjection{MinParamT})(x) = x > P.pivot ? x : zero(x)
-
-function compute_sparse_projection(xs, ::MaxParamT, K)
-    if K > 0
-        pivot = K < length(xs) ? partialsort!(xs, K, rev = true) : zero(eltype(xs))
-    else
-        pivot = -Inf
-    end
-    return SparseProjection{MaxParamT}(pivot)
-end
-
-function compute_sparse_projection(xs, ::MinParamT, K)
-    if K > 0
-        pivot = K < length(xs) ? partialsort!(xs, K, rev = false) : zero(eltype(xs))
-    else
-        pivot = -Inf
-    end
-    return SparseProjection{MinParamT}(pivot)
-end
-
-struct SparseProjection2{T}
+struct SparseProjection{T}
     ismaxparam::Bool
     pivot::T
 end
 
-function (P::SparseProjection2)(x)
+function (P::SparseProjection)(x)
     if P.ismaxparam
         x ≥ P.pivot ? x : zero(x)
     else
@@ -176,42 +140,23 @@ function (C::SparseProjectionClosure)(xs)
     else
         pivot = -Inf
     end
-    return SparseProjection2(C.ismaxparam, pivot)
+    return SparseProjection(C.ismaxparam, pivot)
 end
 
-function swap!(h, i, j)
-    h[i], h[j] = h[j], h[i]
-    return nothing
-end
-
-function partial_heapsort(xs, ord, K)
-    n = length(xs)
-    heapify!(xs, ord)
-    j = 1
-    while j < K && j < n
-        swap!(xs, 1, n-j+1)
-        percolate_down!(xs, 1, xs[1], ord, n-j)
-        j += 1
-    end
-    J = max(1, n-K)
-    swap!(xs, 1, J)
-    lo, hi = extrema((xs[J], xs[n]))
-    return SparseProjection(ord, lo, hi)
-end
-
-struct BlockSparseProjection{order,T} <: Function
+struct BlockSparseProjection{T} <: Function
     block_size::Int
     block_norm::Vector{T}
     cache::Vector{T}
-    K::Int
+    compute_proj::SparseProjectionClosure
 end
 
-function (P::BlockSparseProjection{order})(y, x) where order
+function (P::BlockSparseProjection)(y, x)
     block_size = P.block_size
     block_norm = P.block_norm
     cache = P.cache
-    K = P.K
+    compute_proj = P.compute_proj
 
+    # compute distances from x
     for j in eachindex(block_norm)
         offset = block_size*(j-1)
         s = zero(eltype(x))
@@ -223,12 +168,10 @@ function (P::BlockSparseProjection{order})(y, x) where order
         cache[j] = s
     end
 
-    if order <: MinParamT
-        proj = compute_sparse_projection(cache, MinParam, K)
-    else
-        proj = compute_sparse_projection(cache, MaxParam, K)
-    end
+    # compute projection operator
+    proj = compute_proj(cache)
 
+    # apply the projection
     for (j, s) in enumerate(block_norm)
         offset = block_size*(j-1)
         indicator = (proj(s) == s)

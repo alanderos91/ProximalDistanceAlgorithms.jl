@@ -4,8 +4,8 @@ convex_clustering(algorithm::AlgorithmOption, weights, data;)
 ```
 """
 function convex_clustering(algorithm::AlgorithmOption, weights, data;
-    K::Integer=0,
-    o::Base.Ordering=Base.Order.Forward,
+    nu::Integer=0,
+    rev::Bool=true,
     rho::Real=1.0,
     mu::Real=1.0,
     ls::LS=Val(:LSQR), kwargs...) where LS
@@ -32,14 +32,20 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
-    T1 = typeof(o)
-    T2 = eltype(data)
     block_norm = zeros(m)
     cache = zeros(m)
-    P = BlockSparseProjection{T1,T2}(d, block_norm, cache, K)
+    compute_proj = SparseProjectionClosure(rev, nu)
+    P = BlockSparseProjection(d, block_norm, cache, compute_proj)
     a = copy(x)
     D = CvxClusterFM(d, n)
     operators = (D = D, P = P, a = a)
@@ -51,12 +57,31 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            b = similar(typeof(x), N+M) # b has two blocks
-            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(G, β, b)
+            end
         else
-            b = similar(x)  # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₂, 1))
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x)
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -64,12 +89,19 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     end
 
     if algorithm isa ADMM
-        s = similar(y)
         r = similar(y)
+        s = similar(y)
         mul!(y, D, x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -118,22 +150,20 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
-    a = copy(x)
-    D = CvxClusterFM(d, n)
-
-    # use two versions of operators; probably not a good idea
-    T2 = eltype(data)
     block_norm = zeros(m)   # stores column-wise distances
     cache = zeros(m)        # mirrors block_norm; cache for pivot search
-
-    P1 = BlockSparseProjection{MaxParamT,T2}(d, block_norm, cache, 0)
-    operators1 = (D = D, P = P1, a = a)
-
-    P2 = BlockSparseProjection{MinParamT,T2}(d, block_norm, cache, 0)
-    operators2 = (D = D, P = P2, a = a)
+    a = copy(x)
+    D = CvxClusterFM(d, n)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -142,12 +172,31 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            b = similar(typeof(x), N+M) # b has two blocks
-            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(G, β, b)
+            end
         else
-            b = similar(x)  # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₂, 1))
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x)
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -155,11 +204,19 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     end
 
     if algorithm isa ADMM
-        s = similar(y)
         r = similar(y)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+        s = similar(y)
+        mul!(y, D, x)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -169,43 +226,42 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     objective = cvxclst_objective
     algmap = cvxclst_iter
 
-    prob1 = ProxDistProblem(variables, derivatives, operators1, buffers, views, linsolver)
-
-    prob2 = ProxDistProblem(variables, derivatives, operators2, buffers, views, linsolver)
-
     # allocate output
-    X_path = typeof(X)[]
+    assignment = Int[]
     ν_path = Int[]
+
+    # allocate storage for distance matrix
+    distance = pairwise(SqEuclidean(), X, dims = 2)
 
     # initialize solution path heuristic
     νmax = binomial(n, 2)
     ν = νmax-1
 
-    prog = ProgressThresh(0, "Searching clustering path")
+    prog = ProgressThresh(0, "Searching clustering path...")
     while ν ≥ 0
         # this is an unavoidable branch made worse by parameterization of
         # projection operator
-        if ν ≤ (νmax >> 1)
-            P1 = BlockSparseProjection{MaxParamT,T2}(d, block_norm, cache, ν)
-            operators1 = (D = D, P = P1, a = a)
-            prob1 = ProxDistProblem(variables, derivatives, operators1, buffers, views, linsolver)
-            optimize!(algorithm, objective, algmap, prob1, rho, mu; kwargs...)
+        if ν > (νmax >> 1)
+            compute_proj = SparseProjectionClosure(true, ν)
         else
-            P2 = BlockSparseProjection{MinParamT,T2}(d, block_norm, cache, νmax - ν)
-            operators2 = (D = D, P = P2, a = a)
-            prob2 = ProxDistProblem(variables, derivatives, operators2, buffers, views, linsolver)
-            optimize!(algorithm, objective, algmap, prob2, rho, mu; kwargs...)
+            compute_proj = SparseProjectionClosure(false, ν)
         end
 
+        P = BlockSparseProjection(d, block_norm, cache, compute_proj)
+        operators = (D = D, P = P, a = a)
+        prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+
+        optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+
         # record current solution
-        push!(X_path, copy(X))
+        push!(assignment, assign_classes(X))
         push!(ν_path, ν)
 
         # count satisfied constraints
         nconstraint = 0
-        distance = pairwise(SqEuclidean(), X, dims = 2)
+        pairwise!(distance, SqEuclidean(), X, dims = 2)
         for j in 1:n, i in j+1:n
-            # distances within 10^-3 are 0
+            # distances within 10^-3 are set to 0
             nconstraint += (log(10, abs(weights[i,j] * distance[i,j])) ≤ -3)
         end
 
@@ -214,7 +270,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         ProgressMeter.update!(prog, ν)
     end
 
-     solution_path = (U = X_path, ν = ν_path)
+    solution_path = (assignment = assignment, ν = ν_path)
 
     return solution_path
 end
@@ -272,14 +328,16 @@ function cvxclst_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, a = prob.operators
-    @unpack b, Pz = prob.buffers
+    @unpack b, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D,2)), D, √ρ)
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -289,7 +347,7 @@ function cvxclst_iter(::MM, prob, ρ, μ)
         end
     else
         # assemble LHS
-        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
@@ -306,7 +364,7 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, P, a = prob.operators
-    @unpack z, Pz, v, b = prob.buffers
+    @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     # x block update
@@ -315,7 +373,9 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D,2)), D, √μ)
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √μ) # A = [I; √μ*D]
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
@@ -325,7 +385,7 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
         end
     else
         # assemble LHS
-        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
@@ -349,6 +409,48 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     end
 
     return μ
+end
+
+function cvxclst_iter(::MMSubSpace, prob, ρ, μ)
+    @unpack x = prob.variables
+    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack D, a = prob.operators
+    @unpack β, b, Pz, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    linsolver = prob.linsolver
+
+    if linsolver isa LSQRWrapper
+        # build LHS of A*x = b
+        # forms a BlockMap so non-allocating
+        # however, A*x and A'b have small allocations due to views?
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)
+
+        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
+        n = length(a)
+        @inbounds for j in 1:n
+            b[j] = -∇f[j]   # A₁*x - a
+        end
+        @inbounds for k in eachindex(Pz)
+            b[n+k] = √ρ * Pz[k]
+        end
+    else
+        # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
+        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = MMSOp2(H, G, tmpGx1, tmpGx2)
+
+        # build RHS, b = -G'*∇h
+        mul!(b, G', ∇h)
+        @. b = -b
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, x, A, b)
+
+    # apply the update, x = x + G*β
+    mul!(x, G, β, true, true)
+
+    return norm(β)
 end
 
 #################
