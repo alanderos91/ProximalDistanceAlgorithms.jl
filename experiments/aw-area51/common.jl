@@ -14,10 +14,26 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     options = interface(args)
 
     # algorithm choice
-    if options["algorithm"] == :SD
+    algchoice = options["algorithm"]
+    if algchoice == :SD
         algorithm = SteepestDescent()
-    else
+    elseif algchoice == :MM
         algorithm = MM()
+    elseif algchoice == :ADMM
+        algorithm = ADMM()
+    elseif algchoice == :MMS
+        K = options["subspace"]
+        algorithm = MMSubSpace(K)
+    end
+
+    # linsolver choice
+    linsolver = options["ls"]
+    if linsolver == :LSQR
+        ls = Val(:LSQR)
+    elseif linsolver == :CG
+        ls = Val(:CG)
+    else
+        error("unknown option $(linsolver)")
     end
 
     # acceleration
@@ -31,8 +47,9 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     kwargs = (
         maxiters = options["maxiters"], # maximum iterations
         accel    = accel,               # toggle Nesterov acceleration
-        ftol     = options["ftol"],     # relative tolerance in loss
-        dtol     = options["dtol"],     # absolute tolerance for distance
+        rtol     = options["rtol"],     # relative tolerance in loss
+        atol     = options["atol"],     # absolute tolerance for distance
+        ls       = ls,                  # linsolver
     )
 
     # benchmark settings
@@ -43,14 +60,14 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     # generate a problem instance
     Random.seed!(seed)
     problem, problem_size = make_instance(options)
-    
+
     println("""
     algorithm:    $(algorithm)
     acceleration? $(options["accel"])
     maxiters:     $(options["maxiters"])
     nsamples:     $(options["nsamples"])
-    ftol:         $(options["ftol"])
-    dtol:         $(options["dtol"])
+    rtol:         $(options["rtol"])
+    atol:         $(options["atol"])
     seed:         $(options["seed"])""")
 
     # benchmark data
@@ -98,7 +115,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         save_results(benchmark_file, problem, problem_size, solution, cpu_time, memory)
 
         println("Saving convergence history to:\n  $(history_file)\n")
-        
+
         # save convergence history
         hf = DataFrame(
             iteration = history.iteration,
