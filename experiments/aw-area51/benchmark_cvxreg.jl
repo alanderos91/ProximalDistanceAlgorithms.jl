@@ -1,6 +1,6 @@
 using ArgParse
 using ProximalDistanceAlgorithms
-using LinearAlgebra
+using LinearAlgebra, Statistics
 
 global const DIR = joinpath(pwd(), "experiments", "aw-area51", "cvxreg")
 
@@ -27,6 +27,14 @@ function cvxreg_interface(args)
             help     = "choice of algorithm"
             arg_type = Symbol
             required = true
+        "--subspace"
+            help     = "subspaze size for MMS methods"
+            arg_type = Int
+            default  = 3
+        "--ls"
+            help     = "choice of linear solver"
+            arg_type = Symbol
+            default  = :LSQR
         "--maxiters"
             help     = "maximum iterations"
             arg_type = Int
@@ -38,14 +46,22 @@ function cvxreg_interface(args)
         "--accel"
             help     = "toggles Nesterov acceleration"
             action   = :store_true
-        "--ftol"
-            help     = "tolerance for loss"
+        "--rtol"
+            help     = "relative tolerance on loss"
             arg_type = Float64
             default  = 1e-6
-        "--dtol"
-            help     = "tolerance for distance"
+        "--atol"
+            help     = "absolute tolerance on distance"
             arg_type = Float64
             default  = 1e-6
+        "--rho"
+            help     = "initial value for penalty coefficient"
+            arg_type = Float64
+            default  = 1.0
+        "--mu"
+            help     = "initial value for step size in ADMM"
+            arg_type = Float64
+            default  = 1.0
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -64,9 +80,8 @@ function cvxreg_instance(options)
     d = options["features"]
     n = options["samples"]
 
-    y_orig, y_truth, X_orig = cvxreg_example(x -> dot(x,x), d, n, 0.1)
-    y, X = mazumder_standardization(y_orig, X_orig)
-    problem = (y = y, X = X, y_orig = y_orig, y_truth = y_truth, X_orig = X_orig)
+    y, y_truth, X = cvxreg_example(x -> dot(x,x), d, n, 0.1)
+    problem = (y = y, X = X, y_truth = y_truth)
     problem_size = (d = d, n = n,)
 
     println("    Convex Regression; $(d) features, $(n) samples\n")
@@ -76,19 +91,26 @@ end
 
 # inlined wrapper
 @inline function run_cvxreg(algorithm, problem; kwargs...)
-    # ρ_init * (2.0)^(floor(n/250))
-    rho_schedule(ρ, iteration) = iteration % 250 == 0 ? 2.0 * ρ : ρ
+    kw = Dict(kwargs)
+    ρ0 = kw[:rho]
+    penalty(ρ, n) = min(1e6, ρ0 * 1.01 ^ floor(n/20))
 
-    cvxreg_fit(algorithm, problem.y, problem.X; penalty = rho_schedule, kwargs...)
+    θ, ξ = cvxreg_fit(algorithm, problem.y, problem.X; penalty = penalty, kwargs...)
+
+    return (θ = θ, ξ = ξ)
 end
 
 function cvxreg_save_results(file, problem, problem_size, solution, cpu_time, memory)
+    # compute mean squared error with respect to ground truth
+    MSE = mean((solution.θ .- problem.y) .^ 2)
+
     # save benchmark results
     df = DataFrame(
             features = problem_size.d,
             samples  = problem_size.n,
             cpu_time = cpu_time,
-            memory   = memory
+            memory   = memory,
+            MSE      = MSE
         )
     CSV.write(file, df)
 
@@ -96,13 +118,13 @@ function cvxreg_save_results(file, problem, problem_size, solution, cpu_time, me
     basefile = splitext(file)[1]
 
     # save input
-    save_array(basefile * "_y.in", problem.y_orig)
+    save_array(basefile * "_y.in", problem.y)
     save_array(basefile * "_truth.in", problem.y_truth)
-    save_array(basefile * "_X.in", problem.X_orig)
-    
+    save_array(basefile * "_X.in", problem.X)
+
     # save solution
-    save_array(basefile * "_theta.out", solution[1])
-    save_array(basefile * "_xi.out", solution[2])
+    save_array(basefile * "_theta.out", solution.θ)
+    save_array(basefile * "_xi.out", solution.ξ)
 
     return nothing
 end

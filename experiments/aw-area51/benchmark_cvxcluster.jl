@@ -24,6 +24,14 @@ function cvxcluster_interface(args)
             help     = "choice of algorithm"
             arg_type = Symbol
             required = true
+        "--subspace"
+            help     = "subspace size for MMS methods"
+            arg_type = Int
+            default  = 3
+        "--ls"
+            help     = "choice of linear solver"
+            arg_type = Symbol
+            default  = :LSQR
         "--maxiters"
             help     = "maximum iterations"
             arg_type = Int
@@ -35,14 +43,22 @@ function cvxcluster_interface(args)
         "--accel"
             help     = "toggles Nesterov acceleration"
             action   = :store_true
-        "--ftol"
-            help     = "tolerance for loss"
+        "--rtol"
+            help     = "relative tolerance on loss"
             arg_type = Float64
             default  = 1e-6
-        "--dtol"
-            help     = "tolerance for distance"
+        "--atol"
+            help     = "absolute tolerance on distance"
             arg_type = Float64
             default  = 1e-6
+        "--rho"
+            help     = "initial value for penalty coefficient"
+            arg_type = Float64
+            default  = 1.0
+        "--mu"
+            help     = "initial value for step size in ADMM"
+            arg_type = Float64
+            default  = 1.0
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -60,18 +76,18 @@ end
 function cvxcluster_instance(options)
     # read in data as a matrix
     file = options["data"]
-    X, classes, k = convex_clustering_data(file)
+    X, classes, nclasses = convex_clustering_data(file)
 
     # problem dimensions
     d, n = size(X)
 
     # create weights
-    W = ones(n, n)
+    W = gaussian_weights(X, phi = 0.5)
 
     problem = (W = W, X = X, classes = classes)
-    problem_size = (d = d, n = n, k = k)
+    problem_size = (d = d, n = n, nclasses = nclasses)
 
-    println("    Convex Clustering; $(d) features, $(n) samples\n")
+    println("    Convex Clustering; $(d) features, $(n) samples, $(nclasses) classes\n")
 
     return problem, problem_size
 end
@@ -81,6 +97,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     df = DataFrame(
             features = problem_size.d,
             samples  = problem_size.n,
+            classes  = problem_size.nclasses,
             cpu_time = cpu_time,
             memory   = memory
         )
@@ -89,26 +106,23 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # find k-means solution
-    kmeans_clustering = kmeans(problem.X, problem_size.k, maxiter = 2000)
+    # save assignments
+    open(basefile * "_assignment.out", "w") do io
+        for (assignment, ν) in zip(solution.assignment, solution.ν)
+            nclasses = length(unique(assignment))
+            writedlm(io, [ν nclasses assignment...])
+        end
+    end
 
-    # save cluster assignments + validation metrics
-    open(basefile * ".out", "w") do io
-        for (U, ν) in zip(solution.U, solution.ν)
-            # get cluster assignments
-            _, assignment, k = assign_classes(U)
-
+    # save validation metrics
+    open(basefile * "_validation.out", "w") do io
+        for (assignment, ν) in zip(solution.assignment, solution.ν)
             # compare assignments against truth
-            vi1  = Clustering.varinfo(problem.classes, assignment)
-            ari1 = Clustering.randindex(problem.classes, assignment)[1]
-            nmi1 = Clustering.mutualinfo(problem.classes, assignment, normed = true)
-
-            # compare assignments against k-means
-            vi2  = Clustering.varinfo(kmeans_clustering, assignment)
-            ari2 = Clustering.randindex(kmeans_clustering, assignment)[1]
-            nmi2 = Clustering.mutualinfo(kmeans_clustering, assignment, normed = true)
-
-            writedlm(io, [ν k vi1 ari1 nmi1 vi2 ari2 nmi2 assignment...])
+            VI  = Clustering.varinfo(problem.classes, assignment)
+            ARI = Clustering.randindex(problem.classes, assignment)[1]
+            NMI = Clustering.mutualinfo(problem.classes, assignment, normed = true)
+            nclasses = length(unique(assignment))
+            writedlm(io, [ν nclasses VI ARI NMI])
         end
     end
 
@@ -117,10 +131,11 @@ end
 
 # inlined wrapper
 @inline function run_cvxcluster(algorithm, problem; kwargs...)
-    # ρ_init * (2.0)^(floor(n/250))
-    rho_schedule(ρ, iteration) = iteration % 250 == 0 ? 2.0 * ρ : ρ
+    kw = Dict(kwargs)
+    ρ0 = kw[:rho]
+    penalty(ρ, n) = min(1e6, ρ0 * 1.2 ^ floor(n/20))
 
-    convex_clustering_path(algorithm, problem.W, problem.X; penalty = rho_schedule, kwargs...)
+    convex_clustering_path(algorithm, problem.X, problem.W; penalty = penalty, kwargs...)
 end
 
 # run the benchmark

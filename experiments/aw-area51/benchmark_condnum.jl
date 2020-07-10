@@ -1,29 +1,35 @@
 using ArgParse
 using ProximalDistanceAlgorithms
+using LinearAlgebra, MatrixDepot
 
-global const DIR = joinpath(pwd(), "experiments", "aw-area51", "metric")
+global const DIR = joinpath(pwd(), "experiments", "aw-area51", "condnum")
 
 # loads common interface + packages
 include("common.jl")
 
-# command line interface
-function metric_projection_interface(args)
+fidelity(A, B) = 100 * sum(1 .- abs.(sign.(A) .- sign.(B))) / length(B)
+
+function condnum_interface(args)
     options = ArgParseSettings(
-        prog = "Metric Benchmark",
-        description = "Benchmarks proximal distance algorithm on metric projection problem"
+        prog = "Condition Number Benchmark",
+        description = "Benchmarks proximal distance algorithm for projection that reduces the condition number of a matrix"
     )
 
     @add_arg_table! options begin
-        "--nodes"
-            help     = "nodes in dissimilarity matrix"
+        "--p"
+            help     = "defines size of smaller dimension, i.e. number of singular values"
             arg_type = Int
+            required = true
+        "--percent"
+            help     = "percent reduction in condition number"
+            arg_type = Float64
             required = true
         "--algorithm"
             help     = "choice of algorithm"
             arg_type = Symbol
             required = true
         "--subspace"
-            help     = "subspace size for MMS methods"
+            help     = "subspaze size for MMS methods"
             arg_type = Int
             default  = 3
         "--ls"
@@ -48,7 +54,7 @@ function metric_projection_interface(args)
         "--atol"
             help     = "absolute tolerance on distance"
             arg_type = Float64
-            default  = 1e-6
+            default  = 1e-4
         "--rho"
             help     = "initial value for penalty coefficient"
             arg_type = Float64
@@ -70,36 +76,44 @@ function metric_projection_interface(args)
     return parse_args(options)
 end
 
-# create a problem instance from command-line arguments
-function metric_projection_instance(options)
-    n = options["nodes"]
+function condnum_instance(options)
+    p = options["p"]
+    α = options["percent"]
 
-    W, Y = metric_example(n, weighted = false)
-    problem = (W = W, Y = Y)
-    problem_size = (n = n,)
+    M = matrixdepot("randcorr", p)
+    F = svd(M)
+    c = α * cond(M)
 
-    println("    Metric Projection; $(n) nodes\n")
+    problem = (M = M, F = F, α = α, c = c)
+    problem_size = (p = p,)
+
+    println("    Reduce Condition Number; $(p) singular values\n")
 
     return problem, problem_size
 end
 
-# inlined wrapper
-@inline function run_metric_projection(algorithm, problem; kwargs...)
+@inline function run_condnum(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
-    ρ0 = kw[:rho]
-    penalty(ρ, n) = min(1e6, ρ0 * 1.09 ^ floor(n/20))
+    ρ0 = kw["rho"]
 
-    X = metric_projection(algorithm, problem.Y; penalty = penalty, kwargs...)
+    penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
+
+    output = reduce_cond(algorithm, problem.c, problem.F; penalty = penalty, kwargs...)
 
     return (X = X,)
 end
 
-function metric_save_results(file, problem, problem_size, solution, cpu_time, memory)
+function condnum_save_results(file, problem, problem_size, solution, cpu_time, memory)
     # save benchmark results
     df = DataFrame(
-            nodes    = problem_size.n,
+            p = problem.p,
+            α = problem.α,
+            c = problem.c,
+            condM = cond(problem.M),
+            condX = cond(solution.X),
             cpu_time = cpu_time,
-            memory   = memory
+            memory   = memory,
+            fidelity = fidelity(solution.X, solution.M)
         )
     CSV.write(file, df)
 
@@ -107,18 +121,10 @@ function metric_save_results(file, problem, problem_size, solution, cpu_time, me
     basefile = splitext(file)[1]
 
     # save input
-    save_array(basefile * ".in", problem.Y)
+    save_array(basefile * ".in", problem.M)
 
     # save solution
     save_array(basefile * ".out", solution.X)
 
     return nothing
 end
-
-# run the benchmark
-interface     = metric_projection_interface
-run_solver    = run_metric_projection
-make_instance = metric_projection_instance
-save_results  = metric_save_results
-
-run_benchmark(interface, run_solver, make_instance, save_results, ARGS)

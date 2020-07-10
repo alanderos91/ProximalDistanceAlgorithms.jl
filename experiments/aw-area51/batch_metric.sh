@@ -9,9 +9,12 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 # directory with scripts
 DIR=${PKG}/experiments/aw-area51
 
+# directory to Julia
+JLDIR=${HOME}/julia-1.5
+
 # function for running benchmark
 jlbenchmark () {
-    julia-1.5 --project=${PKG} ${DIR}/benchmark_metric.jl "$@";
+    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_metric.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -36,22 +39,34 @@ MAXITERS=5000
 while read n
     do
     # MM
-    FNAME=MM_${n}
-    jlbenchmark --nodes ${n} --algorithm MM --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=MM_LSQR_${n}
+    jlbenchmark --nodes ${n} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    FNAME=MM_CG_${n}
+    jlbenchmark --nodes ${n} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # Steepest Descent
     FNAME=SD_${n}
     jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # ADMM
-    FNAME=ADMM_${n}
-    jlbenchmark --nodes ${n} --algorithm ADMM --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    FNAME=ADMM_LSQR_${n}
+    jlbenchmark --nodes ${n} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
+
+    FNAME=ADMM_CG_${n}
+    jlbenchmark --nodes ${n} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     # MM Subspace{5}
-    FNAME=MMS5_${n}
-    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=MMS5_LSQR_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    FNAME=MMS5_CG_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # MM Subspace{10}
-    FNAME=MMS10_${n}
-    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=MMS10_LSQR_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    FNAME=MMS10_CG_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/metric/jobs/${JOBNAME}.in

@@ -17,23 +17,28 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     algchoice = options["algorithm"]
     if algchoice == :SD
         algorithm = SteepestDescent()
-    elseif algchoice == :MM
-        algorithm = MM()
-    elseif algchoice == :ADMM
-        algorithm = ADMM()
-    elseif algchoice == :MMS
-        K = options["subspace"]
-        algorithm = MMSubSpace(K)
-    end
-
-    # linsolver choice
-    linsolver = options["ls"]
-    if linsolver == :LSQR
-        ls = Val(:LSQR)
-    elseif linsolver == :CG
-        ls = Val(:CG)
+        ls = nothing
     else
-        error("unknown option $(linsolver)")
+        if algchoice == :MM
+            algorithm = MM()
+        elseif algchoice == :ADMM
+            algorithm = ADMM()
+        elseif algchoice == :MMS
+            K = options["subspace"]
+            algorithm = MMSubSpace(K)
+        end
+
+        # linsolver choice
+        linsolver = options["ls"]
+        if linsolver == :LSQR
+            ls = Val(:LSQR)
+        elseif linsolver == :CG
+            ls = Val(:CG)
+        elseif linsolver == :NA
+            ls = nothing
+        else
+            error("unknown option $(linsolver)")
+        end
     end
 
     # acceleration
@@ -50,6 +55,8 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         rtol     = options["rtol"],     # relative tolerance in loss
         atol     = options["atol"],     # absolute tolerance for distance
         ls       = ls,                  # linsolver
+        rho      = options["rho"],      # initial value for rho
+        mu       = options["mu"],       # initial value for mu
     )
 
     # benchmark settings
@@ -64,8 +71,11 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     println("""
     algorithm:    $(algorithm)
     acceleration? $(options["accel"])
+    linsolver:    $(options["ls"])
     maxiters:     $(options["maxiters"])
     nsamples:     $(options["nsamples"])
+    rho_init:     $(options["rho"])
+    mu_init:      $(options["mu"])
     rtol:         $(options["rtol"])
     atol:         $(options["atol"])
     seed:         $(options["seed"])""")
