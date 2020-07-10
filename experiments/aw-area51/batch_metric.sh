@@ -4,7 +4,7 @@
 JOBNAME=${1}
 
 # set Julia package directory
-PKG=${HOME}/ProximalDistanceAlgorithms
+PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 
 # directory with scripts
 DIR=${PKG}/experiments/aw-area51
