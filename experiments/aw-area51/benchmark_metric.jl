@@ -22,6 +22,14 @@ function metric_projection_interface(args)
             help     = "choice of algorithm"
             arg_type = Symbol
             required = true
+        "--subspace"
+            help     = "subspace size for MMS methods"
+            arg_type = Int
+            default  = 3
+        "--ls"
+            help     = "choice of linear solver"
+            arg_type = Symbol
+            default  = :LSQR
         "--maxiters"
             help     = "maximum iterations"
             arg_type = Int
@@ -33,12 +41,12 @@ function metric_projection_interface(args)
         "--accel"
             help     = "toggles Nesterov acceleration"
             action   = :store_true
-        "--ftol"
-            help     = "tolerance for loss"
+        "--rtol"
+            help     = "relative tolerance on loss"
             arg_type = Float64
             default  = 1e-6
-        "--dtol"
-            help     = "tolerance for distance"
+        "--atol"
+            help     = "absolute tolerance on distance"
             arg_type = Float64
             default  = 1e-6
         "--seed"
@@ -58,8 +66,8 @@ end
 function metric_projection_instance(options)
     n = options["nodes"]
 
-    W, D = metric_example(n, weighted = false)
-    problem = (W = W, D = D)
+    W, Y = metric_example(n, weighted = false)
+    problem = (W = W, Y = Y)
     problem_size = (n = n,)
 
     println("    Metric Projection; $(n) nodes\n")
@@ -69,10 +77,11 @@ end
 
 # inlined wrapper
 @inline function run_metric_projection(algorithm, problem; kwargs...)
-    # ρ_init * (2.0)^(floor(n/250))
-    rho_schedule(ρ, iteration) = iteration % 250 == 0 ? 2.0 * ρ : ρ
+    penalty(ρ, n) = min(1e6, 1.09 ^ floor(n/20))
 
-    metric_projection(algorithm, problem.W, problem.D; penalty = rho_schedule, kwargs...)
+    X = metric_projection(algorithm, problem.Y; penalty = penalty, kwargs...)
+
+    return (X = X,)
 end
 
 function metric_save_results(file, problem, problem_size, solution, cpu_time, memory)
@@ -88,10 +97,10 @@ function metric_save_results(file, problem, problem_size, solution, cpu_time, me
     basefile = splitext(file)[1]
 
     # save input
-    save_array(basefile * ".in", problem.D)
+    save_array(basefile * ".in", problem.Y)
 
     # save solution
-    save_array(basefile * ".out", solution)
+    save_array(basefile * ".out", solution.X)
 
     return nothing
 end

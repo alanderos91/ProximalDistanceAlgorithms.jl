@@ -32,13 +32,26 @@ echo
 # set maximum number of iterations
 MAXITERS=5000
 
+# each algorithm, except ADMM, should be run with Nesterov acceleration
 while read n
     do
-    # no acceleration
-    FNAME=SD_${n}_none
-    jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    # MM
+    FNAME=MM_${n}
+    jlbenchmark --nodes ${n} --algorithm MM --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # Nesterov acceleration
-    FNAME=SD_${n}_nesterov
+    # Steepest Descent
+    FNAME=SD_${n}
     jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    # ADMM
+    FNAME=ADMM_${n}
+    jlbenchmark --nodes ${n} --algorithm ADMM --maxiters ${MAXITERS} --filename ${FNAME}.dat
+
+    # MM Subspace{5}
+    FNAME=MMS5_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    # MM Subspace{10}
+    FNAME=MMS10_${n}
+    jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/metric/jobs/${JOBNAME}.in
