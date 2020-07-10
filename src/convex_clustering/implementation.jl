@@ -266,7 +266,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         end
 
         # decrease ν with a heuristic that guarantees a decrease
-        ν = min(ν - 1, νmax - nconstraint - 1)
+        ν = min(ν - 10, νmax - nconstraint - 1)
         ProgressMeter.update!(prog, ν)
     end
 
