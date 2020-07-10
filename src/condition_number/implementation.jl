@@ -51,7 +51,14 @@ function reduce_cond(algorithm::AlgorithmOption, c, A;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
     D = CondNumFM(c, M, N)
@@ -63,18 +70,39 @@ function reduce_cond(algorithm::AlgorithmOption, c, A;
     Pz = similar(z)                     # cache for P(D*x)
     v = similar(z)                      # cache for D*x - P(D*x)
 
+    # select linear solver, if needed
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        β = zeros(K)
+
+        if ls isa Val{:LSQR}
+            A₁ = LinearMap(I, size(D, 2))
+            A₂ = D
+            A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+            b = similar(typeof(x), size(A, 1))
+            linsolver = LSQRWrapper(A, β, b)
+        elseif ls isa Val{:CG}
+            b = similar(typeof(x), K)
+            linsolver = CGWrapper(G, β, b)
+        end
+    else
+        b = nothing
+        linsolver = nothing
+    end
+
     if algorithm isa ADMM
         s = similar(y)
         r = similar(y)
         mul!(y, D, x)
-        buffers = (z = z, Pz = Pz, v = v, s = s, r = r)
+        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v)
+        buffers = (z = z, Pz = Pz, v = v, b = b)
     end
-
-    # select linear solver, if needed
-    # not used, H⁻¹ has an explicit inverse
-    linsolver = nothing
 
     # create views, if needed
     views = nothing
@@ -196,6 +224,46 @@ function condnum_iter(::ADMM, prob, ρ, μ)
     end
 
     return μ
+end
+
+function condnum_iter(::MMSubSpace, prob, ρ, μ)
+    @unpack x = prob.variables
+    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack D = prob.operators
+    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+
+    # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
+    if linsolver isa LSQRWrapper
+        # build LHS, A = [A₁, A₂] * G
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)
+
+        # build RHS, b = -∇h
+        n = size(A₁, 1)
+        @inbounds for j in 1:size(A₁, 1)
+            b[j] = -∇f[j]   # A₁*x - a
+        end
+        @inbounds for j in eachindex(v)
+            b[n+j] = -√ρ*v[j]
+        end
+    else
+        # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
+        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = MMSOp2(H, G, tmpGx1, tmpGx2)
+
+        # build RHS, b = -G'*∇h
+        mul!(b, G', ∇h)
+        @. b = -b
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, β, A, b)
+
+    # apply the update, x = x + G*β
+    mul!(x, G, β, true, true)
+
+    return norm(β)
 end
 
 #################
