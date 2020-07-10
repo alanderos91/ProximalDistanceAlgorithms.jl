@@ -34,7 +34,14 @@ function denoise_image(algorithm::AlgorithmOption, image;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
     D = ImgTvdFM(n, p)
@@ -51,12 +58,31 @@ function denoise_image(algorithm::AlgorithmOption, image;
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            b = similar(typeof(x), N+M) # b has two block
-            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(G, β, b)
+            end
         else
-            b = similar(x) # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₂, 1))
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x)
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -64,11 +90,19 @@ function denoise_image(algorithm::AlgorithmOption, image;
     end
 
     if algorithm isa ADMM
-        s = similar(y)
+        mul!(y, D, x)
         r = similar(y)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s)
+        s = similar(y)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s, tmpx = tmpx)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -120,7 +154,14 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
     ∇²f = needs_hessian(algorithm) ? I : nothing
-    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        G = zeros(N, K)
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h, G = G)
+    else
+        derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+    end
 
     # generate operators
     D = ImgTvdFM(n, p)
@@ -130,16 +171,35 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    cache = zeros(M-1)  # mirrors block_norm; cache for pivot search
+    cache = zeros(M-1)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
-        if ls isa Val{:LSQR}
-            b = similar(typeof(x), N+M) # b has two blocks
-            linsolver = LSQRWrapper(QuadLHS(LinearMap(I, N), D, 1.0), x, b)
+        if algorithm isa MMSubSpace
+            K = subspace_size(algorithm)
+            β = zeros(K)
+
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSQRWrapper(A, β, b)
+            else
+                b = similar(typeof(x), K)
+                linsolver = CGWrapper(G, β, b)
+            end
         else
-            b = similar(x)  # b has one block
-            linsolver = CGWrapper(D, x, b)
+            if ls isa Val{:LSQR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₂, 1))
+                linsolver = LSQRWrapper(A, x, b)
+            else
+                b = similar(x)
+                linsolver = CGWrapper(D, x, b)
+            end
         end
     else
         b = nothing
@@ -147,11 +207,19 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     end
 
     if algorithm isa ADMM
-        s = similar(y)
+        mul!(y, D, x)
         r = similar(y)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s)
+        s = similar(y)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s, tmpx = tmpx)
+    elseif algorithm isa MMSubSpace
+        tmpGx1 = zeros(N)
+        tmpGx2 = zeros(N)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache)
+        tmpx = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -258,14 +326,16 @@ function imgtvd_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, a = prob.operators
-    @unpack b, Pz = prob.buffers
+    @unpack b, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D,2)), D, √ρ) # A = [I; √ρ*D]
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √ρ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
@@ -275,7 +345,7 @@ function imgtvd_iter(::MM, prob, ρ, μ)
         end
     else
         # assemble LHS
-        A = ProxDistHessian(size(D, 2), ρ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
@@ -292,7 +362,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
     @unpack D, compute_proj, a = prob.operators
-    @unpack z, v, b, cache = prob.buffers
+    @unpack z, v, b, cache, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     # x block update
@@ -301,17 +371,19 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
-        A = QuadLHS(LinearMap(I, size(D,2)), D, √μ) # A = [I; √μ*D]
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = QuadLHS(A₁, A₂, tmpx, √μ) # A = [I; √μ*D]
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
         copyto!(b, 1, a, 1, length(a))
-        for k in eachindex(v)
-            @inbounds b[n+k] = √μ * v[k]
+        @inbounds for k in eachindex(v)
+            b[n+k] = √μ * v[k]
         end
     else
         # assemble LHS
-        A = ProxDistHessian(size(D, 2), μ, ∇²f, D'D)
+        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
@@ -343,4 +415,45 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
     end
 
     return μ
+end
+
+function imgtvd_iter(::MMSubSpace, prob, ρ, μ)
+    @unpack x = prob.variables
+    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack D = prob.operators
+    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    linsolver = prob.linsolver
+
+    # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
+    if linsolver isa LSQRWrapper
+        # build LHS, A = [A₁, A₂] * G
+        A₁ = LinearMap(I, size(D, 2))
+        A₂ = D
+        A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)
+
+        # build RHS, b = -∇h
+        n = size(A₁, 1)
+        @inbounds for j in 1:size(A₁, 1)
+            b[j] = -∇f[j]   # A₁*x - a
+        end
+        @inbounds for j in eachindex(v)
+            b[n+j] = -√ρ*v[j]
+        end
+    else
+        # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
+        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = MMSOp2(H, G, tmpGx1, tmpGx2)
+
+        # build RHS, b = -G'*∇h
+        mul!(b, G', ∇h)
+        @. b = -b
+    end
+
+    # solve the linear system
+    linsolve!(linsolver, β, A, b)
+
+    # apply the update, x = x + G*β
+    mul!(x, G, β, true, true)
+
+    return norm(β)
 end
