@@ -164,6 +164,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 
 # Keyword Arguments
 
+- `stepsize::Float64=0.05`: A value between `0` and `1` that discretizes the search space. If no additional points are found to coalesce, then decrease `nu` by `stepsize*nu_max`.
 - `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
 - `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
@@ -175,6 +176,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
+    stepsize::Real=0.05,
     rho::Real=1.0,
     mu::Real=1.0,
     ls::LS=Val(:LSQR), kwargs...) where LS
@@ -242,7 +244,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
                 A₁ = LinearMap(I, N)
                 A₂ = D
                 A = QuadLHS(A₁, A₂, x, 1.0)
-                b = similar(typeof(x), size(A₂, 1))
+                b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
             else
                 b = similar(x)
@@ -278,7 +280,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     algmap = cvxclst_iter
 
     # allocate output
-    assignment = Int[]
+    assignment = Vector{Int}[]
     ν_path = Int[]
 
     # allocate storage for distance matrix
@@ -305,7 +307,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
 
         # record current solution
-        push!(assignment, assign_classes(X))
+        push!(assignment, assign_classes(X)[2])
         push!(ν_path, ν)
 
         # count satisfied constraints
@@ -317,7 +319,12 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         end
 
         # decrease ν with a heuristic that guarantees a decrease
-        ν = min(ν - 10, νmax - nconstraint - 1)
+        νstep = round(Int, stepsize*νmax)
+        if νmax - nconstraint - 1 < ν
+            ν = νmax - nconstraint - 1
+        else
+            ν = ν - νstep
+        end
         ProgressMeter.update!(prog, ν)
     end
 
