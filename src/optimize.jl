@@ -35,12 +35,15 @@ end
 
 function update_admm_residuals!(prob, μ)
     @unpack y = prob.variables
-    @unpack z, r, s = prob.buffers
-    @. r = z - y        # assumes z = D*x
-    @. s = μ * (y - s)  # assumes s = y_prev
+    @unpack D = prob.operators
+    @unpack z, r, s, y_prev = prob.buffers
+
+    @. r = z - y # assumes z = D*x
+    @. y_prev = μ * (y_prev - y)
+    mul!(s, D', y_prev)
 
     r_error = sqrt(BLAS.nrm2(length(r), r, 1))
-    s_error = sqrt(BLAS.nrm2(length(s), r, 1))
+    s_error = sqrt(BLAS.nrm2(length(s), s, 1))
 
     return r_error, s_error
 end
@@ -68,8 +71,8 @@ apply_before_algmap!(::AlgorithmOption, prob, iteration, ρ, μ) = nothing
 
 function apply_before_algmap!(::ADMM, prob, iteration, ρ, μ)
     @unpack y = prob.variables
-    @unpack s = prob.buffers
-    copyto!(s, y)
+    @unpack y_prev = prob.buffers
+    copyto!(y_prev, y)
     return nothing
 end
 
@@ -80,20 +83,18 @@ end
 
 ##### after algorithm map #####
 
-apply_after_algmap!(::AlgorithmOption, prob, iteration, ρ, μ) = nothing
+apply_after_algmap!(::AlgorithmOption, prob, iteration, ρ, μ) = ρ, μ
 
 function apply_after_algmap!(::ADMM, prob, iteration, ρ, μ)
     r_error, s_error = update_admm_residuals!(prob, μ)
 
     if (r_error / s_error) > 10   # emphasize dual feasibility
         μ = μ * 2
-    end
-
-    if (s_error / r_error) > 10   # emphasize primal feasibility
+    elseif (s_error / r_error) > 10   # emphasize primal feasibility
         μ = μ / 2
     end
 
-    return nothing
+    return ρ, μ
 end
 
 ##### common solution interface #####
@@ -144,7 +145,7 @@ end
         not_converged = check_convergence(loss, dist, rtol, atol)
         iteration += 1
 
-        apply_after_algmap!(algorithm, prob, iteration, ρ, μ)
+        ρ, μ = apply_after_algmap!(algorithm, prob, iteration, ρ, μ)
     end
 
     converged = !not_converged

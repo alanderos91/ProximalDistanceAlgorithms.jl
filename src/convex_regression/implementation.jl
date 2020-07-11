@@ -49,7 +49,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     end
 
     # allocate derivatives
-    ∇f = needs_gradient(algorithm) ? similar(x) : nothing
+    ∇f = needs_gradient(algorithm) ? zero(x) : nothing
     ∇q = needs_gradient(algorithm) ? similar(x) : nothing
     ∇h = needs_gradient(algorithm) ? similar(x) : nothing
 
@@ -121,10 +121,11 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
 
     if algorithm isa ADMM
         mul!(y, D, x)
+        y_prev = similar(y)
         r = similar(y)
-        s = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -290,7 +291,7 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
 
     # λ block update
     @inbounds for j in eachindex(λ)
-        λ[j] = λ[j] + μ * (z[j] - y[j])
+        λ[j] = λ[j] + (z[j] - y[j])
     end
 
     return μ

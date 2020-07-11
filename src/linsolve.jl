@@ -348,7 +348,7 @@ function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
 
     # (2) y₂ = c*A₂*x
     mul!(y₂, op.A₂, x)
-    for k in eachindex(y₂)
+    @inbounds for k in eachindex(y₂)
         y₂[k] *= op.c
     end
 

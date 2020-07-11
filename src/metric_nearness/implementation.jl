@@ -155,10 +155,11 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
 
     if algorithm isa ADMM
         mul!(y, D, x)
-        s = similar(y)
+        y_prev = similar(y)
         r = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -317,7 +318,7 @@ function metric_iter(::ADMM, prob, ρ, μ)
 
     # λ block update
     @inbounds for j in eachindex(λ)
-        λ[j] = λ[j] + μ * (z[j] - y[j])
+        λ[j] = λ[j] + z[j] - y[j]
     end
 
     return μ
