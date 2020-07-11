@@ -6,116 +6,256 @@ weave_options:
 
 
 ```{julia}
-using ProximalDistanceAlgorithms, Plots, UnicodePlots
-using Clustering, 
+using ProximalDistanceAlgorithms
+using Random, Clustering, Plots, DataFrames
 include("plotutils.jl")
-gr(lw = 2)
+```
+
+### Introduction
+
+```{julia}
+@doc convex_clustering
 ```
 
 ```{julia}
-data, labels, nclasses = convex_clustering_data("iris.dat")
+@doc convex_clustering_path
 ```
 
+### Example
+
 ```{julia}
-function solve(img, sparsity, algorithm, maxiters, penalty)
+data, true_classes, nclasses = convex_clustering_data("simulated.dat")
+weights = gaussian_weights(data, phi = 0.0)
+heatmap(data)
+```
+
+#### Setup
+```{julia}
+function solve(weights, data, algorithm, maxiters, penalty; mu = 1.0)
     # track original loss, penalized objective, gradient, etc.
     history = initialize_history(maxiters+1)
 
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
-    # convert to numerical array
-    W = Float64.(img)
-    m, n = size(W)
-    constraints = (m-1)*n + m*(n-1) + 1
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
 
-    if sparsity ≤ 0.5
-        # use a search method that finds the largest elements
-        K = round(Int, sparsity*constraints)
-        o = Base.Order.Reverse
+        # track loss, penalized objective, gradient, etc.
+        # history = initialize_history(maxiters+1)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time convex_clustering_path(algorithm, weights, data,
+            maxiters = 10,
+            penalty = penalty,
+            accel = accel,)
+            # history = history)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        # history = initialize_history(maxiters+1)
+        path = @time convex_clustering_path(algorithm, weights, data,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,)
+            # history = history)
+
+        solution = path.assignment
     else
-        # use a search method that finds the smallest elements
-        K = constraints - round(Int, sparsity*constraints)
-        o = Base.Order.Forward
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        # h1 = initialize_history(maxiters+1)
+        # h2 = initialize_history(maxiters+1)
+        # history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        # for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+        for ls in (Val(:LSQR), Val(:CG))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            tmp = initialize_history(maxiters+1)
+            @time convex_clustering_path(algorithm, weights, data,
+                maxiters = 10,
+                penalty = penalty,
+                accel = accel,
+                # history = tmp,
+                ls = ls,
+                mu = mu)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            path = @time convex_clustering_path(algorithm, weights, data,
+                maxiters = maxiters,
+                penalty = penalty,
+                accel = accel,
+                # history = h,
+                ls = ls,
+                mu = mu)
+
+            push!(sol, path.assignment)
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
     end
 
-    # warm-up
-    @time denoise_image(algorithm, W,
-        maxiters = 100,
-        penalty = penalty,
-        accel = accel,
-        history = history,
-        K = K,
-        o = o)
-
-    # real timing
-    history = initialize_history(maxiters+1)
-    solution = @time denoise_image(algorithm, W,
-        maxiters = maxiters,
-        penalty = penalty,
-        accel = accel,
-        history = history,
-        K = K,
-        o = o)
-
-    return solution, history
+    # return solution, history
+    return solution
 end
 ```
 
 ### Fusion matrix
 
 ```{julia}
-D = ImgTvdFM(size(noisy)...)
+D = CvxClusterFM(size(data)...); S = instantiate_fusion_matrix(D)
+size(D)
 ```
 
-### Annealing schedule
+```{julia}
+unicodeplots()
+spy(S)
+```
 
 ```{julia}
-penalty(ρ₀, n) = min(1e6, 1.2 ^ floor(n/20))
+spy(S'S)
+```
+
+#### Annealing schedules
+
+```{julia}
+penalty(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
+gr(linewidth=2)
 
 maxiters = 2000
 xs = 1:maxiters
-ys = penalty.(1, xs)
-plot(xs, ys, legend = nothing)
+plot(xs, penalty.(1, xs), legend = nothing)
+xlabel!("iteration")
+ylabel!("rho")
 ```
 
 ### MM
 
 ```{julia}
-solution_MM, trace_MM = solve(noisy, 0.2, MM(), maxiters, penalty)
-solution_MM
-```
-
-```{julia}
-plot_summary(trace_MM)
+MM_sol = solve(weights, data, MM(), maxiters, penalty)
 ```
 
 ### Steepest Descent
 
 ```{julia}
-solution_SD, trace_SD = solve(noisy, 0.2, SteepestDescent(), maxiters, penalty)
-solution_SD
-```
-
-```{julia}
-plot_summary(trace_SD)
+SD_sol = solve(weights, data, SteepestDescent(), maxiters, penalty)
 ```
 
 ### ADMM
 
 ```{julia}
-solution_ADMM, trace_ADMM = solve(noisy, 0.2, ADMM(), maxiters, penalty)
-solution_ADMM
-```
-
-```{julia}
-plot_summary(trace_ADMM)
+ADMM_sol = solve(weights, data, ADMM(), maxiters, penalty, mu = 5e-2)
 ```
 
 ### Quality of solutions
 
 ```{julia}
-[Gray.(solution_MM) Gray.(solution_SD) Gray.(solution_ADMM)]
+df = DataFrame(algoriths = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"])
+
+function classify_ari(sol, ref)
+    ARI, index = findmax([Clustering.randindex(c, ref)[1] for c in sol])
+    return ARI, length(unique(sol[index]))
+end
+
+function classify_vi(sol, ref)
+    VI, index = findmin([Clustering.varinfo(c, ref) for c in sol])
+    return VI, length(unique(sol[index]))
+end
+
+function classify_mi(sol, ref)
+    MI, index = findmax([Clustering.mutualinfo(c, ref) for c in sol])
+    return MI, length(unique(sol[index]))
+end
+
+# report minimal adjusted Rand index
+MM_LSQR_ARI = classify_ari(MM_sol.lsqr, true_classes)
+MM_CG_ARI = classify_ari(MM_sol.cg, true_classes)
+SD_ARI = classify_ari(SD_sol, true_classes)
+ADMM_LSQR_ARI = classify_ari(ADMM_sol.lsqr, true_classes)
+ADMM_CG_ARI = classify_ari(ADMM_sol.cg, true_classes)
+
+df[!,:ARI] = [
+    MM_LSQR_ARI[1],
+    MM_CG_ARI[1],
+    SD_ARI[1],
+    ADMM_LSQR_ARI[1],
+    ADMM_CG_ARI[1]
+]
+
+# report best clustering by ARI
+df[!,:ARI_clusters] = [
+    MM_LSQR_ARI[2],
+    MM_CG_ARI[2],
+    SD_ARI[2],
+    ADMM_LSQR_ARI[2],
+    ADMM_CG_ARI[2]
+]
+
+# report maximum variation of information
+MM_LSQR_VI = classify_vi(MM_sol.lsqr, true_classes)
+MM_CG_VI = classify_vi(MM_sol.cg, true_classes)
+SD_VI = classify_vi(SD_sol, true_classes)
+ADMM_LSQR_VI = classify_vi(ADMM_sol.lsqr, true_classes)
+ADMM_CG_VI = classify_vi(ADMM_sol.cg, true_classes)
+
+df[!,:VI] = [
+    MM_LSQR_VI[1],
+    MM_CG_VI[1],
+    SD_VI[1],
+    ADMM_LSQR_VI[1],
+    ADMM_CG_VI[1]
+]
+
+# report best clustering by VI
+df[!,:VI_clusters] = [
+    MM_LSQR_VI[2],
+    MM_CG_VI[2],
+    SD_VI[2],
+    ADMM_LSQR_VI[2],
+    ADMM_CG_VI[2]
+]
+
+# report maximum mutual information
+MM_LSQR_MI = classify_mi(MM_sol.lsqr, true_classes)
+MM_CG_MI = classify_mi(MM_sol.cg, true_classes)
+SD_MI = classify_mi(SD_sol, true_classes)
+ADMM_LSQR_MI = classify_mi(ADMM_sol.lsqr, true_classes)
+ADMM_CG_MI = classify_mi(ADMM_sol.cg, true_classes)
+
+df[!,:MI] = [
+    MM_LSQR_MI[1],
+    MM_CG_MI[1],
+    SD_MI[1],
+    ADMM_LSQR_MI[1],
+    ADMM_CG_MI[1]
+]
+
+# report best clustering by VI
+df[!,:MI_clusters] = [
+    MM_LSQR_MI[2],
+    MM_CG_MI[2],
+    SD_MI[2],
+    ADMM_LSQR_MI[2],
+    ADMM_CG_MI[2]
+]
+
+df
 ```
 
 ### Appendix
