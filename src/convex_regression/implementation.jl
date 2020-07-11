@@ -71,8 +71,9 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     end
 
     # generate operators
-    # D = instantiate_fusion_matrix(CvxRegFM(covariates))
-    D = CvxRegFM(covariates)
+    D = instantiate_fusion_matrix(CvxRegFM(covariates))
+    DtD = D'D
+    # D = CvxRegFM(covariates)
     a = response
     P(x) = min.(x, 0)
     # A₁ = [LinearMap(I, n) LinearMap(spzeros(n, n*d))]
@@ -80,7 +81,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     for j in 1:n
         A₁[j,j] = 1
     end
-    operators = (D = D, P = P, A₁ = A₁, a = a)
+    operators = (D = D, DtD = DtD, P = P, A₁ = A₁, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -209,7 +210,7 @@ end
 function cvxreg_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, A₁, a = prob.operators   # a is bound to response
+    @unpack D, DtD, A₁, a = prob.operators   # a is bound to response
     @unpack b, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
 
@@ -228,7 +229,7 @@ function cvxreg_iter(::MM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        A = ProxDistHessian(∇²f, DtD, tmpx, ρ)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
@@ -247,7 +248,7 @@ end
 function cvxreg_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, A₁, P, a = prob.operators
+    @unpack D, DtD, A₁, P, a = prob.operators
     @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
@@ -267,7 +268,7 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
         end
     else
         # LHS of A*x = b is already stored
-        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
+        A = ProxDistHessian(∇²f, DtD, tmpx, μ)
 
         # build RHS of A*x = b; b = a + μ*D'(y-λ)
         mul!(b, D', v)
@@ -298,7 +299,7 @@ end
 function cvxreg_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
-    @unpack D, A₁ = prob.operators
+    @unpack D, DtD, A₁ = prob.operators
     @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
 
@@ -318,7 +319,7 @@ function cvxreg_iter(::MMSubSpace, prob, ρ, μ)
         end
     else
         # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
-        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        H = ProxDistHessian(∇²f, DtD, tmpx, ρ)
         A = MMSOp2(H, G, tmpGx1, tmpGx2)
 
         # build RHS, b = -G'*∇h
