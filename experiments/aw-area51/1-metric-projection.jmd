@@ -1,0 +1,87 @@
+---
+title: Example 1, Metric Projection
+---
+
+```{julia; echo=false; results="hidden"}
+include("../plotutils.jl")
+include("../tableutils.jl")
+```
+
+Benchmarks were run with 3 different algorithms with different linear solvers (LSQR or CG) where applicable.
+Nesterov acceleration is used except in the case of ADMM.
+For ADMM, we used a heuristic to update the step size $\mu$ that keeps primal and dual residuals close to each other (within 1 order of magnitude).
+The annealing schedule is set to $\rho_{n} = \min\{10^{6}, 1.09^{\lfloor n / 20\rfloor}\}$, meaning $\rho_{n}$ is multiplied by 1.09 every 20 iterations.
+
+Convergene is assessed using relative and absolute tolerance parameters, $\epsilon_{1}$ and $\epsilon_{2}$, applied as follows:
+
+1. change in loss, $|f_{n} - f_{n-1}| \le \epsilon_{1} (1 + |f_{n-1}|)$
+2. change in distance, $|q_{n} - q_{n-1}| \le \epsilon_{1} (1 + |q_{n-1}|)$
+3. squared distance, $q_{n}^{2} \le \epsilon_{2}$
+
+Here $f_{n}$ and $q_{n}$ correspond to terms appearing in the penalized objective $h_{\rho}(x_{n}) = f(x_{n}) + \frac{\rho}{2} q(x_{n})^{2}$.
+Each run is alloted a maxium of $5 \times 10^{3}$ iterations to achieve convergence with the choices $\epsilon_{1} = 10^{-6}$ and $\epsilon_{2} = 10^{-6}$.
+
+Results for CPU time and memory use are averaged over 10 runs using `@elapsed`.
+
+### MM Algorithm
+
+##### LSQR
+```{julia}
+df = summary_table("metric", "MM_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("metric", "MM_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### Steepest Descent
+
+```{julia}
+df = summary_table("metric", "SD")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### ADMM
+
+##### LSQR
+```{julia}
+df = summary_table("metric", "ADMM_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("metric", "ADMM_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### MM Subspace (5)
+
+##### LSQR
+```{julia}
+df = summary_table("metric", "MMS5_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("metric", "MMS5_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### MM Subspace (10)
+
+##### LSQR
+```{julia}
+df = summary_table("metric", "MMS10_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("metric", "MMS10_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
