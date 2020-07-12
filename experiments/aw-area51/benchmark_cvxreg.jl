@@ -53,7 +53,7 @@ function cvxreg_interface(args)
         "--atol"
             help     = "absolute tolerance on distance"
             arg_type = Float64
-            default  = 1e-6
+            default  = 1e-4
         "--rho"
             help     = "initial value for penalty coefficient"
             arg_type = Float64
@@ -93,7 +93,7 @@ end
 @inline function run_cvxreg(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
-    penalty(ρ, n) = min(1e6, ρ0 * 1.01 ^ floor(n/20))
+    penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
 
     θ, ξ = cvxreg_fit(algorithm, problem.y, problem.X; penalty = penalty, kwargs...)
 

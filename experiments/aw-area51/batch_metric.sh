@@ -10,7 +10,7 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 DIR=${PKG}/experiments/aw-area51
 
 # directory to Julia
-JLDIR=${HOME}/julia-1.5
+JLDIR=${HOME}/julia-1.5/bin
 
 # function for running benchmark
 jlbenchmark () {
@@ -33,7 +33,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=5000
+MAXITERS=3000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read n

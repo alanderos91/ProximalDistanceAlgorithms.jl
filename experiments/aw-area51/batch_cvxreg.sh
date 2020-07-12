@@ -14,7 +14,7 @@ JLDIR=${HOME}/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_cvxreg.jl "$@";
+    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_cvxreg.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -33,7 +33,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=5000
+MAXITERS=3000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read probsize
