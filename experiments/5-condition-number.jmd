@@ -20,7 +20,7 @@ include("plotutils.jl")
 
 ```{julia}
 Random.seed!(5357)
-M = matrixdepot("randcorr", 100)
+M = matrixdepot("randcorr", 1000)
 cond(M)
 ```
 
@@ -36,8 +36,14 @@ function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
-    if algorithm isa SteepestDescent
-        println("Steepest Descent + Nesterov")
+    if !(algorithm isa MMSubSpace)
+        if algorithm isa SteepestDescent
+            println("Steepest Descent + Nesterov")
+        elseif algorithm isa MM
+            println("MM + Nesterov")
+        else
+            println("ADMM")
+        end
 
         # track loss, penalized objective, gradient, etc.
         history = initialize_history(maxiters+1)
@@ -49,6 +55,7 @@ function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
             maxiters = 100,
             penalty = penalty,
             accel = accel,
+            ls = nothing,
             history = history)
 
         # real timing
@@ -59,33 +66,46 @@ function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
             maxiters = maxiters,
             penalty = penalty,
             accel = accel,
+            ls = nothing,
             history = history)
     else
-        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
-        println(algstr)
-
         # track loss, penalized objective, gradient, etc.
-        history = initialize_history(maxiters+1)
+        h1 = initialize_history(maxiters+1)
+        h2 = initialize_history(maxiters+1)
+        history = (lsqr = h1, cg = h2)
 
-        println(" | warm-up:")
-        print(" | ")
-        @time reduce_cond(algorithm, c, F,
-            maxiters = 100,
-            penalty = penalty,
-            accel = accel,
-            history = history,
-            mu = mu)
+        sol = []
 
-        # real timing
-        println(" | result:")
-        print(" | ")
-        history = initialize_history(maxiters+1)
-        solution = @time reduce_cond(algorithm, c, F,
-            maxiters = maxiters,
-            penalty = penalty,
-            accel = accel,
-            history = history,
-            mu = mu)
+        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+            K = ProximalDistanceAlgorithms.subspace_size(algorithm)
+            println("MMSubSpace w/ $(K) descent directions")
+
+            println(" | warm-up:")
+            print(" | ")
+            tmp = initialize_history(maxiters+1)
+            @time reduce_cond(algorithm, c, F,
+                maxiters = 100,
+                penalty = penalty,
+                accel = accel,
+                history = tmp,
+                ls = ls,
+                mu = mu)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            s = @time reduce_cond(algorithm, c, F,
+                maxiters = maxiters,
+                penalty = penalty,
+                accel = accel,
+                history = h,
+                ls = ls,
+                mu = mu)
+
+            push!(sol, s)
+        end
+
+        solution = (lsqr = sol[1], cg = sol[2])
     end
 
     return solution, history
@@ -139,8 +159,20 @@ plot_summary(SD_trace)
 #### ADMM
 
 ```{julia}
-ADMM_sol, ADMM_trace = solve(c, F, ADMM(), maxiters, penalty, mu = 5e-1)
+ADMM_sol, ADMM_trace = solve(c, F, ADMM(), maxiters, penalty)
 plot_summary(ADMM_trace)
+```
+
+#### MMSubspace
+
+```{julia}
+MMS5_sol, MMS5_trace = solve(c, F, MMSubSpace(5), maxiters, penalty)
+plot_summary(MMS5_trace.lsqr)
+```
+
+```{julia}
+MMS10_sol, MMS10_trace = solve(c, F, MMSubSpace(10), maxiters, penalty)
+plot_summary(MMS10_trace.cg)
 ```
 
 ### Quality of solutions
@@ -156,7 +188,10 @@ A,B \in \mathbb{R}^{p \times p}
 $$
 
 ```{julia}
-df = table_summary(MM_trace, SD_trace, ADMM_trace, ls=false)
+algname = [
+    "MM", "SD", "ADMM", "MMS(5) + LSQR", "MMS(5) + CG", "MMS(10) + LSQR", "MMS(10) + CG"
+]
+df = table_summary(MM_trace, SD_trace, ADMM_trace, MMS5_trace.lsqr, MMS5_trace.cg, MMS10_trace.lsqr, MMS10_trace.cg, algname = algname)
 
 fidelity(A, B) = 100 * sum(1 .- abs.(sign.(A) .- sign.(B))) / length(B)
 
@@ -164,6 +199,10 @@ df[!, :fidelity] = [
     fidelity(MM_sol, M),
     fidelity(SD_sol, M),
     fidelity(ADMM_sol, M),
+    fidelity(MMS5_sol.lsqr, M),
+    fidelity(MMS5_sol.cg, M),
+    fidelity(MMS10_sol.lsqr, M),
+    fidelity(MMS10_sol.cg, M),
 ]
 
 df

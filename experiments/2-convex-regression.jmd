@@ -130,14 +130,12 @@ spy(S'S)
 #### Annealing schedules
 
 ```{julia}
-penalty1(ρ, n) = min(10.0, 2.0 ^ floor(n/100))
-penalty2(ρ, n) = min(10.0, 2.0 ^ floor(n/100))
+penalty(ρ, n) = min(1e3, 1.1 ^ floor(n/20))
 gr(linewidth=2)
 
 maxiters = 1000
 xs = 1:maxiters
-plot(xs, penalty1.(1, xs), label = "MM/SD")
-plot!(xs, penalty2.(1, xs), label = "ADMM")
+plot(xs, penalty.(1.0, xs), legend = nothing)
 xlabel!("iteration")
 ylabel!("rho")
 ```
@@ -145,7 +143,7 @@ ylabel!("rho")
 ##### MM
 
 ```{julia}
-MM_sol, MM_trace = solve(response, covariates, MM(), maxiters, penalty1)
+MM_sol, MM_trace = solve(response, covariates, MM(), maxiters, penalty)
 plot_summary(MM_trace.lsqr)
 ```
 
@@ -156,14 +154,14 @@ plot_summary(MM_trace.cg)
 ### Steepest Descent
 
 ```{julia}
-SD_sol, SD_trace = solve(response, covariates, SteepestDescent(), maxiters, penalty2);
+SD_sol, SD_trace = solve(response, covariates, SteepestDescent(), maxiters, penalty);
 plot_summary(SD_trace)
 ```
 
 ### ADMM
 
 ```{julia}
-ADMM_sol, ADMM_trace = solve(response, covariates, ADMM(), maxiters, penalty2, mu = 1e-1)
+ADMM_sol, ADMM_trace = solve(response, covariates, ADMM(), maxiters, penalty)
 plot_summary(ADMM_trace.lsqr)
 ```
 
@@ -174,7 +172,7 @@ plot_summary(ADMM_trace.cg)
 ### MM Subspace
 
 ```{julia}
-MMS3_sol, MMS3_trace = solve(response, covariates, MMSubSpace(3), maxiters, penalty2);
+MMS3_sol, MMS3_trace = solve(response, covariates, MMSubSpace(3), maxiters, penalty);
 plot_summary(MMS3_trace.lsqr)
 ```
 
@@ -183,7 +181,7 @@ plot_summary(MMS3_trace.cg)
 ```
 
 ```{julia}
-MMS5_sol, MMS5_trace = solve(response, covariates, MMSubSpace(5), maxiters, penalty2);
+MMS5_sol, MMS5_trace = solve(response, covariates, MMSubSpace(5), maxiters, penalty);
 plot_summary(MMS5_trace.lsqr)
 ```
 
@@ -192,7 +190,7 @@ plot_summary(MMS5_trace.cg)
 ```
 
 ```{julia}
-MMS10_sol, MMS10_trace = solve(response, covariates, MMSubSpace(10), maxiters, penalty2);
+MMS10_sol, MMS10_trace = solve(response, covariates, MMSubSpace(10), maxiters, penalty);
 plot_summary(MMS10_trace.lsqr)
 ```
 
