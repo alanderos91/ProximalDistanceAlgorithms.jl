@@ -105,7 +105,7 @@ end
     history::histT    = nothing,
     rtol::Real        = 1e-6,
     atol::Real        = 1e-4,
-    accel::accelT     = Val(:none)) where {histT, accelT}
+    accel::accelT     = Val(:none), kwargs...) where {histT, accelT}
     #
     # select acceleration algorithm
     accelerator = get_accelerator(accel, prob.variables)
