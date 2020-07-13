@@ -50,7 +50,7 @@ function cvxcluster_interface(args)
         "--atol"
             help     = "absolute tolerance on distance"
             arg_type = Float64
-            default  = 1e-6
+            default  = 1e-5
         "--rho"
             help     = "initial value for penalty coefficient"
             arg_type = Float64

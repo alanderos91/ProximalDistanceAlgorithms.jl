@@ -14,7 +14,7 @@ JLDIR=${HOME}/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_cvxcluster.jl "$@";
+    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_cvxcluster.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -33,7 +33,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=5000
+MAXITERS=3000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 
@@ -57,17 +57,17 @@ while read dataset
     FNAME=ADMM_CG_${dataset}
     jlbenchmark --data ${dataset} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
-    # MM Subspace{5}
-    FNAME=MMS5_LSQR_${dataset}
-    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    FNAME=MMS5_CG_${dataset}
-    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    # MM Subspace{10}
-    FNAME=MMS10_LSQR_${dataset}
-    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    FNAME=MMS10_CG_${dataset}
-    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+#    # MM Subspace{5}
+#    FNAME=MMS5_LSQR_${dataset}
+#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+#
+#    FNAME=MMS5_CG_${dataset}
+#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+#
+#    # MM Subspace{10}
+#    FNAME=MMS10_LSQR_${dataset}
+#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+#
+#    FNAME=MMS10_CG_${dataset}
+#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/cvxcluster/jobs/${JOBNAME}.in
