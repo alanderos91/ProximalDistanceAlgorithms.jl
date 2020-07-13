@@ -29,7 +29,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 """
 function reduce_cond(algorithm::AlgorithmOption, c, A;
     rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
-    if !(ls === nothing)
+    if !(algorithm isa MMSubSpace) && !(ls === nothing)
         @warn "Iterative linear solver not required. Option $(ls) will be ignored."
     end
     #
@@ -93,10 +93,11 @@ function reduce_cond(algorithm::AlgorithmOption, c, A;
     end
 
     if algorithm isa ADMM
-        s = similar(y)
-        r = similar(y)
         mul!(y, D, x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r)
+        y_prev = similar(y)
+        r = similar(y)
+        s = similar(x)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -222,7 +223,7 @@ function condnum_iter(::ADMM, prob, ρ, μ)
 
     # λ block update
     @simd for j in eachindex(λ)
-        @inbounds λ[j] = λ[j] + μ * (z[j] - y[j])
+        @inbounds λ[j] = λ[j] + z[j] - y[j]
     end
 
     return μ
@@ -233,6 +234,7 @@ function condnum_iter(::MMSubSpace, prob, ρ, μ)
     @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
     @unpack D = prob.operators
     @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    linsolver = prob.linsolver
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper
