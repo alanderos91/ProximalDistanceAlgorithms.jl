@@ -86,13 +86,6 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     cpu_time  = Vector{Float64}(undef, nsamples)
     memory    = Vector{Float64}(undef, nsamples)
 
-    # generate convergence history
-    print("Extracting convergence history...")
-    history = initialize_history(options["maxiters"], 1)
-    other_kwargs = (kwargs..., history = history)
-    solution = @time run_solver(algorithm, problem; other_kwargs...)
-    println()
-
     # make sure correct method gets pre-compiled (no history kwarg)
     print("Pre-compiling...")
     @time begin @timed run_solver(algorithm, problem; kwargs...) end
@@ -109,6 +102,13 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         mu       = options["mu"],       # initial value for mu
         stepsize = get(options, "step", 0.0), # get step size for path algorithm
     )
+
+    # generate convergence history
+    print("Extracting convergence history...")
+    history = initialize_history(options["maxiters"], 1)
+    other_kwargs = (kwargs..., history = history)
+    solution = @time run_solver(algorithm, problem; other_kwargs...)
+    println()
 
     # run the benchmark
     println("Starting benchmark...")
