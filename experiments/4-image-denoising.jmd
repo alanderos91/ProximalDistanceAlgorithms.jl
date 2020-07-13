@@ -5,61 +5,121 @@ weave_options:
 ---
 
 ```{julia}
-using ProximalDistanceAlgorithms, Plots, UnicodePlots
-using Random, Images, TestImages, LinearAlgebra
+using ProximalDistanceAlgorithms, Plots
+using Images, TestImages
+using LinearAlgebra, Statistics, DataFrames
 include("plotutils.jl")
-gr(lw = 2)
+```
+
+### Introduction
+
+```{julia}
+@doc denoise_image
 ```
 
 ```{julia}
-Random.seed!(5357)
+@doc denoise_image_path
+```
+
+### Example
+
+```{julia}
 cameraman = testimage("cameraman")
-cameraman = cameraman[33:end-33,33:end-100]
+cameraman = cameraman[65:end-64,65:end-64]
 noisy = Gray.(cameraman .+ 0.2 * randn(size(cameraman)))
 [cameraman noisy]
 ```
 
-```{julia}
-function solve(img, sparsity, algorithm, maxiters, penalty)
-    # track original loss, penalized objective, gradient, etc.
-    history = initialize_history(maxiters+1)
+#### Setup
 
+```{julia}
+MSE(A, B) = mean((A .- B) .^ 2)
+
+function solve(img, truth, algorithm, maxiters, penalty; mu = 1.0)
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
 
     # convert to numerical array
     W = Float64.(img)
     m, n = size(W)
-    constraints = (m-1)*n + m*(n-1) + 1
 
-    if sparsity ≤ 0.5
-        # use a search method that finds the largest elements
-        K = round(Int, sparsity*constraints)
-        o = Base.Order.Reverse
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
+
+        # track loss, penalized objective, gradient, etc.
+        history = initialize_history(maxiters+1)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time denoise_image_path(algorithm, W,
+            maxiters = 10,
+            penalty = penalty,
+            accel = accel,
+            stepsize = 0.5,
+            history = history)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history = initialize_history(maxiters+1)
+        path = @time denoise_image_path(algorithm, W,
+            maxiters = maxiters,
+            penalty = penalty,
+            accel = accel,
+            stepsize = 0.05,
+            history = history)
+        mse = [MSE(observed, truth) for observed in path.img]
+        solution = (mse = mse, nu = path.nu)
     else
-        # use a search method that finds the smallest elements
-        K = constraints - round(Int, sparsity*constraints)
-        o = Base.Order.Forward
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        h1 = initialize_history(maxiters+1)
+        h2 = initialize_history(maxiters+1)
+        history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+        # for ls in (Val(:LSQR), Val(:CG))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            tmp = initialize_history(maxiters+1)
+            @time denoise_image_path(algorithm, W,
+                maxiters = 10,
+                penalty = penalty,
+                accel = accel,
+                stepsize = 0.5,
+                history = tmp,
+                ls = ls,
+                mu = mu)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            path = @time denoise_image_path(algorithm, W,
+                maxiters = maxiters,
+                penalty = penalty,
+                accel = accel,
+                history = h,
+                ls = ls,
+                mu = mu,
+                stepsize = 0.05,)
+
+            mse = [MSE(observed, truth) for observed in path.img]
+            push!(sol, (mse = mse, nu = path.nu))
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
     end
-
-    # warm-up
-    @time denoise_image(algorithm, W,
-        maxiters = 100,
-        penalty = penalty,
-        accel = accel,
-        history = history,
-        K = K,
-        o = o)
-
-    # real timing
-    history = initialize_history(maxiters+1)
-    solution = @time denoise_image(algorithm, W,
-        maxiters = maxiters,
-        penalty = penalty,
-        accel = accel,
-        history = history,
-        K = K,
-        o = o)
 
     return solution, history
 end
@@ -69,66 +129,66 @@ end
 
 ```{julia}
 D = ImgTvdFM(size(noisy)...)
-Dt = D'
-DtD = D'D
-
-x = vec(Float64.(noisy))
-z = zeros(size(D, 1))
-y = similar(x)
-
-@time mul!(z, D, x);
-@time mul!(y, Dt, z);
-@time mul!(y, DtD, x);
+size(D)
 ```
 
-### Annealing schedule
+#### Annealing schedules
 
 ```{julia}
-penalty(ρ₀, n) = min(1e6, 1.2 ^ floor(n/20))
+penalty(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
+gr(linewidth=2)
 
-maxiters = 500
+maxiters = 200
 xs = 1:maxiters
-ys = penalty.(1, xs)
-plot(xs, ys, legend = nothing)
+plot(xs, penalty.(1, xs), legend = nothing)
+xlabel!("iteration")
+ylabel!("rho")
 ```
 
 ### MM
 
 ```{julia}
-solution_MM, trace_MM = solve(noisy, 0.2, MM(), maxiters, penalty)
-solution_MM
-```
-
-```{julia}
-plot_summary(trace_MM)
+MM_sol, MM_trace = solve(noisy, cameraman, MM(), maxiters, penalty)
+nothing
 ```
 
 ### Steepest Descent
 
 ```{julia}
-solution_SD, trace_SD = solve(noisy, 0.2, SteepestDescent(), maxiters, penalty)
-solution_SD
-```
-
-```{julia}
-plot_summary(trace_SD)
+SD_sol, SD_trace = solve(noisy, cameraman, SteepestDescent(), maxiters, penalty)
+nothing
 ```
 
 ### ADMM
 
 ```{julia}
-solution_ADMM, trace_ADMM = solve(noisy, 0.2, ADMM(), maxiters, penalty)
-solution_ADMM
+ADMM_sol, ADMM_trace = solve(noisy, cameraman, ADMM(), maxiters, penalty)
+nothing
 ```
 
-```{julia}
-plot_summary(trace_ADMM)
-```
 
 ### Quality of solutions
 
 ```{julia}
-[Gray.(solution_MM) Gray.(solution_SD) Gray.(solution_ADMM)]
+algorithms = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"]
+
+function imgtvd_summary(sol, noisy)
+    MSE, k = findmin(sol.mse)
+    return sol.nu[k], MSE
+end
+
+MM1 = imgtvd_summary(MM_sol.lsqr, noisy)
+MM2 = imgtvd_summary(MM_sol.cg, noisy)
+SD = imgtvd_summary(SD_sol, noisy)
+ADMM1 = imgtvd_summary(ADMM_sol.lsqr, noisy)
+ADMM2 = imgtvd_summary(ADMM_sol.cg, noisy)
+
+df = DataFrame(algorithms = algorithms)
+
+df[!, :sparsity] = [MM1[1], MM2[1], SD[1], ADMM1[1], ADMM2[1]]
+df[!,:MSE] = [MM1[2], MM2[2], SD[2], ADMM1[2], ADMM2[2]]
+
+df
 ```
 
 ### Appendix

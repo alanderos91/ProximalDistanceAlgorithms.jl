@@ -37,12 +37,13 @@ function solve(weights, data, algorithm, maxiters, penalty; mu = 1.0)
 
     # use Nesterov acceleration unless we're running ADMM
     accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+    nvalues = 5
 
     if algorithm isa SteepestDescent
         println("Steepest Descent + Nesterov")
 
         # track loss, penalized objective, gradient, etc.
-        # history = initialize_history(maxiters+1)
+        history = initialize_history(nvalues)
 
         # warm-up
         println(" | warm-up:")
@@ -50,34 +51,33 @@ function solve(weights, data, algorithm, maxiters, penalty; mu = 1.0)
         @time convex_clustering_path(algorithm, weights, data,
             maxiters = 10,
             penalty = penalty,
-            accel = accel,)
-            # history = history)
+            accel = accel,
+            stepsize = 0.5,
+            history = history)
 
         # real timing
         println(" | result:")
         print(" | ")
-        # history = initialize_history(maxiters+1)
-        path = @time convex_clustering_path(algorithm, weights, data,
+        history = initialize_history(nvalues)
+        solution = @time convex_clustering_path(algorithm, weights, data,
             maxiters = maxiters,
             penalty = penalty,
-            accel = accel,)
-            # history = history)
-
-        solution = path.assignment
+            accel = accel,
+            stepsize = 5e-3,
+            history = history)
     else
         algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
         println(algstr)
 
         # track loss, penalized objective, gradient, etc.
-        # h1 = initialize_history(maxiters+1)
-        # h2 = initialize_history(maxiters+1)
-        # history = (lsqr = h1, cg = h2)
+        h1 = initialize_history(nvalues)
+        h2 = initialize_history(nvalues)
+        history = (lsqr = h1, cg = h2)
 
         # store solutions
         sol = []
 
-        # for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
-        for ls in (Val(:LSQR), Val(:CG))
+        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
             lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
             println(" |")
             println(" | linear solver: $(lsstr)")
@@ -85,14 +85,15 @@ function solve(weights, data, algorithm, maxiters, penalty; mu = 1.0)
             # warm-up
             println(" | warm-up:")
             print(" | ")
-            tmp = initialize_history(maxiters+1)
+            tmp = initialize_history(nvalues)
             @time convex_clustering_path(algorithm, weights, data,
                 maxiters = 10,
                 penalty = penalty,
                 accel = accel,
-                # history = tmp,
+                history = tmp,
                 ls = ls,
-                mu = mu)
+                mu = mu,
+                stepsize = 0.5)
 
             # real timing
             println(" | result:")
@@ -101,18 +102,18 @@ function solve(weights, data, algorithm, maxiters, penalty; mu = 1.0)
                 maxiters = maxiters,
                 penalty = penalty,
                 accel = accel,
-                # history = h,
+                history = h,
                 ls = ls,
-                mu = mu)
+                mu = mu,
+                stepsize = 5e-3)
 
-            push!(sol, path.assignment)
+            push!(sol, (assignment = path.assignment, nu = path.nu))
         end
 
         solution = (lsqr=sol[1], cg=sol[2])
     end
 
-    # return solution, history
-    return solution
+    return solution, history
 end
 ```
 
@@ -148,19 +149,19 @@ ylabel!("rho")
 ### MM
 
 ```{julia}
-MM_sol = solve(weights, data, MM(), maxiters, penalty)
+MM_sol, MM_trace = solve(weights, data, MM(), maxiters, penalty);
 ```
 
 ### Steepest Descent
 
 ```{julia}
-SD_sol = solve(weights, data, SteepestDescent(), maxiters, penalty)
+SD_sol, SD_trace = solve(weights, data, SteepestDescent(), maxiters, penalty);
 ```
 
 ### ADMM
 
 ```{julia}
-ADMM_sol = solve(weights, data, ADMM(), maxiters, penalty, mu = 5e-2)
+ADMM_sol, ADMM_trace = solve(weights, data, ADMM(), maxiters, penalty);
 ```
 
 ### Quality of solutions
@@ -169,19 +170,34 @@ ADMM_sol = solve(weights, data, ADMM(), maxiters, penalty, mu = 5e-2)
 df = DataFrame(algoriths = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"])
 
 function classify_ari(sol, ref)
-    ARI, index = findmax([Clustering.randindex(c, ref)[1] for c in sol])
-    return ARI, length(unique(sol[index]))
+    cs = sol.assignment
+    νs = sol.nu
+    ARI, index = findmax([Clustering.randindex(c, ref)[1] for c in cs])
+    return ARI, length(unique(cs[index])), νs[index]
 end
 
 function classify_vi(sol, ref)
-    VI, index = findmin([Clustering.varinfo(c, ref) for c in sol])
-    return VI, length(unique(sol[index]))
+    cs = sol.assignment
+    νs = sol.nu
+    VI, index = findmin([Clustering.varinfo(c, ref) for c in cs])
+    return VI, length(unique(cs[index])), νs[index]
 end
 
 function classify_mi(sol, ref)
-    MI, index = findmax([Clustering.mutualinfo(c, ref) for c in sol])
-    return MI, length(unique(sol[index]))
+    cs = sol.assignment
+    νs = sol.nu
+    MI, index = findmax([Clustering.mutualinfo(c, ref) for c in cs])
+    return MI, length(unique(cs[index])), νs[index]
 end
+
+# report iteration count
+df[!,:iteration] = [
+    MM_trace.lsqr.iteration[end],
+    MM_trace.cg.iteration[end],
+    SD_trace.iteration[end],
+    ADMM_trace.lsqr.iteration[end],
+    ADMM_trace.cg.iteration[end],
+]
 
 # report minimal adjusted Rand index
 MM_LSQR_ARI = classify_ari(MM_sol.lsqr, true_classes)
