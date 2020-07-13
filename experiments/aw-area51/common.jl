@@ -50,7 +50,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
 
     # package keyword arguments into NamedTuple
     kwargs = (
-        maxiters = options["maxiters"], # maximum iterations
+        maxiters = 50, # maximum iterations
         accel    = accel,               # toggle Nesterov acceleration
         rtol     = options["rtol"],     # relative tolerance in loss
         atol     = options["atol"],     # absolute tolerance for distance
@@ -80,6 +80,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     rtol:         $(options["rtol"])
     atol:         $(options["atol"])
     seed:         $(options["seed"])""")
+    flush(STDOUT)
 
     # benchmark data
     cpu_time  = Vector{Float64}(undef, nsamples)
@@ -94,8 +95,20 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
 
     # make sure correct method gets pre-compiled (no history kwarg)
     print("Pre-compiling...")
-    @time run_solver(algorithm, problem; kwargs...)
+    @time begin @timed run_solver(algorithm, problem; kwargs...) end
     println()
+
+    # package keyword arguments into NamedTuple
+    kwargs = (
+        maxiters = options["maxiters"], # maximum iterations
+        accel    = accel,               # toggle Nesterov acceleration
+        rtol     = options["rtol"],     # relative tolerance in loss
+        atol     = options["atol"],     # absolute tolerance for distance
+        ls       = ls,                  # linsolver
+        rho      = options["rho"],      # initial value for rho
+        mu       = options["mu"],       # initial value for mu
+        stepsize = get(options, "step", 0.0), # get step size for path algorithm
+    )
 
     # run the benchmark
     println("Starting benchmark...")

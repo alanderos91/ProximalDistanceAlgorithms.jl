@@ -10,11 +10,11 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 DIR=${PKG}/experiments/aw-area51
 
 # directory to Julia
-JLDIR=${HOME}/julia-1.5
+JLDIR=${HOME}/bin/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_condnum.jl "$@";
+    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_condnum.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -46,24 +46,24 @@ while read probsize
     jlbenchmark --p ${p} --percent ${percent} --algorithm MM --ls NA --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # Steepest Descent
-    FNAME=SD_${d}_${p}_${percent}
+    FNAME=SD_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # ADMM
     FNAME=ADMM_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm ADMM --ls NA --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
-    # MM Subspace{5}
-    FNAME=MMS5_LSQR_${p}_${percent}
-    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # # MM Subspace{5}
+    # FNAME=MMS5_LSQR_${p}_${percent}
+    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     FNAME=MMS5_CG_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # MM Subspace{10}
-    FNAME=MMS10_LSQR_${p}_${percent}
-    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # # MM Subspace{10}
+    # FNAME=MMS10_LSQR_${p}_${percent}
+    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    FNAME=MMS10_CG_${p}_${percent}
-    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # FNAME=MMS10_CG_${p}_${percent}
+    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/condnum/jobs/${JOBNAME}.in

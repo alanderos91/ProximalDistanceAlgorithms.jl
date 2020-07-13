@@ -94,26 +94,26 @@ end
 
 @inline function run_condnum(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
-    ρ0 = kw["rho"]
+    ρ0 = kw[:rho]
 
     penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
 
     output = reduce_cond(algorithm, problem.c, problem.F; penalty = penalty, kwargs...)
 
-    return (X = X,)
+    return (X = output,)
 end
 
 function condnum_save_results(file, problem, problem_size, solution, cpu_time, memory)
     # save benchmark results
     df = DataFrame(
-            p = problem.p,
+            p = problem_size.p,
             α = problem.α,
+            cpu_time = cpu_time,
+            memory   = memory,
             c = problem.c,
             condM = cond(problem.M),
             condX = cond(solution.X),
-            cpu_time = cpu_time,
-            memory   = memory,
-            fidelity = fidelity(solution.X, solution.M)
+            fidelity = fidelity(solution.X, problem.M)
         )
     CSV.write(file, df)
 
@@ -128,3 +128,11 @@ function condnum_save_results(file, problem, problem_size, solution, cpu_time, m
 
     return nothing
 end
+
+# run the benchmark
+interface     = condnum_interface
+run_solver    = run_condnum
+make_instance = condnum_instance
+save_results  = condnum_save_results
+
+run_benchmark(interface, run_solver, make_instance, save_results, ARGS)
