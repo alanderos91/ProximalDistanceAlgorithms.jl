@@ -39,9 +39,9 @@ MAXITERS=3000
 
 while read dataset
     do
-    # MM
-    FNAME=MM_LSQR_${dataset}
-    jlbenchmark --data ${dataset} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # # MM
+    # FNAME=MM_LSQR_${dataset}
+    # jlbenchmark --data ${dataset} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     FNAME=MM_CG_${dataset}
     jlbenchmark --data ${dataset} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
@@ -50,9 +50,9 @@ while read dataset
     FNAME=SD_${dataset}
     jlbenchmark --data ${dataset} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # ADMM
-    FNAME=ADMM_LSQR_${dataset}
-    jlbenchmark --data ${dataset} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    # # ADMM
+    # FNAME=ADMM_LSQR_${dataset}
+    # jlbenchmark --data ${dataset} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     FNAME=ADMM_CG_${dataset}
     jlbenchmark --data ${dataset} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat

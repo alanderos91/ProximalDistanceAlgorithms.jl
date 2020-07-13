@@ -48,7 +48,7 @@ function imgtvd_interface(args)
         "--atol"
             help     = "absolute tolerance on distance"
             arg_type = Float64
-            default  = 1e-4
+            default  = 1e-2
         "--rho"
             help     = "initial value for penalty coefficient"
             arg_type = Float64
@@ -57,6 +57,10 @@ function imgtvd_interface(args)
             help     = "initial value for step size in ADMM"
             arg_type = Float64
             default  = 1.0
+        "--step"
+            help     = "step size for path heuristic"
+            arg_type = Float64
+            default  = 0.05
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -83,27 +87,32 @@ function imgtvd_instance(options)
 end
 
 function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, memory)
-    # compute mean squared error with respect to ground truth
-    MSE = mean((solution.output .- problem.ground_truth) .^ 2)
-
     # save benchmark results
+    w = problem_size.width
+    h = problem_size.height
+
     df = DataFrame(
-            width = problem_size.width,
-            height  = problem_size.height,
+            width = w
+            height  = h,
             cpu_time = cpu_time,
             memory   = memory,
-            MSE      = MSE
         )
     CSV.write(file, df)
 
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # save input
-    save_array(basefile * ".in", problem.input)
+    # compute mean squared error with respect to ground truth
+    MSE = [mean((img .- problem.ground_truth) .^ 2) for img in solution.img]
+    nu  = solution.nu
+    nu_max = (w-1)*h + w*(h-1)
+    sparsity = nu ./ nu_max
 
-    # save solution
-    save_array(basefile * ".out", solution.output)
+    # save input
+    # save_array(basefile * ".in", problem.input)
+
+    # save validation metrics
+    save_array(basefile * "_MSE.out", [nu sparsity MSE])
 
     return nothing
 end
@@ -116,7 +125,7 @@ end
 
     output = denoise_image_path(algorithm, proble.input; penalty = penalty, kwargs...)
 
-    return (output = output,)
+    return (img = output.img, nu = output.nu)
 end
 
 # run the benchmark

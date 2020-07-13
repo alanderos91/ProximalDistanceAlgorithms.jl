@@ -14,7 +14,7 @@ JLDIR=${HOME}/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_imgtvd.jl "$@";
+    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_imgtvd.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -33,15 +33,15 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=5000
+MAXITERS=2000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read image
     do
 
-    # MM
-    FNAME=MM_LSQR_${image}
-    jlbenchmark --image ${image} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # # MM
+    # FNAME=MM_LSQR_${image}
+    # jlbenchmark --image ${image} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     FNAME=MM_CG_${image}
     jlbenchmark --image ${image} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
@@ -50,24 +50,24 @@ while read image
     FNAME=SD_${image}
     jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # ADMM
-    FNAME=ADMM_LSQR_${image}
-    jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    # # ADMM
+    # FNAME=ADMM_LSQR_${image}
+    # jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     FNAME=ADMM_CG_${image}
     jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
-    # MM Subspace{5}
-    FNAME=MMS5_LSQR_${image}
-    jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    FNAME=MMS5_CG_${image}
-    jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    # MM Subspace{10}
-    FNAME=MMS10_LSQR_${image}
-    jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    FNAME=MMS10_CG_${image}
-    jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # # MM Subspace{5}
+    # FNAME=MMS5_LSQR_${image}
+    # jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    #
+    # FNAME=MMS5_CG_${image}
+    # jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    #
+    # # MM Subspace{10}
+    # FNAME=MMS10_LSQR_${image}
+    # jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    #
+    # FNAME=MMS10_CG_${image}
+    # jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/imgtvd/jobs/${JOBNAME}.in

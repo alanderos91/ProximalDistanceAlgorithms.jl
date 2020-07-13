@@ -57,6 +57,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         ls       = ls,                  # linsolver
         rho      = options["rho"],      # initial value for rho
         mu       = options["mu"],       # initial value for mu
+        stepsize = get(options, "step", 0.0), # get step size for path algorithm
     )
 
     # benchmark settings

@@ -59,6 +59,10 @@ function cvxcluster_interface(args)
             help     = "initial value for step size in ADMM"
             arg_type = Float64
             default  = 1.0
+        "--step"
+            help     = "step size for path heuristic"
+            arg_type = Float64
+            default  = 0.05
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -117,12 +121,16 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     # save validation metrics
     open(basefile * "_validation.out", "w") do io
         for (assignment, ν) in zip(solution.assignment, solution.ν)
+            # compute sparsity
+            nu_max = binomial(problem.n, 2)
+            sparsity = ν / nu_max
+
             # compare assignments against truth
             VI  = Clustering.varinfo(problem.classes, assignment)
             ARI = Clustering.randindex(problem.classes, assignment)[1]
             NMI = Clustering.mutualinfo(problem.classes, assignment, normed = true)
             nclasses = length(unique(assignment))
-            writedlm(io, [ν nclasses VI ARI NMI])
+            writedlm(io, [ν sparsity nclasses VI ARI NMI])
         end
     end
 

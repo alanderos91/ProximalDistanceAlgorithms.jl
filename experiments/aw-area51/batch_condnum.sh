@@ -14,18 +14,18 @@ JLDIR=${HOME}/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_imgtvd.jl "$@";
+    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_condnum.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
 PREFIX=$(date +"%Y-%m-%d")
-LOG_FILE=$(mktemp ${DIR}/denoise/logs/${PREFIX}-${JOBNAME}-XXXXXX)
+LOG_FILE=$(mktemp ${DIR}/condnum/logs/${PREFIX}-${JOBNAME}-XXXXXX)
 exec 1>${LOG_FILE} # redirect STDOUT
 exec 2>&1          # redirect STDERR to STDOUT
 
 # add header
 echo $(date)
-echo "Image Denoising Benchmarks"
+echo "Condition Number Benchmarks"
 echo
 echo "benchmark:        ${JOBNAME}"
 echo "Julia project:    ${PKG}"
@@ -66,4 +66,4 @@ while read probsize
 
     FNAME=MMS10_CG_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-done < ${DIR}/imgtvd/jobs/${JOBNAME}.in
+done < ${DIR}/condnum/jobs/${JOBNAME}.in
