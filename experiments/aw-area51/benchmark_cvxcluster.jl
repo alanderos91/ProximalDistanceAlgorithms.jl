@@ -112,7 +112,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
 
     # save assignments
     open(basefile * "_assignment.out", "w") do io
-        for (assignment, ν) in zip(solution.assignment, solution.ν)
+        for (assignment, ν) in zip(solution.assignment, solution.nu)
             nclasses = length(unique(assignment))
             writedlm(io, [ν nclasses assignment...])
         end
@@ -120,9 +120,9 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
 
     # save validation metrics
     open(basefile * "_validation.out", "w") do io
-        for (assignment, ν) in zip(solution.assignment, solution.ν)
+        for (assignment, ν) in zip(solution.assignment, solution.nu)
             # compute sparsity
-            nu_max = binomial(problem.n, 2)
+            nu_max = binomial(problem_size.n, 2)
             sparsity = ν / nu_max
 
             # compare assignments against truth
@@ -143,7 +143,7 @@ end
     ρ0 = kw[:rho]
     penalty(ρ, n) = min(1e6, ρ0 * 1.2 ^ floor(n/20))
 
-    convex_clustering_path(algorithm, problem.X, problem.W; penalty = penalty, kwargs...)
+    convex_clustering_path(algorithm, problem.W, problem.X; penalty = penalty, kwargs...)
 end
 
 # run the benchmark

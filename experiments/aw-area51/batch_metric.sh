@@ -10,11 +10,11 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 DIR=${PKG}/experiments/aw-area51
 
 # directory to Julia
-JLDIR=${HOME}/julia-1.5/bin
+JLDIR=${HOME}/julia-1.5
 
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/julia --project=${PKG} ${DIR}/benchmark_metric.jl "$@";
+    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_metric.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
