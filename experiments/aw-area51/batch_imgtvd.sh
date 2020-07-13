@@ -33,7 +33,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=2000
+MAXITERS=1000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read image
@@ -70,4 +70,4 @@ while read image
     #
     # FNAME=MMS10_CG_${image}
     # jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-done < ${DIR}/imgtvd/jobs/${JOBNAME}.in
+done < ${DIR}/denoise/jobs/${JOBNAME}.in

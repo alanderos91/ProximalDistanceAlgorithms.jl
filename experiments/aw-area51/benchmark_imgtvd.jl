@@ -2,7 +2,7 @@ using ArgParse
 using ProximalDistanceAlgorithms
 using Images, TestImages, Statistics
 
-global const DIR = joinpath(pwd(), "experiments", "aw-area51", "imgtvd")
+global const DIR = joinpath(pwd(), "experiments", "aw-area51", "denoise")
 
 # loads common interface + packages
 include("common.jl")
@@ -35,7 +35,7 @@ function imgtvd_interface(args)
             arg_type = Int
             default  = 1000
         "--nsamples"
-            help     = "samples from @timed."
+            help     = "samples from @timed"
             arg_type = Int
             default  = 10
         "--accel"
@@ -75,10 +75,13 @@ function imgtvd_interface(args)
 end
 
 function imgtvd_instance(options)
-    image = testimage(options["image"])
-    noisy = image .+ 0.2 * randn(size(image))
-    width, height = size(noisy)
-    problem = (input = noisy, ground_truth = image)
+    image = Gray{Float64}.(testimage(options["image"]))
+    image64 = Float64.(image)
+
+    width, height = size(image64)
+    noisy = image64 .+ 0.2 * randn(width, height)
+
+    problem = (input = noisy, ground_truth = image64)
     problem_size = (width = width, height = height)
 
     println("    Image Denoising; $(options["image"]) $(width) × $(height)\n")
@@ -92,7 +95,7 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     h = problem_size.height
 
     df = DataFrame(
-            width = w
+            width = w,
             height  = h,
             cpu_time = cpu_time,
             memory   = memory,
@@ -119,11 +122,11 @@ end
 
 @inline function run_imgtvd(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
-    ρ0 = kw["rho"]
+    ρ0 = kw[:rho]
 
     penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
 
-    output = denoise_image_path(algorithm, proble.input; penalty = penalty, kwargs...)
+    output = denoise_image_path(algorithm, problem.input; penalty = penalty, kwargs...)
 
     return (img = output.img, nu = output.nu)
 end
