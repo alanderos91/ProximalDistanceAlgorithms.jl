@@ -101,7 +101,7 @@ function denoise_image(algorithm::AlgorithmOption, image;
                 A₁ = LinearMap(I, N)
                 A₂ = D
                 A = QuadLHS(A₁, A₂, x, 1.0)
-                b = similar(typeof(x), size(A₂, 1))
+                b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
             else
                 b = similar(x)
@@ -115,10 +115,11 @@ function denoise_image(algorithm::AlgorithmOption, image;
 
     if algorithm isa ADMM
         mul!(y, D, x)
+        y_prev = similar(y)
         r = similar(y)
-        s = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -167,9 +168,11 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
+    stepsize::Real=0.1,
     rho::Real=1.0,
     mu::Real=1.0,
-    ls::LS=Val(:LSQR), kwargs...) where LS
+    history::histT=nothing,
+    ls::LS=Val(:LSQR), kwargs...) where {histT, LS}
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -236,7 +239,7 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
                 A₁ = LinearMap(I, N)
                 A₂ = D
                 A = QuadLHS(A₁, A₂, x, 1.0)
-                b = similar(typeof(x), size(A₂, 1))
+                b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
             else
                 b = similar(x)
@@ -250,10 +253,11 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     if algorithm isa ADMM
         mul!(y, D, x)
+        y_prev = similar(y)
         r = similar(y)
-        s = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -277,28 +281,53 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     # initialize solution path heuristic
     νmax = M-1
-    @showprogress 1 "Searching solution path..." for s in range(0.05, step=0.1, stop = 0.95)
-        # this is an unavoidable branch made worse by parameterization of
-        # projection operator
-        if round(Int, s*νmax) > (νmax >> 1)
-            ν = round(Int, (1-s)*νmax)
-            f = SparseProjectionClosure(true, ν)
+    ν = νmax
+
+    prog = ProgressThresh(0, "Searching solution path...")
+    while ν ≥ 0
+        if ν > (νmax >> 1)
+            # search by largest elements; i.e. partial sort in ascending order
+            f = SparseProjectionClosure(false, νmax - ν)
         else
-            ν = round(Int, s*νmax)
-            f = SparseProjectionClosure(false, ν)
+            # search by smallest elements; i.e. partial sort in descending order
+            f = SparseProjectionClosure(true, ν)
         end
 
         operators = (D = D, compute_proj = f, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
 
-        optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+        _, iter, _ = optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+
+        # update history
+        if !(history === nothing)
+            f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
+            data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
+            update_history!(history, data, iter-1)
+        end
 
         # record current solution
         push!(X_path, copy(X))
-        push!(ν_path, round(Int, s*νmax))
+        push!(ν_path, ν)
+
+        # count satisfied constraints
+        nconstraint = 0
+        for j in 1:M-1
+            # derivatives within 10^-2 are set to 0
+            nconstraint += (log(10, abs(prob.buffers.z[j])) ≤ -3)
+        end
+
+        # decrease ν with a heuristic that guarantees a decrease
+        νstep = round(Int, stepsize*νmax)
+
+        if νmax - nconstraint - 1 < ν - νstep
+            ν = νmax - nconstraint - 1
+        else
+            ν = ν - νstep
+        end
+        ProgressMeter.update!(prog, ν)
     end
 
-     solution_path = (img = X_path, ν = ν_path)
+     solution_path = (img = X_path, nu = ν_path)
 
     return solution_path
 end
@@ -419,7 +448,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
 
         # build RHS of A*x = b; b = [a; √μ * (y-λ)]
         n = length(a)
-        copyto!(b, 1, a, 1, length(a))
+        copyto!(b, 1, a, 1, n)
         @inbounds for k in eachindex(v)
             b[n+k] = √μ * v[k]
         end
@@ -453,7 +482,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
 
     # λ block update
     @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] + μ * (z[j] - y[j])
+        λ[j] = λ[j] + z[j] - y[j]
     end
 
     return μ
@@ -475,7 +504,7 @@ function imgtvd_iter(::MMSubSpace, prob, ρ, μ)
 
         # build RHS, b = -∇h
         n = size(A₁, 1)
-        @inbounds for j in 1:size(A₁, 1)
+        @inbounds for j in 1:n
             b[j] = -∇f[j]   # A₁*x - a
         end
         @inbounds for j in eachindex(v)

@@ -114,11 +114,12 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     end
 
     if algorithm isa ADMM
-        r = similar(y)
-        s = similar(y)
         mul!(y, D, x)
+        y_prev = similar(y)
+        r = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -179,7 +180,8 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     stepsize::Real=0.05,
     rho::Real=1.0,
     mu::Real=1.0,
-    ls::LS=Val(:LSQR), kwargs...) where LS
+    history::histT=nothing,
+    ls::LS=Val(:LSQR), kwargs...) where {histT, LS}
     #
     # extract problem information
     d, n = size(data)
@@ -257,11 +259,12 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     end
 
     if algorithm isa ADMM
-        r = similar(y)
-        s = similar(y)
         mul!(y, D, x)
+        y_prev = similar(y)
+        r = similar(y)
+        s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, s = s, r = r, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
@@ -292,19 +295,26 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     prog = ProgressThresh(0, "Searching clustering path...")
     while ν ≥ 0
-        # this is an unavoidable branch made worse by parameterization of
-        # projection operator
         if ν > (νmax >> 1)
-            compute_proj = SparseProjectionClosure(true, ν)
+            # search by smallest blocks; i.e. partial sort in ascending order
+            compute_proj = SparseProjectionClosure(false, νmax - ν)
         else
-            compute_proj = SparseProjectionClosure(false, ν)
+            # search by largest blocks; i.e. partial sort in descending order
+            compute_proj = SparseProjectionClosure(true, ν)
         end
 
         P = BlockSparseProjection(d, block_norm, cache, compute_proj)
         operators = (D = D, P = P, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
 
-        optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+        _, iter, _ = optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+
+        # update history
+        if !(history === nothing)
+            f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
+            data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
+            update_history!(history, data, iter-1)
+        end
 
         # record current solution
         push!(assignment, assign_classes(X)[2])
@@ -320,7 +330,8 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
         # decrease ν with a heuristic that guarantees a decrease
         νstep = round(Int, stepsize*νmax)
-        if νmax - nconstraint - 1 < ν
+
+        if νmax - nconstraint - 1 < ν - νstep
             ν = νmax - nconstraint - 1
         else
             ν = ν - νstep
@@ -328,7 +339,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         ProgressMeter.update!(prog, ν)
     end
 
-    solution_path = (assignment = assignment, ν = ν_path)
+    solution_path = (assignment = assignment, nu = ν_path)
 
     return solution_path
 end
@@ -454,6 +465,7 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     linsolve!(linsolver, x, A, b)
 
     # y block update
+    mul!(z, D, x)
     α = (ρ / μ)
     @. v = z + λ; Pv = Pz; P(Pv, v)
     @inbounds @simd for j in eachindex(y)
@@ -461,9 +473,8 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     end
 
     # λ block update
-    mul!(z, D, x)
     @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] + μ * (z[j] - y[j])
+        λ[j] = λ[j] + z[j] - y[j]
     end
 
     return μ
