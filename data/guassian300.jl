@@ -1,10 +1,10 @@
-using Distances, CSV, DataFrames
+using Random, Distances, CSV, DataFrames
 
 Random.seed!(5357)
 
-# simulate three clusters, each with 10 members
+# simulate three clusters
 centroid = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
-nclass = [50, 20, 30]
+nclass = [150, 50, 100]
 
 # simulate three clusters
 X1 = gaussian_cluster(centroid[1], nclass[1])
@@ -20,7 +20,7 @@ for (k, n) in enumerate(nclass)
     end
 end
 
-# save as simulated.dat:
+# save to file
 feature1 = vec(X[1,:])
 feature2 = vec(X[2,:])
 
@@ -30,4 +30,4 @@ df = DataFrame(
     classes  = classes,
 )
 
-CSV.write("simulated.dat", df)
+CSV.write("gaussian300.dat", df)
