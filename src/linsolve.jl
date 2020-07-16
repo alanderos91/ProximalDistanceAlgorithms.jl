@@ -463,3 +463,242 @@ function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
 
     return y
 end
+
+
+# for solving linear system as a least-squares problem, i.e. min |Ax-b|^2
+struct LSMRWrapper{vecT,solT}
+    btmp::vecT
+    v::solT
+    h::solT
+    hbar::solT
+    tmp_u::vecT
+    tmp_v::solT
+end
+
+function LSMRWrapper(A, x::solT, b::vecT) where {solT,vecT}
+    T = Adivtype(A, b)
+    m, n = size(A)
+    btmp = similar(b, T)
+    v, h, hbar = similar(x, T), similar(x, T), similar(x, T)
+    tmp_u = similar(b)
+    tmp_v = similar(v)
+    return LSMRWrapper(btmp, v, h, hbar, tmp_u, tmp_v)
+end
+
+@noinline function linsolve!(lsmrw::LSMRWrapper, x, A, b)
+    # history = ConvergenceHistory{false,Nothing}(
+    #     0,0,0,nothing,false,Dict{Symbol, Any}()
+    #     )
+    copy!(lsmrw.btmp, b)
+    __lsmr__!(x, A, lsmrw.btmp,
+        lsmrw.v, lsmrw.h, lsmrw.hbar, lsmrw.tmp_u, lsmrw.tmp_v)
+
+    return nothing
+end
+
+#
+# Adapted from IterativeSolvers.jl:
+# https://github.com/JuliaMath/IterativeSolvers.jl/blob/master/src/lsmr.jl
+#
+# All this does is lift array allocations outside the function.
+#
+function __lsmr__!(x, A, b, v, h, hbar, tmp_u, tmp_v;
+    atol::Number = 1e-6, btol::Number = 1e-6, conlim::Number = 1e8,
+    maxiter::Int = maximum(size(A)), λ::Number = 0,
+    )
+    # verbose && @printf("=== lsmr ===\n%4s\t%7s\t\t%7s\t\t%7s\n","iter","anorm","cnorm","rnorm")
+
+    # Sanity-checking
+    m = size(A, 1)
+    n = size(A, 2)
+    length(x) == n || error("x has length $(length(x)) but should have length $n")
+    length(v) == n || error("v has length $(length(v)) but should have length $n")
+    length(h) == n || error("h has length $(length(h)) but should have length $n")
+    length(hbar) == n || error("hbar has length $(length(hbar)) but should have length $n")
+    length(b) == m || error("b has length $(length(b)) but should have length $m")
+
+    T = Adivtype(A, b)
+    Tr = real(T)
+    # normrs = Tr[]
+    # normArs = Tr[]
+    conlim > 0 ? ctol = convert(Tr, inv(conlim)) : ctol = zero(Tr)
+    # form the first vectors u and v (satisfy  β*u = b,  α*v = A'u)
+    # tmp_u = similar(b)
+    # tmp_v = similar(v)
+    mul!(tmp_u, A, x)
+    @. b = b - tmp_u    # b .-= tmp_u
+    u = b
+    β = norm(u)
+    @. u = u * inv(β)   # u .*= inv(β)
+    adjointA = adjoint(A)
+    mul!(v, adjointA, u)
+    α = norm(v)
+    @. v = v * inv(α)   # v .*= inv(α)
+
+    # log[:atol] = atol
+    # log[:btol] = btol
+    # log[:ctol] = ctol
+
+    # Initialize variables for 1st iteration.
+    ζbar = α * β
+    αbar = α
+    ρ = one(Tr)
+    ρbar = one(Tr)
+    cbar = one(Tr)
+    sbar = zero(Tr)
+
+    copyto!(h, v)
+    fill!(hbar, zero(Tr))
+
+    # Initialize variables for estimation of ||r||.
+    βdd = β
+    βd = zero(Tr)
+    ρdold = one(Tr)
+    τtildeold = zero(Tr)
+    θtilde  = zero(Tr)
+    ζ = zero(Tr)
+    d = zero(Tr)
+
+    # Initialize variables for estimation of ||A|| and cond(A).
+    normA, condA, normx = -one(Tr), -one(Tr), -one(Tr)
+    normA2 = abs2(α)
+    maxrbar = zero(Tr)
+    minrbar = 1e100
+
+    # Items for use in stopping rules.
+    normb = β
+    istop = 0
+    normr = β
+    normAr = α * β
+    iter = 0
+    # Exit if b = 0 or A'b = 0.
+
+    # log.mvps=1
+    # log.mtvps=1
+    if normAr != 0
+        while iter < maxiter
+            # nextiter!(log,mvps=1)
+            iter += 1
+            mul!(tmp_u, A, v)
+            axpby!(true, tmp_u, -α, u)    # u .= tmp_u .+ u .* -α
+            β = norm(u)
+            if β > 0
+                # log.mtvps+=1
+                @. u = u * inv(β)   # u .*= inv(β)
+                mul!(tmp_v, adjointA, u)
+                axpby!(true, tmp_v, -β, v)  # v .= tmp_v .+ v .* -β
+                α = norm(v)
+                @. v = v * inv(α)   # v .*= inv(α)
+            end
+
+            # Construct rotation Qhat_{k,2k+1}.
+            αhat = hypot(αbar, λ)
+            chat = αbar / αhat
+            shat = λ / αhat
+
+            # Use a plane rotation (Q_i) to turn B_i to R_i.
+            ρold = ρ
+            ρ = hypot(αhat, β)
+            c = αhat / ρ
+            s = β / ρ
+            θnew = s * α
+            αbar = c * α
+
+            # Use a plane rotation (Qbar_i) to turn R_i^T to R_i^bar.
+            ρbarold = ρbar
+            ζold = ζ
+            θbar = sbar * ρ
+            ρtemp = cbar * ρ
+            ρbar = hypot(cbar * ρ, θnew)
+            cbar = cbar * ρ / ρbar
+            sbar = θnew / ρbar
+            ζ = cbar * ζbar
+            ζbar = - sbar * ζbar
+
+            # Update h, h_hat, x.
+            # hbar .= hbar .* (-θbar * ρ / (ρold * ρbarold)) .+ h
+            axpby!(true, h, -θbar * ρ / (ρold * ρbarold), hbar)
+            axpy!(ζ / (ρ * ρbar), hbar, x)  # x .+= (ζ / (ρ * ρbar)) * hbar
+            axpby!(true, v, -θnew / ρ, h)   # h .= h .* (-θnew / ρ) .+ v
+
+            ##############################################################################
+            ##
+            ## Estimate of ||r||
+            ##
+            ##############################################################################
+
+            # Apply rotation Qhat_{k,2k+1}.
+            βacute = chat * βdd
+            βcheck = - shat * βdd
+
+            # Apply rotation Q_{k,k+1}.
+            βhat = c * βacute
+            βdd = - s * βacute
+
+            # Apply rotation Qtilde_{k-1}.
+            θtildeold = θtilde
+            ρtildeold = hypot(ρdold, θbar)
+            ctildeold = ρdold / ρtildeold
+            stildeold = θbar / ρtildeold
+            θtilde = stildeold * ρbar
+            ρdold = ctildeold * ρbar
+            βd = - stildeold * βd + ctildeold * βhat
+
+            τtildeold = (ζold - θtildeold * τtildeold) / ρtildeold
+            τd = (ζ - θtilde * τtildeold) / ρdold
+            d += abs2(βcheck)
+            normr = sqrt(d + abs2(βd - τd) + abs2(βdd))
+
+            # Estimate ||A||.
+            normA2 += abs2(β)
+            normA  = sqrt(normA2)
+            normA2 += abs2(α)
+
+            # Estimate cond(A).
+            maxrbar = max(maxrbar, ρbarold)
+            if iter > 1
+                minrbar = min(minrbar, ρbarold)
+            end
+            condA = max(maxrbar, ρtemp) / min(minrbar, ρtemp)
+
+            ##############################################################################
+            ##
+            ## Test for convergence
+            ##
+            ##############################################################################
+
+            # Compute norms for convergence testing.
+            normAr  = abs(ζbar)
+            normx = norm(x)
+
+            # Now use these norms to estimate certain other quantities,
+            # some of which will be small near a solution.
+            test1 = normr / normb
+            test2 = normAr / (normA * normr)
+            test3 = inv(condA)
+            # push!(log, :cnorm, test3)
+            # push!(log, :anorm, test2)
+            # push!(log, :rnorm, test1)
+            # verbose && @printf("%3d\t%1.2e\t%1.2e\t%1.2e\n",iter,test2,test3,test1)
+
+            t1 = test1 / (one(Tr) + normA * normx / normb)
+            rtol = btol + atol * normA * normx / normb
+            # The following tests guard against extremely small values of
+            # atol, btol or ctol.  (The user may have set any or all of
+            # the parameters atol, btol, conlim  to 0.)
+            # The effect is equivalent to the normAl tests using
+            # atol = eps,  btol = eps,  conlim = 1/eps.
+            if iter >= maxiter istop = 7; break end
+            if 1 + test3 <= 1 istop = 6; break end
+            if 1 + test2 <= 1 istop = 5; break end
+            if 1 + t1 <= 1 istop = 4; break end
+            # Allow for tolerances set by the user.
+            if test3 <= ctol istop = 3; break end
+            if test2 <= atol istop = 2; break end
+            if test1 <= rtol  istop = 1; break end
+        end
+    end
+    # verbose && @printf("\n")
+    # setconv(log, istop ∉ (3, 6, 7))
+    return x
+end
