@@ -50,7 +50,7 @@ function cvxcluster_interface(args)
         "--atol"
             help     = "absolute tolerance on distance"
             arg_type = Float64
-            default  = 1e-5
+            default  = 1e-6
         "--rho"
             help     = "initial value for penalty coefficient"
             arg_type = Float64
@@ -86,7 +86,7 @@ function cvxcluster_instance(options)
     d, n = size(X)
 
     # create weights
-    W = gaussian_weights(X, phi = 0.5)
+    W = gaussian_weights(X, phi = 0.1)
 
     problem = (W = W, X = X, classes = classes)
     problem_size = (d = d, n = n, nclasses = nclasses)
@@ -109,9 +109,11 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
 
     # get filename without extension
     basefile = splitext(file)[1]
+    basefile = splitext(file)[1]
 
     # save assignments
     open(basefile * "_assignment.out", "w") do io
+        writedlm(io, ["nu" "classes" "assignment"])
         for (assignment, ν) in zip(solution.assignment, solution.nu)
             nclasses = length(unique(assignment))
             writedlm(io, [ν nclasses assignment...])
@@ -120,6 +122,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
 
     # save validation metrics
     open(basefile * "_validation.out", "w") do io
+        writedlm(io, ["nu" "sparsity" "classes" "VI" "ARI" "NMI"])
         for (assignment, ν) in zip(solution.assignment, solution.nu)
             # compute sparsity
             nu_max = binomial(problem_size.n, 2)

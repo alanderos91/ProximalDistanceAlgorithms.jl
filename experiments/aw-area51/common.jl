@@ -72,14 +72,15 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     println("""
     algorithm:    $(algorithm)
     acceleration? $(options["accel"])
-    linsolver:    $(options["ls"])
+    linsolver:    $(ls)
     maxiters:     $(options["maxiters"])
     nsamples:     $(options["nsamples"])
     rho_init:     $(options["rho"])
     mu_init:      $(options["mu"])
     rtol:         $(options["rtol"])
     atol:         $(options["atol"])
-    seed:         $(options["seed"])""")
+    seed:         $(options["seed"])
+    step size:    $(get(options, "step", nothing))""")
     flush(STDOUT)
 
     # benchmark data
