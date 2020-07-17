@@ -54,8 +54,8 @@ while read dataset
     # FNAME=ADMM_LSQR_${dataset}
     # jlbenchmark --data ${dataset} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
-    FNAME=ADMM_CG_${dataset}
-    jlbenchmark --data ${dataset}.dat --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 2e-3
+    # FNAME=ADMM_CG_${dataset}
+    # jlbenchmark --data ${dataset}.dat --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 2e-3
 
 #    # MM Subspace{5}
 #    FNAME=MMS5_LSQR_${dataset}
