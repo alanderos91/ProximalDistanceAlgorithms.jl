@@ -1,4 +1,4 @@
-using Random, Distances, CSV, DataFrames
+using ProximalDistanceAlgorithms, Random, Distances, CSV, DataFrames
 
 Random.seed!(5357)
 
