@@ -82,7 +82,7 @@ function condnum_instance(options)
 
     M = matrixdepot("randcorr", p)
     F = svd(M)
-    c = α * cond(M)
+    c = (1-α) * cond(M)
 
     problem = (M = M, F = F, α = α, c = c)
     problem_size = (p = p,)
