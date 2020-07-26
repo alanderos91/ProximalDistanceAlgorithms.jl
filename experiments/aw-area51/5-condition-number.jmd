@@ -1,0 +1,37 @@
+---
+title: Benchmarks 5, Condition Number
+---
+
+```{julia; echo=false; results="hidden"}
+include("../plotutils.jl")
+include("../tableutils.jl")
+```
+
+### MM Algorithm
+
+```{julia}
+df = summary_table("condnum", "MM")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### Steepest Descent
+
+```{julia}
+df = summary_table("condnum", "SD")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### ADMM
+
+```{julia}
+df = summary_table("condnum", "ADMM")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### MM Subspace (5)
+
+##### CG
+```{julia}
+df = summary_table("condnum", "MMS5_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```

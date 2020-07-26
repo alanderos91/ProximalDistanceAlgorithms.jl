@@ -1,0 +1,27 @@
+---
+title: Benchmarks 3, Convex Clustering
+---
+
+```{julia; echo=false; results="hidden"}
+include("../plotutils.jl")
+include("../tableutils.jl")
+```
+
+### MM Algorithm
+
+##### CG
+```{julia}
+df1 = summary_table("cvxcluster", "MM_CG")
+df2 = validation_table("cvxcluster", "MM_CG")
+df = join(df1, df2, on=:dataset)
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### Steepest Descent
+
+```{julia}
+df1 = summary_table("cvxcluster", "SD")
+df2 = validation_table("cvxcluster", "SD")
+df = join(df1, df2, on=:dataset)
+latexify(df, fmt = FancyNumberFormatter(4))
+```

@@ -1,0 +1,57 @@
+---
+title: Benchmarks 2, Convex Regression
+---
+
+```{julia; echo=false; results="hidden"}
+include("../plotutils.jl")
+include("../tableutils.jl")
+```
+
+### MM Algorithm
+
+##### LSQR
+```{julia}
+df = summary_table("cvxreg", "MM_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("cvxreg", "MM_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### Steepest Descent
+
+```{julia}
+df = summary_table("cvxreg", "SD")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### ADMM
+
+##### LSQR
+```{julia}
+df = summary_table("cvxreg", "ADMM_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("cvxreg", "ADMM_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### MM Subspace (5)
+
+##### LSQR
+```{julia}
+df = summary_table("cvxreg", "MMS5_LSQR")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+##### CG
+```{julia}
+df = summary_table("cvxreg", "MMS5_CG")
+latexify(df, fmt = FancyNumberFormatter(4))
+```
