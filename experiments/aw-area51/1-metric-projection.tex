@@ -1,0 +1,320 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[a4paper,text={16.5cm,25.2cm},centering]{geometry}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1.2ex}
+
+\hypersetup
+       {   pdfauthor = {  },
+           pdftitle={ Benchmarks 1, Metric Projection },
+           colorlinks=TRUE,
+           linkcolor=black,
+           citecolor=blue,
+           urlcolor=blue
+       }
+
+\title{ Benchmarks 1, Metric Projection }
+
+
+
+\usepackage{upquote}
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    upquote=true,
+    breaklines=true,
+    breakindent=0pt,
+    keepspaces=true,
+    showspaces=false,
+    columns=fullflexible,
+    showtabs=false,
+    showstringspaces=false,
+    escapeinside={(*@}{@*)},
+    extendedchars=true,
+}
+\newcommand{\HLJLt}[1]{#1}
+\newcommand{\HLJLw}[1]{#1}
+\newcommand{\HLJLe}[1]{#1}
+\newcommand{\HLJLeB}[1]{#1}
+\newcommand{\HLJLo}[1]{#1}
+\newcommand{\HLJLk}[1]{\textcolor[RGB]{148,91,176}{\textbf{#1}}}
+\newcommand{\HLJLkc}[1]{\textcolor[RGB]{59,151,46}{\textit{#1}}}
+\newcommand{\HLJLkd}[1]{\textcolor[RGB]{214,102,97}{\textit{#1}}}
+\newcommand{\HLJLkn}[1]{\textcolor[RGB]{148,91,176}{\textbf{#1}}}
+\newcommand{\HLJLkp}[1]{\textcolor[RGB]{148,91,176}{\textbf{#1}}}
+\newcommand{\HLJLkr}[1]{\textcolor[RGB]{148,91,176}{\textbf{#1}}}
+\newcommand{\HLJLkt}[1]{\textcolor[RGB]{148,91,176}{\textbf{#1}}}
+\newcommand{\HLJLn}[1]{#1}
+\newcommand{\HLJLna}[1]{#1}
+\newcommand{\HLJLnb}[1]{#1}
+\newcommand{\HLJLnbp}[1]{#1}
+\newcommand{\HLJLnc}[1]{#1}
+\newcommand{\HLJLncB}[1]{#1}
+\newcommand{\HLJLnd}[1]{\textcolor[RGB]{214,102,97}{#1}}
+\newcommand{\HLJLne}[1]{#1}
+\newcommand{\HLJLneB}[1]{#1}
+\newcommand{\HLJLnf}[1]{\textcolor[RGB]{66,102,213}{#1}}
+\newcommand{\HLJLnfm}[1]{\textcolor[RGB]{66,102,213}{#1}}
+\newcommand{\HLJLnp}[1]{#1}
+\newcommand{\HLJLnl}[1]{#1}
+\newcommand{\HLJLnn}[1]{#1}
+\newcommand{\HLJLno}[1]{#1}
+\newcommand{\HLJLnt}[1]{#1}
+\newcommand{\HLJLnv}[1]{#1}
+\newcommand{\HLJLnvc}[1]{#1}
+\newcommand{\HLJLnvg}[1]{#1}
+\newcommand{\HLJLnvi}[1]{#1}
+\newcommand{\HLJLnvm}[1]{#1}
+\newcommand{\HLJLl}[1]{#1}
+\newcommand{\HLJLld}[1]{\textcolor[RGB]{148,91,176}{\textit{#1}}}
+\newcommand{\HLJLs}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsa}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsb}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsc}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsd}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsdB}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsdC}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLse}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLsh}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsi}[1]{#1}
+\newcommand{\HLJLso}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLsr}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLss}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLssB}[1]{\textcolor[RGB]{201,61,57}{#1}}
+\newcommand{\HLJLnB}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLnbB}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLnfB}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLnh}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLni}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLnil}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLnoB}[1]{\textcolor[RGB]{59,151,46}{#1}}
+\newcommand{\HLJLoB}[1]{\textcolor[RGB]{102,102,102}{\textbf{#1}}}
+\newcommand{\HLJLow}[1]{\textcolor[RGB]{102,102,102}{\textbf{#1}}}
+\newcommand{\HLJLp}[1]{#1}
+\newcommand{\HLJLc}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLch}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLcm}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLcp}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLcpB}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLcs}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLcsB}[1]{\textcolor[RGB]{153,153,119}{\textit{#1}}}
+\newcommand{\HLJLg}[1]{#1}
+\newcommand{\HLJLgd}[1]{#1}
+\newcommand{\HLJLge}[1]{#1}
+\newcommand{\HLJLgeB}[1]{#1}
+\newcommand{\HLJLgh}[1]{#1}
+\newcommand{\HLJLgi}[1]{#1}
+\newcommand{\HLJLgo}[1]{#1}
+\newcommand{\HLJLgp}[1]{#1}
+\newcommand{\HLJLgs}[1]{#1}
+\newcommand{\HLJLgsB}[1]{#1}
+\newcommand{\HLJLgt}[1]{#1}
+
+
+\begin{document}
+
+\maketitle
+
+
+Benchmarks were run with 3 different algorithms with different linear solvers (LSQR or CG) where applicable. Nesterov acceleration is used except in the case of ADMM. For ADMM, we used a heuristic to update the step size $\mu$ that keeps primal and dual residuals close to each other (within 1 order of magnitude). The annealing schedule is set to $\rho_{n} = \min\{10^{6}, 1.09^{\lfloor n / 20\rfloor}\}$, meaning $\rho_{n}$ is multiplied by 1.09 every 20 iterations.
+
+Convergene is assessed using relative and absolute tolerance parameters, $\epsilon_{1}$ and $\epsilon_{2}$, applied as follows:
+
+\begin{itemize}
+\item[1. ] change in loss, $|f_{n} - f_{n-1}| \le \epsilon_{1} (1 + |f_{n-1}|)$
+
+
+\item[2. ] change in distance, $|q_{n} - q_{n-1}| \le \epsilon_{1} (1 + |q_{n-1}|)$
+
+
+\item[3. ] squared distance, $q_{n}^{2} \le \epsilon_{2}$
+
+\end{itemize}
+Here $f_{n}$ and $q_{n}$ correspond to terms appearing in the penalized objective $h_{\rho}(x_{n}) = f(x_{n}) + \frac{\rho}{2} q(x_{n})^{2}$. Each run is alloted a maxium of $5 \times 10^{3}$ iterations to achieve convergence with the choices $\epsilon_{1} = 10^{-6}$ and $\epsilon_{2} = 10^{-6}$.
+
+Results for CPU time and memory use are averaged over 10 runs using \texttt{@elapsed}.
+
+\subsubsection{MM Algorithm}
+\subparagraph{LSQR}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MM{\_}LSQR"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.4513$ & $0.8059$ & $1529$ & $573.1$ & $0.009394$ & $2.625$ \\
+$64$ & $4.433$ & $6.359$ & $1671$ & $2336$ & $0.00928$ & $5.934$ \\
+$128$ & $42.84$ & $50.59$ & $1648$ & $9171$ & $0.009237$ & $9.677$ \\
+$256$ & $411.5$ & $403.7$ & $1707$ & $3.744 \cdot 10^{4}$ & $0.009218$ & $18.28$ \\
+\end{tabular}
+
+
+\subparagraph{CG}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MM{\_}CG"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.2338$ & $0.4247$ & $1529$ & $573.1$ & $0.009388$ & $2.648$ \\
+$64$ & $2.165$ & $3.262$ & $1671$ & $2336$ & $0.009286$ & $5.818$ \\
+$128$ & $16.8$ & $25.62$ & $1648$ & $9171$ & $0.009173$ & $10.89$ \\
+$256$ & $141.2$ & $203.2$ & $1688$ & $3.744 \cdot 10^{4}$ & $0.009984$ & $25.05$ \\
+\end{tabular}
+
+
+\subsubsection{Steepest Descent}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}SD"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.126$ & $0.4081$ & $1529$ & $573.1$ & $0.009337$ & $2.946$ \\
+$64$ & $1.198$ & $3.197$ & $1671$ & $2336$ & $0.009318$ & $5.463$ \\
+$128$ & $9.404$ & $25.36$ & $1648$ & $9171$ & $0.009173$ & $10.95$ \\
+$256$ & $90.02$ & $202.1$ & $1708$ & $3.744 \cdot 10^{4}$ & $0.009172$ & $19.21$ \\
+\end{tabular}
+
+
+\subsubsection{ADMM}
+\subparagraph{LSQR}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}ADMM{\_}LSQR"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.5501$ & $1.298$ & $1529$ & $573.1$ & $0.009369$ & $1.877$ \\
+$64$ & $5.953$ & $10.42$ & $1630$ & $2335$ & $0.009746$ & $4.922$ \\
+$128$ & $61.57$ & $83.63$ & $1648$ & $9171$ & $0.009155$ & $8.41$ \\
+$256$ & $589.3$ & $670$ & $1708$ & $3.743 \cdot 10^{4}$ & $0.009197$ & $16.11$ \\
+\end{tabular}
+
+
+\subparagraph{CG}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}ADMM{\_}CG"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.3314$ & $0.9166$ & $1529$ & $573.1$ & $0.009367$ & $1.885$ \\
+$64$ & $3.797$ & $7.326$ & $1630$ & $2335$ & $0.009746$ & $4.925$ \\
+$128$ & $37.03$ & $58.66$ & $1648$ & $9171$ & $0.009142$ & $8.662$ \\
+$256$ & $319.3$ & $469.5$ & $1708$ & $3.743 \cdot 10^{4}$ & $0.009129$ & $18.64$ \\
+\end{tabular}
+
+
+\subsubsection{MM Subspace (5)}
+\subparagraph{LSQR}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MMS5{\_}LSQR"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.5336$ & $0.8183$ & $1529$ & $573.1$ & $0.009348$ & $2.931$ \\
+$64$ & $5.049$ & $6.408$ & $1671$ & $2336$ & $0.009321$ & $5.489$ \\
+$128$ & $45.86$ & $50.79$ & $1648$ & $9171$ & $0.009175$ & $10.91$ \\
+$256$ & $451.1$ & $404.5$ & $1708$ & $3.744 \cdot 10^{4}$ & $0.009168$ & $18.97$ \\
+\end{tabular}
+
+
+\subparagraph{CG}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MMS5{\_}CG"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.2656$ & $0.6573$ & $1529$ & $573.1$ & $0.009347$ & $2.931$ \\
+$64$ & $2.564$ & $3.552$ & $1671$ & $2336$ & $0.009322$ & $5.491$ \\
+$128$ & $19.3$ & $26.06$ & $1648$ & $9171$ & $0.009175$ & $10.9$ \\
+$256$ & $162.9$ & $204.2$ & $1708$ & $3.744 \cdot 10^{4}$ & $0.009167$ & $18.94$ \\
+\end{tabular}
+
+
+\subsubsection{MM Subspace (10)}
+\subparagraph{LSQR}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MMS10{\_}LSQR"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.7612$ & $0.8383$ & $1529$ & $573.1$ & $0.009347$ & $2.928$ \\
+$64$ & $6.887$ & $6.489$ & $1671$ & $2336$ & $0.009322$ & $5.488$ \\
+$128$ & $59.57$ & $51.11$ & $1648$ & $9171$ & $0.009175$ & $10.9$ \\
+$256$ & $567.1$ & $405.8$ & $1708$ & $3.744 \cdot 10^{4}$ & $0.009175$ & $19.07$ \\
+\end{tabular}
+
+
+\subparagraph{CG}
+
+\begin{lstlisting}
+(*@\HLJLn{df}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{summary{\_}table}@*)(*@\HLJLp{(}@*)(*@\HLJLs{"{}metric"{}}@*)(*@\HLJLp{,}@*) (*@\HLJLs{"{}MMS10{\_}CG"{}}@*)(*@\HLJLp{)}@*)
+(*@\HLJLnf{latexify}@*)(*@\HLJLp{(}@*)(*@\HLJLn{df}@*)(*@\HLJLp{,}@*) (*@\HLJLn{fmt}@*) (*@\HLJLoB{=}@*) (*@\HLJLnf{FancyNumberFormatter}@*)(*@\HLJLp{(}@*)(*@\HLJLni{4}@*)(*@\HLJLp{))}@*)
+\end{lstlisting}
+
+
+\begin{tabular}
+{r | r | r | r | r | r | r}
+nodes & CPU time (s) & memory (MB) & iteration & loss & distance & gradient \\
+\hline
+$32$ & $0.4164$ & $0.6773$ & $1529$ & $573.1$ & $0.009346$ & $2.929$ \\
+$64$ & $3.893$ & $3.632$ & $1671$ & $2336$ & $0.009322$ & $5.492$ \\
+$128$ & $29.27$ & $26.38$ & $1648$ & $9171$ & $0.009174$ & $10.9$ \\
+$256$ & $234.3$ & $205.5$ & $1708$ & $3.744 \cdot 10^{4}$ & $0.009173$ & $19$ \\
+\end{tabular}
+
+
+
+\end{document}
