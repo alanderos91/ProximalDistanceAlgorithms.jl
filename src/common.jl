@@ -136,7 +136,39 @@ end
 
 function (C::SparseProjectionClosure)(xs)
     if C.ν > 0
-        pivot = C.ν < length(xs) ? partialsort!(xs, C.ν, rev = C.ismaxparam) : zero(eltype(xs))
+        # pivot = C.ν < length(xs) ? partialsort!(xs, C.ν, rev = C.ismaxparam) : zero(eltype(xs))
+        # quantile based algorithm
+        # see: https://github.com/JuliaLang/Statistics.jl/blob/master/src/Statistics.j
+
+        # sorting step: _quantilesort!
+        n = length(xs)
+        p = C.ismaxparam ? 1 - C.ν / n : C.ν / n
+        lo = floor(Int, p*n)
+        hi = ceil(Int, 1+p*n)
+        sort!(xs, 1, n, Base.Sort.PartialQuickSort(lo:hi), Base.Sort.Forward)
+
+        # quantile lookup: _quantile!
+        alpha = 1.0
+        beta = alpha
+
+        m = alpha + p * (one(alpha) - alpha - beta)
+        aleph = n*p + oftype(p, m)
+        j = clamp(trunc(Int, aleph), 1, n-1)
+        γ = clamp(aleph - j, 0, 1)
+    
+        if n == 1
+            a = xs[1]
+            b = xs[1]
+        else
+            a = xs[j]
+            b = xs[j+1]
+        end
+        
+        if isfinite(a) && isfinite(b)
+            pivot = a + γ*(b-a)
+        else
+            pivot = (1-γ)*a + γ*b
+        end
     else
         pivot = -Inf
     end

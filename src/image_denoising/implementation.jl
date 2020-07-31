@@ -169,6 +169,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
     stepsize::Real=0.1,
+    start::Real=0.5,
     rho::Real=1.0,
     mu::Real=1.0,
     history::histT=nothing,
@@ -182,6 +183,15 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     m2 = n*(p-1)            # number of row derivatives
     M = m1 + m2 + 1         # add extra row for PSD matrix
     N = n*p                 # number of variables
+
+    # check that stepsize and start are reasonable
+    if !(0 < stepsize < 1)
+        error("argument stepsize must be between 0 and 1! (stepsize = $(stepsize))")
+    end
+
+    if !(0 < start ≤ 1)
+        error("argument start must satisfy 0 < start ≤ 1! (start = $(start)")
+    end
 
     # allocate optimization variable
     X = copy(image)
@@ -281,17 +291,18 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     # initialize solution path heuristic
     νmax = M-1
-    ν = νmax
+    ν = floor(Int, start*νmax)
 
     prog = ProgressThresh(0, "Searching solution path...")
     while ν ≥ 0
-        if ν > (νmax >> 1)
-            # search by largest elements; i.e. partial sort in ascending order
-            f = SparseProjectionClosure(false, νmax - ν)
-        else
-            # search by smallest elements; i.e. partial sort in descending order
-            f = SparseProjectionClosure(true, ν)
-        end
+        # if ν > (νmax >> 1)
+        #     # search by largest elements; i.e. partial sort in ascending order
+        #     f = SparseProjectionClosure(false, νmax - ν)
+        # else
+        #     # search by smallest elements; i.e. partial sort in descending order
+        #     f = SparseProjectionClosure(true, ν)
+        # end
+        f = SparseProjectionClosure(true, ν)
 
         operators = (D = D, compute_proj = f, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
@@ -312,7 +323,7 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
         # count satisfied constraints
         nconstraint = 0
         for j in 1:M-1
-            # derivatives within 10^-2 are set to 0
+            # derivatives within 10^-3 are set to 0
             nconstraint += (log(10, abs(prob.buffers.z[j])) ≤ -3)
         end
 
