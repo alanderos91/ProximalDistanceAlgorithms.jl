@@ -5,33 +5,66 @@ title: Benchmarks 5, Condition Number
 ```{julia; echo=false; results="hidden"}
 include("../plotutils.jl")
 include("../tableutils.jl")
+
+experiment = "condnum"
+algorithms = ("MM", "SD", "ADMM", "MMS5_CG")
+
+df = []
+
+for algorithm in algorithms
+    push!(df, summary_table(experiment, algorithm))
+end
 ```
 
 ### MM Algorithm
 
 ```{julia}
-df = summary_table("condnum", "MM")
-latexify(df, fmt = FancyNumberFormatter(4))
+latexify(df[1], fmt = FancyNumberFormatter(4))
 ```
 
 ### Steepest Descent
 
 ```{julia}
-df = summary_table("condnum", "SD")
-latexify(df, fmt = FancyNumberFormatter(4))
+latexify(df[2], fmt = FancyNumberFormatter(4))
 ```
 
 ### ADMM
 
 ```{julia}
-df = summary_table("condnum", "ADMM")
-latexify(df, fmt = FancyNumberFormatter(4))
+latexify(df[3], fmt = FancyNumberFormatter(4))
 ```
 
 ### MM Subspace (5)
 
 ##### CG
 ```{julia}
-df = summary_table("condnum", "MMS5_CG")
-latexify(df, fmt = FancyNumberFormatter(4))
+latexify(df[4], fmt = FancyNumberFormatter(4))
+```
+
+### Main Table
+
+```{julia}
+tscale = 1e3
+lscale = 1e3
+dscale = 1e3
+
+maindf = DataFrame(
+    p           =   df[1].p,
+    cond_input  =   df[1].condM,
+    reduction   =   df[1][!,2] .* 100,
+    time_MM     =   df[1][!,3] .* tscale,
+    time_SD     =   df[2][!,3] .* tscale,
+    time_ADMM   =   df[3][!,3] .* tscale,
+    loss_MM     =   df[1].loss .* lscale,
+    loss_SD     =   df[2].loss .* lscale,
+    loss_ADMM   =   df[3].loss .* lscale,
+    dist_MM     =   df[1].distance .* dscale,
+    dist_SD     =   df[2].distance .* dscale,
+    dist_ADMM   =   df[3].distance .* dscale,
+    cond_MM     =   df[1].condX,
+    cond_SD     =   df[2].condX,
+    cond_ADMM   =   df[3].condX,
+)
+
+latexify(maindf, env = :tabular, fmt = FancyNumberFormatter("%.4G", s"\g<mantissa> \\times 10^{\g<exp>}"))
 ```
