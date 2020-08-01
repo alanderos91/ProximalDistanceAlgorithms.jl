@@ -43,19 +43,18 @@ while read image
     # FNAME=MM_LSQR_${image}
     # jlbenchmark --image ${image} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    FNAME=MM_CG_${image}
-    jlbenchmark --image ${image} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3
+    # FNAME=MM_CG_${image}
+    # jlbenchmark --image ${image} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-2
 
     # Steepest Descent
     FNAME=SD_${image}
-    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3
-
-    # # ADMM
+    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-2
+    # ADMM
     # FNAME=ADMM_LSQR_${image}
     # jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     FNAME=ADMM_CG_${image}
-    jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 5e-3
+    jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 5e-2
 
     # # MM Subspace{5}
     # FNAME=MMS5_LSQR_${image}
