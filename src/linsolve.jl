@@ -702,3 +702,20 @@ function __lsmr__!(x, A, b, v, h, hbar, tmp_u, tmp_v;
     # setconv(log, istop ∉ (3, 6, 7))
     return x
 end
+
+#########################################################
+#   convenience functions for building linear systems   #
+#########################################################
+
+build_LHS(::LSQRWrapper, A₁, A₂, c, buffers) = QuadLHS(A₁, A₂, buffers.tmpx, √c)
+build_LHS(::LSMRWrapper, A₁, A₂, c, buffers) = QuadLHS(A₁, A₂, buffers.tmpx, √c)
+build_LHS(::CGWrapper, A₁, A₂, c, buffers) = ProxDistHessian(A₁, A₂, buffers.tmpx, c)
+
+build_LHS(::LSQRWrapper, A₁, A₂, G, c, buffers) = MMSOp1(A₁, A₂, G, buffers.tmpGx1, buffers.tmpGx2, √c)
+
+build_LHS(::LSMRWrapper, A₁, A₂, G, c, buffers) = MMSOp1(A₁, A₂, G, buffers.tmpGx1, buffers.tmpGx2, √c)
+
+function build_LHS(::CGWrapper, A₁, A₂, G, c, buffers)
+    H = ProxDistHessian(A₁, A₂, buffers.tmpx, c)
+    return MMSOp2(H, G, buffers.tmpGx1, buffers.tmpGx2)
+end
