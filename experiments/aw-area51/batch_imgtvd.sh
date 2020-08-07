@@ -33,7 +33,7 @@ echo "scripts:          ${DIR}"
 echo
 
 # set maximum number of iterations
-MAXITERS=2000
+MAXITERS=5000
 
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read image
@@ -48,13 +48,13 @@ while read image
 
     # Steepest Descent
     FNAME=SD_${image}
-    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-2
+    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 2e-2 --atol 1e-2 --rtol 1e-4
     # ADMM
     # FNAME=ADMM_LSQR_${image}
     # jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     FNAME=ADMM_CG_${image}
-    jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 5e-2
+    jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 2e-2 --atol 1e-2 --rtol 1e-4
 
     # # MM Subspace{5}
     # FNAME=MMS5_LSQR_${image}
