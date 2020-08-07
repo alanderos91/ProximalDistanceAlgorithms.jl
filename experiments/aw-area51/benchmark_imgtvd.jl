@@ -1,6 +1,6 @@
 using ArgParse
 using ProximalDistanceAlgorithms
-using Images, TestImages, Statistics
+using Images, TestImages, Statistics, ImageQualityIndexes
 
 global const DIR = joinpath(pwd(), "experiments", "aw-area51", "denoise")
 
@@ -105,8 +105,9 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # compute mean squared error with respect to ground truth
-    MSE = [mean((img .- problem.ground_truth) .^ 2) for img in solution.img]
+    # compute PSNR and SSIM
+    PSNR = [assess_psnr(img, problem.ground_truth) for img in solution.img]
+    SSIM = [assess_ssim(img, problem.ground_truth) for img in solution.img]
     nu  = solution.nu
     nu_max = (w-1)*h + w*(h-1)
     sparsity = nu ./ nu_max
@@ -115,16 +116,34 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # save_array(basefile * ".in", problem.input)
 
     # save validation metrics
-    save_array(basefile * "_MSE.out", [nu sparsity MSE])
+    save_array(basefile * "_MSE.out", [nu sparsity PSNR SSIM])
+
+    # save an example of the output
+    if !isfile(basefile * ".png")
+        # find "optimal" image on the basis of SSIM
+        ix = argmax(SSIM)
+
+        # make sure images are valid
+        ref_image    = colorview(Gray, map(clamp01nan, problem.ground_truth))
+        input_image  = colorview(Gray, map(clamp01nan, problem.input))
+        output_image = colorview(Gray, map(clamp01nan, solution.img[ix]))
+
+        # combine images
+        collage = [ref_image input_image output_image]
+
+        # save to disk
+        save(basefile * ".png", collage)
+    end
 
     return nothing
 end
 
 @inline function run_imgtvd(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
+    kw[:start] = 0.8
     ρ0 = kw[:rho]
 
-    penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
+    penalty(ρ, n) = min(1e6, ρ0 * 1.075 ^ floor(n/20))
 
     output = denoise_image_path(algorithm, problem.input; penalty = penalty, kwargs...)
 
