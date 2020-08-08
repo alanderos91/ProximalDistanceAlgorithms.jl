@@ -395,3 +395,137 @@ function metric_example(n::Integer; weighted::Bool=false)
 
     return W, D
 end
+
+#################################
+#   hybrid SD + ADMM prototype  #
+#################################
+
+function metric_projection(algorithm::SDADMM, A, W=I;
+    rho::Real=1.0, mu::Real=1.0, ls=Val(:LSQR), phase1=10, phase2=10, kwargs...)
+    #
+    # extract problem dimensions
+    n = size(A, 1)      # number of nodes
+    m1 = binomial(n, 2) # number of unique non-negativity constraints
+    m2 = m1*(n-2)       # number of unique triangle edges
+    N = m1              # total number of optimization variables
+    M = m1 + m2         # total number of constraints
+
+    # allocate optimization variables...
+    X = copy(A)
+    x = zeros(N)
+    k = 0
+    for j in 1:n, i in j+1:n
+        @inbounds x[k+=1] = X[i,j]
+    end
+
+    # ... for ADMM
+    y = zeros(M)
+    λ = zeros(M)
+
+    ADMM_variables = (x = x, y = y, λ = λ)
+
+    # ... for SteepestDescent
+    SD_variables = (x = x,)
+
+    # allocate derivatives
+    ∇f = similar(x)
+    ∇q = similar(x)
+    ∇h = similar(x)
+    ∇²f = I
+
+    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    # generate operators
+    D = MetricFM(n, M, N)   # fusion matrix
+    P(x) = max.(x, 0)       # projection onto non-negative orthant
+    a = similar(x)
+    k = 0
+    for j in 1:n, i in j+1:n
+        a[k+=1] = A[i,j]
+    end
+    operators = (D = D, P = P, a = a)
+
+    # allocate buffers for mat-vec multiplication, projections, and so on
+    z = similar(Vector{eltype(x)}, M)
+    Pz = similar(z)
+    v = similar(z)
+
+    # choose algorithm for linear solve
+    if ls isa Val{:LSQR}
+        A₁ = LinearMap(I, N)
+        A₂ = D
+        A = QuadLHS(A₁, A₂, x, 1.0)
+        b = similar(typeof(x), N+M) # b has two block
+        linsolver = LSQRWrapper(A, x, b)
+    else
+        b = similar(x) # b has one block
+        linsolver = CGWrapper(D, x, b)
+    end
+
+    # finish initializing buffers
+    y_prev = zero(y)
+    r = similar(y)
+    s = similar(x)
+    tmpx = similar(x)
+    buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r, tmpx = tmpx)
+
+    # create views, if needed
+    views = nothing
+
+    # make kwargs a NamedTuple
+    kwt = values(kwargs)
+
+    #
+    # Phase 1: Steepest Descent
+    #
+
+    # update kwargs with iteration limit
+    SD_kwargs = (kwt..., maxiters=phase1,)
+
+    # build problem and optimize
+    objective = metric_objective
+    algmap = metric_iter
+    
+    prob1 = ProxDistProblem(SD_variables, derivatives, operators, buffers, views, linsolver)
+    _, iteration, _ = optimize!(SteepestDescent(), objective, algmap, prob1, rho, mu; SD_kwargs...)
+
+    # record loss for next step
+    loss, _, _ = objective(algorithm, prob1, rho)
+
+    #
+    # Phase 2: ADMM
+    #
+
+    # initialize ADMM variables
+    mul!(y, D, x)
+
+    # want the new solution to stay close to current solution
+    copyto!(a, x)
+
+    # rebuild penalty function to account for iterations so far
+    f = kwt.penalty
+    f_penalty(rho, iter) = f(rho, iter + iteration - 1)
+    rho = f(rho, iteration)
+
+    # update kwargs with new penalty function and turn off acceleration
+    ADMM_kwargs = (kwt..., penalty=f_penalty, accel=Val(:none), maxiters=phase2,)
+
+    # build new problem and optimize
+    new_objective = function(alg, prob, ρ)
+        x1, x2, x3 = metric_objective(alg, prob, ρ)
+        return x1+loss, x2, x3
+    end
+    algmap = metric_iter
+
+    prob2 = ProxDistProblem(ADMM_variables, derivatives, operators, buffers, views, linsolver)
+    optimize!(ADMM(), new_objective, algmap, prob2, rho, mu; ADMM_kwargs...)
+
+    # symmetrize solution
+    k = 0
+    for j in 1:n, i in j+1:n
+        @inbounds X[i,j] = x[k+=1]
+        @inbounds X[j,i] = X[i,j]
+    end
+
+    return X
+end

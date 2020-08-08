@@ -60,6 +60,14 @@ needs_gradient(::MMSubSpace) = true
 needs_hessian(::MMSubSpace) = true
 needs_linsolver(::MMSubSpace) = true
 
+"""SD + ADMM hybrid"""
+struct SDADMM <: AlgorithmOption end
+
+# traits
+needs_gradient(::SDADMM) = true
+needs_hessian(::SDADMM) = true
+needs_linsolver(::SDADMM) = true
+
 """
 Build a portable representation of a problem using Convex.jl.
 The problem can be passed to a supported black-box solver.
@@ -67,7 +75,7 @@ See the Convex.jl documentation for more details.
 """
 struct BlackBox <: AlgorithmOption end
 
-export SteepestDescent, MM, BlackBox, ADMM, MMSubSpace
+export SteepestDescent, MM, BlackBox, ADMM, MMSubSpace, SDADMM
 
 # convergence metrics + common operations
 include("common.jl")
