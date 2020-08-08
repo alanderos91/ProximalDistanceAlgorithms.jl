@@ -1,6 +1,7 @@
 using ArgParse
 using ProximalDistanceAlgorithms
 using Images, TestImages, Statistics, ImageQualityIndexes
+using LinearAlgebra
 
 global const DIR = joinpath(pwd(), "experiments", "aw-area51", "denoise")
 
@@ -86,6 +87,12 @@ function imgtvd_instance(options)
 
     println("    Image Denoising; $(options["image"]) $(width) × $(height)\n")
 
+    # save noisy image
+    file = joinpath(DIR, options["image"] * "_noisy.png")
+    if !isfile(file)
+        save(file, colorview(Gray, map(clamp01nan, noisy)) )
+    end
+
     return problem, problem_size
 end
 
@@ -105,9 +112,24 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # compute PSNR and SSIM
-    PSNR = [assess_psnr(img, problem.ground_truth) for img in solution.img]
-    SSIM = [assess_ssim(img, problem.ground_truth) for img in solution.img]
+    # ground truth + noisy image
+    ref_image    = colorview(Gray, map(clamp01nan, problem.ground_truth))
+    input_image  = colorview(Gray, map(clamp01nan, problem.input))
+
+    # define missing validation metrics
+    assess_mse = function(x, ref)
+        return sum( (x .- ref) .^ 2 ) / length(x)
+    end
+
+    assess_isnr = function(x, ref)
+        return 10 * log10(norm(input_image - x, 2)^2 / norm(ref - x, 2)^2)
+    end
+
+    # compute validation metrics
+    MSE  = [assess_mse(img, ref_image) for img in solution.img]
+    PSNR = [assess_psnr(img, ref_image) for img in solution.img]
+    ISNR = [assess_isnr(img, ref_image) for img in solution.img]
+    SSIM = [assess_ssim(img, ref_image) for img in solution.img]
     nu  = solution.nu
     nu_max = (w-1)*h + w*(h-1)
     sparsity = nu ./ nu_max
@@ -116,23 +138,16 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # save_array(basefile * ".in", problem.input)
 
     # save validation metrics
-    save_array(basefile * "_MSE.out", [nu sparsity PSNR SSIM])
+    save_array(basefile * "_validation.out", [nu sparsity MSE PSNR ISNR SSIM])
 
-    # save an example of the output
-    if !isfile(basefile * ".png")
-        # find "optimal" image on the basis of SSIM
-        ix = argmax(SSIM)
+    # save all the candidate images; make sure images are valid
+    for (img, vnu) in zip(solution.img, solution.nu)
+        output_image = colorview(Gray, map(clamp01nan, img))
 
-        # make sure images are valid
-        ref_image    = colorview(Gray, map(clamp01nan, problem.ground_truth))
-        input_image  = colorview(Gray, map(clamp01nan, problem.input))
-        output_image = colorview(Gray, map(clamp01nan, solution.img[ix]))
-
-        # combine images
-        collage = [ref_image input_image output_image]
+        file = joinpath(DIR, basefile * "_nu=$(vnu).png")
 
         # save to disk
-        save(basefile * ".png", collage)
+        save(file, output_image)
     end
 
     return nothing

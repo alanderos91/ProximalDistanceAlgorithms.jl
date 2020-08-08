@@ -48,7 +48,7 @@ while read image
 
     # Steepest Descent
     FNAME=SD_${image}
-    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 2e-2 --atol 1e-4 --rtol 1e-4
+    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 2e-2 --atol 1e-2 --rtol 1e-4
     # ADMM
     # FNAME=ADMM_LSQR_${image}
     # jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
