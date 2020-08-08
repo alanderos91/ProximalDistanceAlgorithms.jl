@@ -25,3 +25,68 @@ df2 = validation_table("cvxcluster", "SD")
 df = join(df1, df2, on=:dataset)
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
+
+### Main Table
+
+```{julia}
+experiment = "cvxcluster"
+algorithms = ("MM", "SD")
+
+df = []
+
+for algorithm in algorithms
+    df1 = summary_table(experiment, algorithm)
+    df2 = validation_table(experiment, algorithm)
+    push!(df, join(df1, df2, on=:dataset))
+end
+
+df = map(x -> sort(x, :samples), df)
+
+dscale = 10^3
+
+maindf = DataFrame(
+    dataset = df[1].dataset,
+    d       = df[1].features,
+    n       = df[1].samples,
+    k       = df[1].classes,
+    timeMM  = df[1][!, 5],
+    timeSD  = df[2][!, 5],
+    distMM  = df[1][!, 9] * dscale,
+    distSD  = df[2][!, 9] * dscale,
+    ARIMM   = df[1][!,14],
+    ARISD   = df[2][!,14],
+)
+
+latexify(maindf, env = :tabular, fmt = FancyNumberFormatter("%.4G", s"\g<mantissa> \\times 10^{\g<exp>}"))
+```
+
+```{julia}
+experiment = "denoise"
+algorithms = ("SD",)
+
+df = []
+
+for algorithm in algorithms
+    df1 = summary_table(experiment, algorithm)
+    push!(df, df1)
+end
+
+df = map(x -> sort(x, :samples), df)
+
+dscale = 10^3
+
+maindf = DataFrame(
+    dataset = df[1].dataset,
+    d       = df[1].features,
+    n       = df[1].samples,
+    k       = df[1].classes,
+    timeMM  = df[1][!, 5],
+    timeSD  = df[2][!, 5],
+    distMM  = df[1][!, 9] * dscale,
+    distSD  = df[2][!, 9] * dscale,
+    ARIMM   = df[1][!,14],
+    ARISD   = df[2][!,14],
+)
+
+latexify(maindf, env = :tabular, fmt = FancyNumberFormatter("%.4G", s"\g<mantissa> \\times 10^{\g<exp>}"))
+```
