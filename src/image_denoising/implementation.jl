@@ -70,15 +70,15 @@ function denoise_image(algorithm::AlgorithmOption, image;
     # generate operators
     D = ImgTvdFM(n, p)
     a = copy(x)
-    f = SparseProjectionClosure(rev, nu)
+    cache = zeros(M-1)
+    P = L0Projection(nu, cache)
 
-    operators = (D = D, compute_proj = f, a = a)
+    operators = (D = D, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    cache = zeros(M-1)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
@@ -119,15 +119,15 @@ function denoise_image(algorithm::AlgorithmOption, image;
         r = similar(y)
         s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -267,15 +267,15 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
         r = similar(y)
         s = similar(x)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
     elseif algorithm isa MMSubSpace
         tmpGx1 = zeros(N)
         tmpGx2 = zeros(N)
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
     else
         tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, cache = cache, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
     end
 
     # create views, if needed
@@ -302,9 +302,9 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
         #     # search by smallest elements; i.e. partial sort in descending order
         #     f = SparseProjectionClosure(true, ν)
         # end
-        f = SparseProjectionClosure(true, ν)
+        P = L0Projection(nu, cache)
 
-        operators = (D = D, compute_proj = f, a = a)
+        operators = (D = D, P = P, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
 
         _, iter, _ = optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
@@ -350,8 +350,8 @@ end
 function imgtvd_objective(::AlgorithmOption, prob, ρ)
     @unpack x = prob.variables
     @unpack ∇f, ∇q, ∇h = prob.derivatives
-    @unpack D, compute_proj, a = prob.operators
-    @unpack z, Pz, v, cache = prob.buffers
+    @unpack D, P, a = prob.operators
+    @unpack z, Pz, v = prob.buffers
 
     # evaulate gradient of loss
     @. ∇f = x - a
@@ -359,19 +359,17 @@ function imgtvd_objective(::AlgorithmOption, prob, ρ)
     # evaluate gradient of penalty
     mul!(z, D, x)
 
-    # compute pivot for projection operator
-    copyto!(cache, 1, z, 1, length(cache))
-    @. cache = abs.(cache)
-    P = compute_proj(cache)
-
     # finish evaluating penalty gradient
-    for k in eachindex(cache)
-        indicator = P(abs(z[k])) == abs(z[k])
-        Pz[k] = indicator*z[k]
-        v[k] = z[k] - Pz[k]
-    end
+    M = length(z)
+    zview = @view z[1:M-1]
+    Pview = @view Pz[1:M-1]
+    P(Pview, zview) # project z onto ball, storing it in Pz
+    @. v = z - Pz   # compute vector pointing to constraint set
+
+    # handle component coming from extra row in fusion matrix
     Pz[end] = z[end]
     v[end] = 0
+
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
@@ -443,8 +441,8 @@ end
 function imgtvd_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, compute_proj, a = prob.operators
-    @unpack z, v, b, cache, tmpx = prob.buffers
+    @unpack D, P, a = prob.operators
+    @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
     # x block update
@@ -475,21 +473,27 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
     # solve the linear system
     linsolve!(linsolver, x, A, b)
 
-    # compute pivot for projection operator
+    # update z = D*x variable
     mul!(z, D, x)
+
+    # project z onto ball, storing it in Pz
     @. v = z + λ
-    copyto!(cache, 1, v, 1, length(cache))
-    @. cache = abs(cache)
-    P = compute_proj(cache)
+    M = length(v)
+    vview = @view v[1:M-1]
+    Pview = @view Pz[1:M-1]
+    P(Pview, vview)
+
+    # handle component coming from extra row in fusion matrix
+    Pz[end] = v[end]
 
     # y block update
     α = (ρ / μ)
-    @inbounds @simd for j in eachindex(cache)
-        zpλj = z[j] + λ[j]
-        indicator = P(abs(zpλj)) == abs(zpλj)
-        y[j] = α/(1+α) * indicator*zpλj + 1/(1+α) * zpλj
+    @inbounds @simd for j in eachindex(v)
+        # Pz = P(z+λ)
+        # v = z + λ
+        y[j] = α/(1+α) * Pz[j] + 1/(1+α) * v[j]
     end
-    y[end] = z[end] + λ[end] # corresponds to extra constraint
+    # y[end] = z[end] + λ[end] # corresponds to extra constraint
 
     # λ block update
     @inbounds @simd for j in eachindex(λ)
