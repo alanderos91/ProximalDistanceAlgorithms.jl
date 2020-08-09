@@ -82,6 +82,7 @@ include("common.jl")
 include("linsolve.jl")
 include("optimize.jl")
 include("acceleration.jl")
+include("projections.jl")
 
 export initialize_history, instantiate_fusion_matrix
 export slow_schedule, fast_schedule
