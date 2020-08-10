@@ -72,7 +72,8 @@ while read n
 
     # SD + ADMM hybrid
     FNAME=SDADMM_CG_${n}
-    jlbenchmark --nodes ${n} --algorithm SDADMM --ls CG --maxiters ${MAXITERS} --accel \
-        --filename ${FNAME}.dat
+    jlbenchmark --nodes ${n} --algorithm SDADMM --accel --ls CG --maxiters ${MAXITERS} \
+        --filename ${FNAME}.dat \
+        --atol 1e-12
         
 done < ${DIR}/metric/jobs/${JOBNAME}.in
