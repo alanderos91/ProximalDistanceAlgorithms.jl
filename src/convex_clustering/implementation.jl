@@ -30,7 +30,6 @@ This indirectly affects the performance of the algorithm and should only be used
 """
 function convex_clustering(algorithm::AlgorithmOption, weights, data;
     nu::Integer=0,
-    rev::Bool=true,
     rho::Real=1.0,
     mu::Real=1.0,
     ls::LS=Val(:LSQR), kwargs...) where LS
@@ -67,10 +66,7 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     end
 
     # generate operators
-    block_norm = zeros(m)
-    cache = zeros(m)
-    compute_proj = SparseProjectionClosure(rev, nu)
-    P = BlockSparseProjection(d, block_norm, cache, compute_proj)
+    P = L0ColProjection(nu, m, d, zeros(m), zeros(m))
     a = copy(x)
     D = CvxClusterFM(d, n)
     operators = (D = D, P = P, a = a)
@@ -177,6 +173,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
+    start::Real=0.5,
     stepsize::Real=0.05,
     rho::Real=1.0,
     mu::Real=1.0,
@@ -282,28 +279,39 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     objective = cvxclst_objective
     algmap = cvxclst_iter
 
-    # allocate output
-    assignment = Vector{Int}[]
-    ν_path = Int[]
+    # arrays needed for projection
+    colnorm, colnormcopy = zeros(m), zeros(m)
 
-    # allocate storage for distance matrix
-    distance = pairwise(SqEuclidean(), X, dims = 2)
+    # allocate outputs
+    assignment = Vector{Int}[]
+    s_path = Float64[]
 
     # initialize solution path heuristic
-    νmax = binomial(n, 2)
-    ν = νmax-1
+    mul!(z, D, x)
+    nconstraint = 0
+    for k in 1:m
+        # extract the corresponding column
+        startix = d * (k-1) + 1
+        stopix  = startix + d - 1
+        col     = @view z[startix:stopix]
+        colnorm_k = norm(col)
 
-    prog = ProgressThresh(0, "Searching clustering path...")
-    while ν ≥ 0
-        if ν > (νmax >> 1)
-            # search by smallest blocks; i.e. partial sort in ascending order
-            compute_proj = SparseProjectionClosure(false, νmax - ν)
-        else
-            # search by largest blocks; i.e. partial sort in descending order
-            compute_proj = SparseProjectionClosure(true, ν)
-        end
+        # derivatives within 10^-3 are set to 0
+        nconstraint += (log10(colnorm_k) ≤ -3)
+    end
 
-        P = BlockSparseProjection(d, block_norm, cache, compute_proj)
+    rmax = 1.0
+    rstep = stepsize
+    if 0 < start ≤ rmax
+        r = 1 - start
+    else
+        r = 1 - nconstraint / m
+    end
+
+    prog = ProgressThresh(zero(r), "Searching clustering path...")
+    while r ≥ 0
+        nu = round(Int, r * m)
+        P = L0ColProjection(nu, m, d, colnorm, colnormcopy)
         operators = (D = D, P = P, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
 
@@ -318,28 +326,32 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
         # record current solution
         push!(assignment, assign_classes(X)[2])
-        push!(ν_path, ν)
+        push!(s_path, 100 * (1-r))
 
         # count satisfied constraints
         nconstraint = 0
-        pairwise!(distance, SqEuclidean(), X, dims = 2)
-        for j in 1:n, i in j+1:n
-            # distances within 10^-3 are set to 0
-            nconstraint += (log(10, abs(weights[i,j] * distance[i,j])) ≤ -3)
+        for k in 1:m
+            # extract the corresponding column
+            startix = d * (k-1) + 1
+            stopix  = startix + d - 1
+            col     = @view z[startix:stopix]
+            colnorm_k = norm(col)
+
+            # derivatives within 10^-3 are set to 0
+            nconstraint += (log10(colnorm_k) ≤ -3)
         end
 
-        # decrease ν with a heuristic that guarantees a decrease
-        νstep = round(Int, stepsize*νmax)
-
-        if νmax - nconstraint - 1 < ν - νstep
-            ν = νmax - nconstraint - 1
+        # decrease r with a heuristic that guarantees a decrease
+        rnew = 1 - nconstraint / m
+        if rnew < r - rstep
+            r = rnew
         else
-            ν = ν - νstep
+            r = r - rstep
         end
-        ProgressMeter.update!(prog, ν)
+        ProgressMeter.update!(prog, r)
     end
 
-    solution_path = (assignment = assignment, nu = ν_path)
+    solution_path = (assignment = assignment, sparsity = s_path)
 
     return solution_path
 end
