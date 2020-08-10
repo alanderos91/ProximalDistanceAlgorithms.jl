@@ -31,6 +31,7 @@
 
         # check that the correct values are preserved
         @test xsorted[1:k] == xnonz[1:k]
+        @test count(!isequal(0), xproj) == k
     end
     #
     #   l1 tests

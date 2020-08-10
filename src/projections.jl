@@ -9,20 +9,25 @@ The vector `xcopy` should enter as an identical copy of `x`.
 """
 function project_l0_ball!(x, xcopy, k)
     #
-    #   do nothing if k ≤ 0
+    #   do nothing if k > length(x)
     #
-    if k ≤ 0 return x end
+    if k > length(x) return x end
 
+    #
+    #   fill with zeros if k ≤ 0
+    #
+    if k ≤ 0 return fill!(x, 0) end
+
+    #
     # find the spliting element
+    #
     pivot = l0_search_partialsort!(xcopy, k)
 
+    #
     # apply the projection
-    nnz = 0
+    #
     @inbounds for i in 1:length(x)
-        if abs(x[i]) ≥ abs(pivot)
-            nnz += 1
-            if nnz ≥ k break end
-        else
+        if abs(x[i]) < abs(pivot)
             x[i] = 0
         end
     end
@@ -55,6 +60,52 @@ function (P::L0Projection)(dest, src)
     copyto!(dest, src)
     copyto!(P.xtmp, src)
     project_l0_ball!(dest, P.xtmp, P.nu)
+
+    return dest
+end
+
+struct L0ColProjection{T} <: Function
+    nu::Int
+    ncols::Int
+    colsz::Int
+    colnorm::Vector{T}
+    buffer::Vector{T}
+end
+
+function (P::L0ColProjection)(dest, src)
+    @unpack nu, ncols, colsz, colnorm, buffer = P
+
+    # compute column norms
+    for k in 1:ncols
+        # extract the corresponding column
+        start = colsz * (k-1) + 1
+        stop  = start + colsz - 1
+        col   = @view dest[start:stop]
+
+        # compute norm for the column and save to vectors
+        colnorm_k = norm(col)
+        colnorm[k] = colnorm_k
+        buffer[k]  = colnorm_k
+    end
+
+    # project column norms to l0 ball
+    project_l0_ball!(colnorm, buffer, nu)
+
+    # keep columns with nonzero norm
+    for k in 1:ncols
+        start = colsz * (k-1) + 1
+        stop  = start + colsz - 1
+
+        if colnorm[k] > 0
+            for i in start:stop
+                dest[i] = src[i]
+            end
+        else
+            for i in start:stop
+                dest[i] = 0
+            end
+        end
+    end
 
     return dest
 end
