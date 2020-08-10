@@ -151,13 +151,13 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     x4 = ["ISNR"; ISNR]
     x5 = ["SSIM"; SSIM]
     arr = [sparsity MSE PSNR ISNR SSIM]
-    save_array(basefile * "_$(proj)_validation.out", arr)
+    save_array(basefile * "_validation.out", arr)
 
     # save all the candidate images; make sure images are valid
     for (img, s) in zip(images, sparsity)
         output = colorview(Gray, map(clamp01nan, img))
 
-        file = joinpath(DIR, basefile * "_$(proj)_sparsity=$(s).png")
+        file = joinpath(DIR, basefile * "_sparsity=$(s).png")
 
         # save to disk
         save(file, output)

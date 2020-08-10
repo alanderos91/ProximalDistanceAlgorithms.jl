@@ -39,37 +39,16 @@ MAXITERS=5000
 while read image
     do
 
-    # # MM
-    # FNAME=MM_LSQR_${image}
-    # jlbenchmark --image ${image} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    # FNAME=MM_CG_${image}
-    # jlbenchmark --image ${image} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-2
-
     # Steepest Descent
-    FNAME=SD_${image}
-    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --start 0.5 --step 2e-2 --atol 1e-4 --rtol 1e-4 --proj l0
+    FNAME=SD_${image}_l0
+    jlbenchmark --image ${image} --algorithm SD --proj l0 --maxiters ${MAXITERS} --accel\
+        --filename ${FNAME}.dat \
+        --start 0.5 --step 2e-2 \
+        --atol 1e-4 --rtol 1e-4
 
-    jlbenchmark --image ${image} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --start 0.5 --step 2e-2 --atol 1e-4 --rtol 1e-4 --proj l1
-
-    # ADMM
-    # FNAME=ADMM_LSQR_${image}
-    # jlbenchmark --image ${image} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
-
-    # FNAME=ADMM_CG_${image}
-    # jlbenchmark --image ${image} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 2e-2 --atol 1e-2 --rtol 1e-4
-
-    # # MM Subspace{5}
-    # FNAME=MMS5_LSQR_${image}
-    # jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-    #
-    # FNAME=MMS5_CG_${image}
-    # jlbenchmark --image ${image} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-    #
-    # # MM Subspace{10}
-    # FNAME=MMS10_LSQR_${image}
-    # jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-    #
-    # FNAME=MMS10_CG_${image}
-    # jlbenchmark --image ${image} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=SD_${image}_l1
+    jlbenchmark --image ${image} --algorithm SD --proj l1 --maxiters ${MAXITERS} --accel \
+        --filename ${FNAME}.dat \
+        --start 0.5 --step 2e-2 \
+        --atol 1e-4 --rtol 1e-4
 done < ${DIR}/denoise/jobs/${JOBNAME}.in

@@ -116,9 +116,10 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     basefile = splitext(file)[1]
 
     # save assignments
+    sparsity = round.(soultion.sparsit, sigdigits=5)
     open(basefile * "_assignment.out", "w") do io
         writedlm(io, ["nu" "classes" "assignment"])
-        for (assignment, s) in zip(solution.assignment, solution.sparsity)
+        for (assignment, s) in zip(solution.assignment, sparsity)
             nclasses = length(unique(assignment))
             writedlm(io, [s nclasses assignment...])
         end
@@ -127,7 +128,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     # save validation metrics
     open(basefile * "_validation.out", "w") do io
         writedlm(io, ["sparsity" "classes" "VI" "ARI" "NMI"])
-        for (assignment, s) in zip(solution.assignment, solution.sparsity)
+        for (assignment, s) in zip(solution.assignment, sparsity)
 
             # compare assignments against truth
             VI  = Clustering.varinfo(problem.classes, assignment)

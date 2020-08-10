@@ -39,35 +39,17 @@ MAXITERS=3000
 
 while read dataset
     do
-    # # MM
-    # FNAME=MM_LSQR_${dataset}
-    # jlbenchmark --data ${dataset} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
+    # MM
     FNAME=MM_CG_${dataset}
-    jlbenchmark --data ${dataset}.dat --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3 --start 0.1
+    jlbenchmark --data ${dataset}.dat --algorithm MM --ls CG --maxiters ${MAXITERS} --accel \
+        --filename ${FNAME}.dat \
+        --step 5e-3 --start 0.1 \
+        --atol 1e-8
 
     # Steepest Descent
     FNAME=SD_${dataset}
-    jlbenchmark --data ${dataset}.dat --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3 --start 0.1
-
-    # # ADMM
-    # FNAME=ADMM_LSQR_${dataset}
-    # jlbenchmark --data ${dataset} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
-
-    # FNAME=ADMM_CG_${dataset}
-    # jlbenchmark --data ${dataset}.dat --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --step 2e-3
-
-#    # MM Subspace{5}
-#    FNAME=MMS5_LSQR_${dataset}
-#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-#
-#    FNAME=MMS5_CG_${dataset}
-#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-#
-#    # MM Subspace{10}
-#    FNAME=MMS10_LSQR_${dataset}
-#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-#
-#    FNAME=MMS10_CG_${dataset}
-#    jlbenchmark --data ${dataset} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --data ${dataset}.dat --algorithm SD --maxiters ${MAXITERS} --accel \
+        --filename ${FNAME}.dat \
+        --step 5e-3 --start 0.1 \
+        --atol 1e-8
 done < ${DIR}/cvxcluster/jobs/${JOBNAME}.in
