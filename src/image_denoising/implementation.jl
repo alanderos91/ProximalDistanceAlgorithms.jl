@@ -29,9 +29,10 @@ This indirectly affects the performance of the algorithm and should only be used
 """
 function denoise_image(algorithm::AlgorithmOption, image;
     nu::Integer=0,
+    tv::Real=1.0,
     rev::Bool=true,
     rho::Real=1.0,
-    mu::Real=1.0, ls=Val(:LSQR), kwargs...)
+    mu::Real=1.0, ls=Val(:LSQR), proj=Val(:l0), kwargs...)
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -71,7 +72,14 @@ function denoise_image(algorithm::AlgorithmOption, image;
     D = ImgTvdFM(n, p)
     a = copy(x)
     cache = zeros(M-1)
-    P = L0Projection(nu, cache)
+
+    if proj isa Val{:l0}
+        P = L0Projection(nu, cache)
+    elseif proj isa Val{:l1}
+        P = L1Projection(tv, cache)
+    else
+        error("unsupported projection choice, $(proj)")
+    end
 
     operators = (D = D, P = P, a = a)
 
@@ -169,11 +177,11 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
     stepsize::Real=0.1,
-    start::Real=0.5,
+    start::Real=Inf,
     rho::Real=1.0,
     mu::Real=1.0,
     history::histT=nothing,
-    ls::LS=Val(:LSQR), kwargs...) where {histT, LS}
+    ls::LS=Val(:LSQR), proj=Val(:l0), kwargs...) where {histT, LS}
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -187,10 +195,6 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     # check that stepsize and start are reasonable
     if !(0 < stepsize < 1)
         error("argument stepsize must be between 0 and 1! (stepsize = $(stepsize))")
-    end
-
-    if !(0 < start ≤ 1)
-        error("argument start must satisfy 0 < start ≤ 1! (start = $(start)")
     end
 
     # allocate optimization variable
@@ -287,22 +291,36 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     # allocate output
     X_path = typeof(X)[]
-    ν_path = Int[]
+    s_path = Float64[]
 
     # initialize solution path heuristic
-    νmax = M-1
-    ν = floor(Int, start*νmax)
+    mul!(z, D, x)
+    nconstraint = 0
+    for j in 1:M-1
+        # derivatives within 10^-3 are set to 0
+        nconstraint += (log10(abs(z[j])) ≤ -3)
+    end
 
-    prog = ProgressThresh(0, "Searching solution path...")
-    while ν ≥ 0
-        # if ν > (νmax >> 1)
-        #     # search by largest elements; i.e. partial sort in ascending order
-        #     f = SparseProjectionClosure(false, νmax - ν)
-        # else
-        #     # search by smallest elements; i.e. partial sort in descending order
-        #     f = SparseProjectionClosure(true, ν)
-        # end
-        P = L0Projection(nu, cache)
+    rmax = 1.0
+    rstep = stepsize
+    if 0 < start ≤ rmax
+        r = start
+    else
+        r = 1 - nconstraint / (M-1)
+    end
+
+    prog = ProgressThresh(zero(r), "Searching solution path...")
+    while r ≥ 0
+        if proj isa Val{:l0}
+            nu = round(Int, r*(M-1))
+            P = L0Projection(nu, cache)
+        elseif proj isa Val{:l1}
+            mul!(z, D, x)
+            tv = r * norm(z, 1)
+            P = L1Projection(tv, cache)
+        else
+            error("unsupported projection choice, $(proj)")
+        end
 
         operators = (D = D, P = P, a = a)
         prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
@@ -317,28 +335,27 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
         end
 
         # record current solution
-        push!(X_path, copy(X))
-        push!(ν_path, ν)
+        push!(X_path, copy(X))      # record solution
+        push!(s_path, 100 * (1-r))  # record % sparsity
 
         # count satisfied constraints
         nconstraint = 0
         for j in 1:M-1
             # derivatives within 10^-3 are set to 0
-            nconstraint += (log(10, abs(prob.buffers.z[j])) ≤ -3)
+            nconstraint += (log10(abs(z[j])) ≤ -3)
         end
 
-        # decrease ν with a heuristic that guarantees a decrease
-        νstep = round(Int, stepsize*νmax)
-
-        if νmax - nconstraint - 1 < ν - νstep
-            ν = νmax - nconstraint - 1
+        # decrease r with a heuristic that guarantees a decrease
+        rnew = 1 - nconstraint / (M-1)
+        if rnew < r - rstep
+            r = rnew
         else
-            ν = ν - νstep
+            r = r - rstep
         end
-        ProgressMeter.update!(prog, ν)
+        ProgressMeter.update!(prog, r)
     end
 
-     solution_path = (img = X_path, nu = ν_path)
+     solution_path = (img = X_path, sparsity = s_path)
 
     return solution_path
 end
