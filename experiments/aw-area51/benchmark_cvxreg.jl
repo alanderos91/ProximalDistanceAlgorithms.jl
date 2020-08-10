@@ -90,7 +90,7 @@ function cvxreg_instance(options)
 end
 
 # inlined wrapper
-@inline function run_cvxreg(algorithm, problem; kwargs...)
+@inline function run_cvxreg(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
     penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))

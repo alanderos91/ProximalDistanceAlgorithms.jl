@@ -80,7 +80,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     rtol:         $(options["rtol"])
     atol:         $(options["atol"])
     seed:         $(options["seed"])""")
-    if haskey(options, :start)
+    if haskey(options, "start")
         println()
         println("---------path heuristic----------")
         println()
@@ -88,7 +88,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         println("step:         $(options["step"])")
     end
 
-    if haskey(options, :proj)
+    if haskey(options, "proj")
         println("proj:         $(options["proj"])")
     end
     flush(STDOUT)
@@ -99,7 +99,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
 
     # make sure correct method gets pre-compiled (no history kwarg)
     print("Pre-compiling...")
-    @time begin @timed run_solver(algorithm, problem; kwargs...) end
+    @time begin @timed run_solver(algorithm, problem, options; kwargs...) end
     println()
 
     # package keyword arguments into NamedTuple
@@ -117,7 +117,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     print("Extracting convergence history...")
     history = initialize_history(options["maxiters"], 1)
     other_kwargs = (kwargs..., history = history)
-    solution = @time run_solver(algorithm, problem; other_kwargs...)
+    solution = @time run_solver(algorithm, problem, options; other_kwargs...)
     println()
 
     # run the benchmark
@@ -127,7 +127,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         print("    collecting sample ($(k)/$(nsamples))... ")
         @time begin
             # run algorithm
-            result = @timed run_solver(algorithm, problem; kwargs...)
+            result = @timed run_solver(algorithm, problem, options; kwargs...)
 
             # save results
             cpu_time[k] = result[2]       # seconds

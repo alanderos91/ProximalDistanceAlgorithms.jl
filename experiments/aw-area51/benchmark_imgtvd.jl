@@ -99,7 +99,7 @@ function imgtvd_instance(options)
     # save noisy image
     file = joinpath(DIR, options["image"] * "_noisy.png")
     if !isfile(file)
-        save(file, noisy))
+        save(file, noisy)
     end
 
     return problem, problem_size
@@ -132,7 +132,7 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     end
 
     assess_isnr = function(x, ref)
-        return 10 * log10(norm(input_image - x, 2)^2 / norm(ref - x, 2)^2)
+        return 10 * log10(norm(input - x, 2)^2 / norm(ref - x, 2)^2)
     end
 
     # compute validation metrics
@@ -160,28 +160,29 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
         file = joinpath(DIR, basefile * "_$(proj)_sparsity=$(s).png")
 
         # save to disk
-        save(file, output_image)
+        save(file, output)
     end
 
     return nothing
 end
 
-@inline function run_imgtvd(algorithm, problem; kwargs...)
+@inline function run_imgtvd(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     rho0 = kw[:rho]
-    proj = kw[:proj]
-    st = kw[:start]
-    sz = kw[:step]
+    proj = options["proj"]
+    st = options["start"]
+    sz = options["step"]
 
     penalty(ρ, n) = min(1e6, rho0 * 1.075 ^ floor(n/20))
+    noisyf64 = Float64.(problem.input)
 
-    output = denoise_image_path(algorithm, problem.input;
+    output = denoise_image_path(algorithm, noisyf64;
         penalty=penalty,
         proj=Val(proj),
         start=st,
         stepsize=sz, kwargs...)
 
-    return (img = output.img, nu = output.nu)
+    return output
 end
 
 # run the benchmark

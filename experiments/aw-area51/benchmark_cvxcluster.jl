@@ -141,7 +141,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
 end
 
 # inlined wrapper
-@inline function run_cvxcluster(algorithm, problem; kwargs...)
+@inline function run_cvxcluster(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
     penalty(ρ, n) = min(1e6, ρ0 * 1.2 ^ floor(n/20))

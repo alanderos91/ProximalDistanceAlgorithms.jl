@@ -92,7 +92,7 @@ function condnum_instance(options)
     return problem, problem_size
 end
 
-@inline function run_condnum(algorithm, problem; kwargs...)
+@inline function run_condnum(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
 
