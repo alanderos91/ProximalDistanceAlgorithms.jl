@@ -80,7 +80,7 @@ function (P::L0ColProjection)(dest, src)
         # extract the corresponding column
         start = colsz * (k-1) + 1
         stop  = start + colsz - 1
-        col   = @view dest[start:stop]
+        col   = @view src[start:stop]
 
         # compute norm for the column and save to vectors
         colnorm_k = norm(col)
