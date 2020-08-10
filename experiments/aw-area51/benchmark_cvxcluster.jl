@@ -134,7 +134,7 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
             ARI = Clustering.randindex(problem.classes, assignment)[1]
             NMI = Clustering.mutualinfo(problem.classes, assignment, normed = true)
             nclasses = length(unique(assignment))
-            writedlm(io, [sparsity nclasses VI ARI NMI])
+            writedlm(io, [s nclasses VI ARI NMI])
         end
     end
 
