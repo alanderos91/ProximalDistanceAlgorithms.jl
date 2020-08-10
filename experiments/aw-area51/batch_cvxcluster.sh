@@ -44,11 +44,11 @@ while read dataset
     # jlbenchmark --data ${dataset} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     FNAME=MM_CG_${dataset}
-    jlbenchmark --data ${dataset}.dat --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 2e-3
+    jlbenchmark --data ${dataset}.dat --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3 --start 0.1
 
     # Steepest Descent
     FNAME=SD_${dataset}
-    jlbenchmark --data ${dataset}.dat --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 2e-3
+    jlbenchmark --data ${dataset}.dat --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --step 5e-3 --start 0.1
 
     # # ADMM
     # FNAME=ADMM_LSQR_${dataset}

@@ -137,7 +137,7 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
 
     # compute validation metrics
     images = solution.img
-    sparsity = solution.sparsity
+    sparsity = round.(solution.sparsity, sigdigits=5)
 
     MSE  = [assess_mse(img, image) for img in images]
     PSNR = [assess_psnr(img, image) for img in images]

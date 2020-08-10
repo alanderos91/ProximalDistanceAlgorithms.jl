@@ -63,6 +63,10 @@ function cvxcluster_interface(args)
             help     = "step size for path heuristic"
             arg_type = Float64
             default  = 0.05
+        "--start"
+            help     = "initial sparsity level"
+            arg_type = Float64
+            default  = 0.5
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -114,26 +118,23 @@ function cvxcluster_save_results(file, problem, problem_size, solution, cpu_time
     # save assignments
     open(basefile * "_assignment.out", "w") do io
         writedlm(io, ["nu" "classes" "assignment"])
-        for (assignment, ν) in zip(solution.assignment, solution.nu)
+        for (assignment, s) in zip(solution.assignment, solution.sparsity)
             nclasses = length(unique(assignment))
-            writedlm(io, [ν nclasses assignment...])
+            writedlm(io, [s nclasses assignment...])
         end
     end
 
     # save validation metrics
     open(basefile * "_validation.out", "w") do io
-        writedlm(io, ["nu" "sparsity" "classes" "VI" "ARI" "NMI"])
-        for (assignment, ν) in zip(solution.assignment, solution.nu)
-            # compute sparsity
-            nu_max = binomial(problem_size.n, 2)
-            sparsity = ν / nu_max
+        writedlm(io, ["sparsity" "classes" "VI" "ARI" "NMI"])
+        for (assignment, s) in zip(solution.assignment, solution.sparsity)
 
             # compare assignments against truth
             VI  = Clustering.varinfo(problem.classes, assignment)
             ARI = Clustering.randindex(problem.classes, assignment)[1]
             NMI = Clustering.mutualinfo(problem.classes, assignment, normed = true)
             nclasses = length(unique(assignment))
-            writedlm(io, [ν sparsity nclasses VI ARI NMI])
+            writedlm(io, [sparsity nclasses VI ARI NMI])
         end
     end
 
@@ -144,9 +145,14 @@ end
 @inline function run_cvxcluster(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
+    st = options["start"]
+    sz = options["step"]
     penalty(ρ, n) = min(1e6, ρ0 * 1.2 ^ floor(n/20))
 
-    convex_clustering_path(algorithm, problem.W, problem.X; penalty = penalty, kwargs...)
+    convex_clustering_path(algorithm, problem.W, problem.X;
+        penalty=penalty,
+        start=st,
+        stepsize=sz, kwargs...)
 end
 
 # run the benchmark
