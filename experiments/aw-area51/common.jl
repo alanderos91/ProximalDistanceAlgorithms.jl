@@ -26,6 +26,10 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         elseif algchoice == :MMS
             K = options["subspace"]
             algorithm = MMSubSpace(K)
+        elseif algchoice == :SDADMM
+            algorithm = SDADMM()
+        else
+            error("unknown algorithm option $(algchoice)")
         end
 
         # linsolver choice
@@ -37,7 +41,7 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         elseif linsolver == :NA
             ls = nothing
         else
-            error("unknown option $(linsolver)")
+            error("unknown linsolver option $(linsolver)")
         end
     end
 
@@ -57,7 +61,6 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         ls       = ls,                  # linsolver
         rho      = options["rho"],      # initial value for rho
         mu       = options["mu"],       # initial value for mu
-        stepsize = get(options, "step", 0.0), # get step size for path algorithm
     )
 
     # benchmark settings

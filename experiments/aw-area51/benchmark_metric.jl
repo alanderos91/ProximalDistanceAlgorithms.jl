@@ -89,7 +89,22 @@ end
     ρ0 = kw[:rho]
     penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
 
-    X = metric_projection(algorithm, problem.Y; penalty = penalty, kwargs...)
+    # extra processing step for hybrid algorithm
+    if algorithm isa SDADMM
+        maxiters = kw[:maxiters]
+        phase1 = round(Int, 2/3 * maxiters) # 2/3 iterations allocated for SD
+        phase2 = round(Int, 1/3 * maxiters) # 1/3 iterations allocated for ADMM
+        
+        X = metric_projection(algorithm, problem.Y;
+            phase1=phase1,
+            phase2=phase2,
+            penalty=penalty,
+            kwargs...)
+    else
+        X = metric_projection(algorithm, problem.Y;
+            penalty=penalty,
+            kwargs...)
+    end
 
     return (X = X,)
 end

@@ -489,9 +489,6 @@ function metric_projection(algorithm::SDADMM, A, W=I;
     prob1 = ProxDistProblem(SD_variables, derivatives, operators, buffers, views, linsolver)
     _, iteration, _ = optimize!(SteepestDescent(), objective, algmap, prob1, rho, mu; SD_kwargs...)
 
-    # record loss for next step
-    loss, _, _ = objective(algorithm, prob1, rho)
-
     #
     # Phase 2: ADMM
     #
@@ -511,14 +508,9 @@ function metric_projection(algorithm::SDADMM, A, W=I;
     ADMM_kwargs = (kwt..., penalty=f_penalty, accel=Val(:none), maxiters=phase2,)
 
     # build new problem and optimize
-    new_objective = function(alg, prob, ρ)
-        x1, x2, x3 = metric_objective(alg, prob, ρ)
-        return x1+loss, x2, x3
-    end
-    algmap = metric_iter
 
     prob2 = ProxDistProblem(ADMM_variables, derivatives, operators, buffers, views, linsolver)
-    optimize!(ADMM(), new_objective, algmap, prob2, rho, mu; ADMM_kwargs...)
+    optimize!(ADMM(), objective, algmap, prob2, rho, mu; ADMM_kwargs...)
 
     # symmetrize solution
     k = 0
