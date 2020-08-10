@@ -11,7 +11,7 @@ using ProgressMeter
 
 using IterativeSolvers
 using IterativeSolvers: CGStateVariables, Adivtype
-using DataStructures: heapify!, percolate_down!
+using DataStructures
 
 using LinearMaps
 using LinearMaps: TransposeMap

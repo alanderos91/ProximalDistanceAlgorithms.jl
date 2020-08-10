@@ -58,3 +58,133 @@ function (P::L0Projection)(dest, src)
 
     return dest
 end
+
+#################################
+#   projection onto l1 ball     #
+#################################
+
+function project_l1_ball!(y, ytmp, a, algorithm::Function=condat_algorithm2)
+    #
+    #   project y to the non-negative orthant
+    #
+    @. ytmp = abs(y)
+
+    #
+    #   compute the splitting element τ needed in KKT conditions
+    #
+    τ = algorithm(ytmp, a)
+
+    #
+    #   complete the projection:
+    #   x = P_simplex(|y|)
+    #   z = P_a(y) by sgn(y_i) * x_i
+    #
+    @inbounds @simd for k in eachindex(y)
+        y[k] = sign(y[k]) * max(0, abs(y[k]) - τ)
+    end
+
+    return y
+end
+
+"Project `y` onto l1 ball using Algorithm 1 from Condat."
+project_l1_ball1!(y, ytmp, a) = project_l1_ball!(y, ytmp, a, condat_algorithm1!)
+
+"Project `y` onto l1 ball using Algorithm 2 from Condat."
+project_l1_ball2!(y, ytmp, a) = project_l1_ball!(y, ytmp, a, condat_algorithm2!)
+
+"""
+Find the splitting element `τ` which determines the projection of `y-a` to the unit simplex.
+
+This is version is based on quicksort, as described in
+
+Laurent Condat.  Fast Projection onto the Simplex and the l1 Ball.
+Mathematical Programming, Series A, Springer, 2016, 158 (1), pp.575-585.10.1007/s10107-015-0946-6. hal-01056171v2
+"""
+function condat_algorithm1!(y, a)
+    # sort elements in descending order using quicksort
+    sort!(y, rev=true)
+
+    # initialization
+    n = length(y)
+    j = 1           # cardinality of the index set, I
+    τ = y[j] - a    # initialize the splitting element, τ
+
+    # add the largest elements until τ satisfies the splitting condition:
+    #   y[i] - τ <= 0, for i not in the index set I, and
+    #   y[i] - τ > 0,  for i in the index set I
+    while j < n && (y[j] ≤ τ || y[j+1] > τ)
+        # update τ and the cardinality of I
+        τ = (j*τ + y[j+1]) / (j+1)
+        j += 1
+    end
+
+    return τ
+end
+
+#
+#   use functions from DataStructures.jl to implement array as binary maxheap
+#
+function maxheap!(xs)
+    DataStructures.heapify!(xs, Base.Order.Reverse)
+    return nothing
+end
+
+function push_down_max!(xs, len, root)
+    DataStructures.percolate_down!(xs, root, Base.Order.Reverse, len)
+    return nothing
+end
+
+function swap!(xs, i, j)
+    xs[i], xs[j] = xs[j], xs[i]
+    return nothing
+end
+
+"""
+Find the splitting element `τ` which determines the projection of `y-a` to the unit simplex.
+
+This version uses a heap, as described in
+
+Laurent Condat.  Fast Projection onto the Simplex and the l1 Ball.
+Mathematical Programming, Series A, Springer, 2016, 158 (1), pp.575-585.10.1007/s10107-015-0946-6. hal-01056171v2
+"""
+function condat_algorithm2!(y, a)
+    # build a max-order heap
+    maxheap!(y)
+
+    # initialization
+    n = length(y)
+    j = 1           # cardinality of the index set, I
+    τ = y[j] - a    # initialize the splitting element, τ
+
+    swap!(y, 1, n)              # put the largest element at the end
+    push_down_max!(y, n-j, 1)   # and use entries 1:n-j for the next heap
+    k = n                       # index of the previous largest element
+
+    # add the largest elements until τ satisfies the splitting condition:
+    #   y[i] - τ <= 0, for i not in the index set I, and
+    #   y[i] - τ > 0,  for i in the index set I
+    # here, y[k] is the previous element and y[1] is the next largest element
+    while j < n && (y[k] ≤ τ || y[1] > τ)
+        # update τ and the cardinality of I
+        τ = (j*τ + y[1]) / (j+1)
+        j += 1
+        k -= 1
+        swap!(y, 1, k)
+        push_down_max!(y, n-j, 1)
+    end
+
+    return τ
+end
+
+struct L1Projection{T} <: Function
+    radius::Float64
+    xtmp::Vector{T}
+end
+
+function (P::L1Projection)(dest, src)
+    copyto!(dest, src)
+    copyto!(P.xtmp, src)
+    project_l1_ball2!(dest, P.xtmp, P.radius)
+
+    return dest
+end
