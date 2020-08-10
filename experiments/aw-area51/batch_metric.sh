@@ -69,4 +69,10 @@ while read n
 
     FNAME=MMS10_CG_${n}
     jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    # SD + ADMM hybrid
+    FNAME=SDADMM_CG_${n}
+    jlbenchmark --nodes ${n} --algorithm SDADMM --ls CG --maxiters ${MAXITERS} --accel \
+        --filename ${FNAME}.dat
+        
 done < ${DIR}/metric/jobs/${JOBNAME}.in
