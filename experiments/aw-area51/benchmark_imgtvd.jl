@@ -62,6 +62,14 @@ function imgtvd_interface(args)
             help     = "step size for path heuristic"
             arg_type = Float64
             default  = 0.05
+        "--start"
+            help     = "initial sparsity level"
+            arg_type = Float64
+            default  = 0.5
+        "--proj"
+            help     = "choice of projection"
+            arg_type = Symbol
+            default  = :l0
         "--seed"
             help     = "problem randomization seed"
             arg_type = Int64
@@ -77,20 +85,21 @@ end
 
 function imgtvd_instance(options)
     image = Gray{Float64}.(testimage(options["image"]))
-    image64 = Float64.(image)
+    image = colorview(Gray, map(clamp01nan, image))
 
-    width, height = size(image64)
-    noisy = image64 .+ 0.2 * randn(width, height)
+    width, height = size(image)
+    noisy = image .+ 0.2 * randn(width, height)
+    noisy = colorview(Gray, map(clamp01nan, noisy))
 
-    problem = (input = noisy, ground_truth = image64)
-    problem_size = (width = width, height = height)
+    problem = (input=noisy, truth=image, proj=options["proj"])
+    problem_size = (width=width, height=height)
 
     println("    Image Denoising; $(options["image"]) $(width) × $(height)\n")
 
     # save noisy image
     file = joinpath(DIR, options["image"] * "_noisy.png")
     if !isfile(file)
-        save(file, colorview(Gray, map(clamp01nan, noisy)) )
+        save(file, noisy))
     end
 
     return problem, problem_size
@@ -100,10 +109,11 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # save benchmark results
     w = problem_size.width
     h = problem_size.height
+    proj = problem.proj
 
     df = DataFrame(
-            width = w,
-            height  = h,
+            width    = w,
+            height   = h,
             cpu_time = cpu_time,
             memory   = memory,
         )
@@ -112,9 +122,9 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     # get filename without extension
     basefile = splitext(file)[1]
 
-    # ground truth + noisy image
-    ref_image    = colorview(Gray, map(clamp01nan, problem.ground_truth))
-    input_image  = colorview(Gray, map(clamp01nan, problem.input))
+    # ground truth & noisy image
+    image = problem.truth
+    input = problem.input
 
     # define missing validation metrics
     assess_mse = function(x, ref)
@@ -126,25 +136,28 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     end
 
     # compute validation metrics
-    MSE  = [assess_mse(img, ref_image) for img in solution.img]
-    PSNR = [assess_psnr(img, ref_image) for img in solution.img]
-    ISNR = [assess_isnr(img, ref_image) for img in solution.img]
-    SSIM = [assess_ssim(img, ref_image) for img in solution.img]
-    nu  = solution.nu
-    nu_max = (w-1)*h + w*(h-1)
-    sparsity = nu ./ nu_max
+    images = solution.img
+    sparsity = solution.sparsity
 
-    # save input
-    # save_array(basefile * ".in", problem.input)
+    MSE  = [assess_mse(img, image) for img in images]
+    PSNR = [assess_psnr(img, image) for img in images]
+    ISNR = [assess_isnr(img, image) for img in images]
+    SSIM = [assess_ssim(img, image) for img in images]
 
     # save validation metrics
-    save_array(basefile * "_validation.out", [nu sparsity MSE PSNR ISNR SSIM])
+    x1 = ["sparsity"; sparsity]
+    x2 = ["MSE"; MSE]
+    x3 = ["PSNR"; PSNR]
+    x4 = ["ISNR"; ISNR]
+    x5 = ["SSIM"; SSIM]
+    arr = [sparsity MSE PSNR ISNR SSIM]
+    save_array(basefile * "_$(proj)_validation.out", arr)
 
     # save all the candidate images; make sure images are valid
-    for (img, vnu) in zip(solution.img, solution.nu)
-        output_image = colorview(Gray, map(clamp01nan, img))
+    for (img, s) in zip(images, sparsity)
+        output = colorview(Gray, map(clamp01nan, img))
 
-        file = joinpath(DIR, basefile * "_nu=$(vnu).png")
+        file = joinpath(DIR, basefile * "_$(proj)_sparsity=$(s).png")
 
         # save to disk
         save(file, output_image)
@@ -155,12 +168,18 @@ end
 
 @inline function run_imgtvd(algorithm, problem; kwargs...)
     kw = Dict(kwargs)
-    kw[:start] = 0.8
-    ρ0 = kw[:rho]
+    rho0 = kw[:rho]
+    proj = kw[:proj]
+    st = kw[:start]
+    sz = kw[:step]
 
-    penalty(ρ, n) = min(1e6, ρ0 * 1.075 ^ floor(n/20))
+    penalty(ρ, n) = min(1e6, rho0 * 1.075 ^ floor(n/20))
 
-    output = denoise_image_path(algorithm, problem.input; penalty = penalty, kwargs...)
+    output = denoise_image_path(algorithm, problem.input;
+        penalty=penalty,
+        proj=Val(proj),
+        start=st,
+        stepsize=sz, kwargs...)
 
     return (img = output.img, nu = output.nu)
 end

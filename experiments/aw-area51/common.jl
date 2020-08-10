@@ -79,8 +79,18 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
     mu_init:      $(options["mu"])
     rtol:         $(options["rtol"])
     atol:         $(options["atol"])
-    seed:         $(options["seed"])
-    step size:    $(get(options, "step", nothing))""")
+    seed:         $(options["seed"])""")
+    if haskey(options, :start)
+        println()
+        println("---------path heuristic----------")
+        println()
+        println("start:        $(options["start"])")
+        println("step:         $(options["step"])")
+    end
+
+    if haskey(options, :proj)
+        println("proj:         $(options["proj"])")
+    end
     flush(STDOUT)
 
     # benchmark data
@@ -101,7 +111,6 @@ function run_benchmark(interface, run_solver, make_instance, save_results, args)
         ls       = ls,                  # linsolver
         rho      = options["rho"],      # initial value for rho
         mu       = options["mu"],       # initial value for mu
-        stepsize = get(options, "step", 0.0), # get step size for path algorithm
     )
 
     # generate convergence history
