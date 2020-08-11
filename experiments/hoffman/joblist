@@ -1,6 +1,0 @@
-metric_SD_small \"intel-E5-2670\" 4 1:45:00 4G
-metric_SD_1024 \"intel-E5-2670\" 4  4:00:00 4G
-metric_SD_2048 \"intel-E5-2670\" 4  4:00:00 4G
-cvxreg_SD_small \"intel-E5-2670\" 2 6:00:00 4G
-cvxreg_SD_large \"intel-E5-2670\" 2 6:00:00 4G
-metric_SD_small_nesterov \"intel-E5-2670\" 4 1:45:00 4G

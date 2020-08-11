@@ -1,3 +1,0 @@
-key=:SD; strategy=:none; seed=1776; maxiters=1000 sample_rate=10 ntrials=10 d=1; n=3000; sigma=0.1; include(\"metric_projection.jl\")
-key=:SD; strategy=:none; seed=1776; maxiters=1000 sample_rate=10 ntrials=10 d=10; n=3000; sigma=0.1; include(\"metric_projection.jl\")
-key=:SD; strategy=:none; seed=1776; maxiters=1000 sample_rate=10 ntrials=10 d=20; n=3000; sigma=0.1; include(\"metric_projection.jl\")
