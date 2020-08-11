@@ -1,0 +1,44 @@
+---
+title: Benchmark 4, Image Denoising
+---
+
+```{julia; echo=false; results="hidden"}
+include("../plotutils.jl")
+include("../tableutils.jl")
+
+experiment = "denoise"
+algorithms = ("SD", )
+
+vdf = []
+
+push!(vdf, CSV.read("denoise/benchmarks/SD_cameraman_l0_validation.out"))
+push!(vdf, CSV.read("denoise/benchmarks/SD_cameraman_l1_validation.out"))
+```
+
+### Main Table
+
+```{julia}
+tscale = 1e3
+lscale = 1e3
+dscale = 1e3
+
+maindf = DataFrame(
+    p           =   df[1].p,
+    cond_input  =   df[1].condM,
+    reduction   =   df[1][!,2] .* 100,
+    time_MM     =   df[1][!,3] .* tscale,
+    time_SD     =   df[2][!,3] .* tscale,
+    time_ADMM   =   df[3][!,3] .* tscale,
+    loss_MM     =   df[1].loss .* lscale,
+    loss_SD     =   df[2].loss .* lscale,
+    loss_ADMM   =   df[3].loss .* lscale,
+    dist_MM     =   df[1].distance .* dscale,
+    dist_SD     =   df[2].distance .* dscale,
+    dist_ADMM   =   df[3].distance .* dscale,
+    cond_MM     =   df[1].condX,
+    cond_SD     =   df[2].condX,
+    cond_ADMM   =   df[3].condX,
+)
+
+latexify(maindf, env = :tabular, fmt = FancyNumberFormatter("%.4G", s"\g<mantissa> \\times 10^{\g<exp>}"))
+```
