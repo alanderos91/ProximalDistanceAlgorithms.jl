@@ -38,13 +38,12 @@ MAXITERS=5000
 # each algorithm, except ADMM, should be run with Nesterov acceleration
 while read image
     do
-
     # Steepest Descent
-    FNAME=SD_${image}_l0
-    jlbenchmark --image ${image} --algorithm SD --proj l0 --maxiters ${MAXITERS} --accel\
-        --filename ${FNAME}.dat \
-        --start 0.5 --step 2e-2 \
-        --atol 1e-4 --rtol 1e-4
+    # FNAME=SD_${image}_l0
+    # jlbenchmark --image ${image} --algorithm SD --proj l0 --maxiters ${MAXITERS} --accel\
+    #     --filename ${FNAME}.dat \
+    #     --start 0.5 --step 2e-2 \
+    #     --atol 1e-4 --rtol 1e-4
 
     FNAME=SD_${image}_l1
     jlbenchmark --image ${image} --algorithm SD --proj l1 --maxiters ${MAXITERS} --accel \
