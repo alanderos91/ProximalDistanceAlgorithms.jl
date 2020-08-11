@@ -1,135 +1,125 @@
-using CSV, DataFrames, Latexify, Statistics
+using Glob, CSV, DataFrames, Latexify, Statistics
 
 const DIR = joinpath("experiments", "aw-area51")
 
-function summary_table(experiment, algorithm)
-    # path to benchmarks directory
-    benchmarks = joinpath(experiment, "benchmarks")
-    histories  = joinpath(experiment, "figures")
-
-    # select files with benchmark times
-    files = readdir(benchmarks)
-    filter!(x -> occursin(".dat", x), files)
-
-    # match files by algorithm
-    needle = Regex("\\b$(algorithm)_(.)+")
-    filter!(x -> occursin(needle, x), files)
-    filter!(x -> !occursin(".out", x), files)
+function glob_benchmark_data(problem, experiment, parameters;
+    directory = "benchmarks")
+    # glob the data for specific experiment
+    pattern = experiment
+    directory = "aw-area51/$(problem)/$(directory)/"
+    files = glob(pattern, directory)
 
     if isempty(files)
-        @warn "no benchmark files found for $(experiment) using $(algorithm); skipping"
-        return DataFrame()
+        error("""
+            no files found matching pattern $(pattern) in $(directory)
+        """)
     end
 
-    # use one file to infer table schema
-    tmp = CSV.read(joinpath(benchmarks, first(files)))
-    colnames1 = names(tmp)
-    cols1 = [eltype(c)[] for c in eachcol(tmp)]
-
-    if experiment == "cvxcluster"
-        dataset = String[]
-    end
-
-    # build the columns from benchmark folders
+    # assemble into a large DataFrame
+    df = DataFrame()
     for file in files
-        tmp = CSV.read(joinpath(benchmarks, file))
-        for (dest, (colname, src)) in zip(cols1, eachcol(tmp, true))
-            if colname == :cpu_time || colname == :memory
-                push!(dest, mean(src))
-            else
-                push!(dest, first(src))
-            end
+        # match characters up to the second '_' or digit
+        regex = r"[^_]*_[^_\d]*"
+        m = match(regex, basename(file))
+        algorithm = string(m.match)
+
+        if algorithm[end] == '_'
+            algorithm = string(algorithm[1:end-1])
         end
 
-        if experiment == "cvxcluster"
-            str = split(file, '_')[end]
-            str = split(str, '.')[1]
-            push!(dataset, str)
-        end
+        tmp = CSV.read(file)
+        tmp[!, :algorithm] = repeat([algorithm], outer=nrow(tmp))
+        df = vcat(df, tmp)
     end
 
-    # add columns with iteration count, loss, distance, gradient
-    colnames2 = [:iteration, :loss, :distance, :gradient]
-    cols2 = [Int64[], Float64[], Float64[], Float64[]]
-    for file in files
-        tmp = CSV.read(joinpath(histories, file))
-        push!(cols2[1], last(tmp.iteration))
-        push!(cols2[2], last(tmp.loss))
-        push!(cols2[3], last(tmp.distance))
-        push!(cols2[4], last(tmp.gradient))
+    # sort data by input parameters
+    if !isempty(parameters)
+        sort!(df, parameters)
     end
 
-    # assemble the dataframe
-    if experiment == "cvxcluster"
-        df = DataFrame(dataset=dataset)
-    else
-        df = DataFrame()
-    end
-    for (col, colname) in zip(cols1, colnames1)
-        df[!, colname] = col
-    end
-    for (col, colname) in zip(cols2, colnames2)
-        df[!, colname] = col
-    end
+    # reorder columns
+    colorder = vcat(parameters, setdiff(names(df), parameters))
+    select!(df, colorder)
 
-    # sort by problem size
-    k = findfirst(isequal(:cpu_time), colnames1)
-    for i in 1:k-1
-        sort!(df, colnames1[i])
-    end
-
-    # rename the CPU time and memory columns
-    rename!(df, Dict(:cpu_time => Symbol("CPU time (s)"), :memory => Symbol("memory (MB)")))
     return df
 end
 
-function validation_table(experiment, algorithm)
-    # path to benchmarks directory
-    benchmarks = joinpath(experiment, "benchmarks")
+function summarize_experiments(problem, experiment, parameters;
+        transformations=(:cpu_time => mean, :cpu_time => std),
+        kwargs...)
+    #
+    df  = glob_benchmark_data(problem, experiment, params; kwargs...)
+    gdf = groupby(df, grouping)
 
-    # select files with benchmark times
-    files = readdir(benchmarks)
-    filter!(x -> occursin("validation", x), files)
+    output = DataFrame()
 
-    # match files by algorithm
-    needle = Regex("\\b$(algorithm)_(.)+")
-    filter!(x -> occursin(needle, x), files)
-    filter!(x -> occursin(".out", x), files)
+    for (measure, f) in transformations
+        # apply transformation to measure
+        tmp = combine(gdf, measure => f)
 
-    if isempty(files)
-        @warn "no benchmark files found for $(experiment) using $(algorithm); skipping"
-        return DataFrame()
+        # create wide DataFrame from result
+        colname = Symbol(measure, :_, f)
+        renamef = x -> Symbol(x, :_, colname)
+        tmp = unstack(tmp, :algorithm, colname, renamecols=renamef)
+
+        # join on problem parameters
+        if isempty(output)
+            output = tmp
+        else
+            output = join(output, tmp, on=params)
+        end
     end
 
-    df = DataFrame(
-        dataset=String[],
-        nu=Float64[],
-        sparsity=Float64[],
-        k=Int[],
-        ARI=Float64[],
-        VI=Float64[],
-        NMI=Float64[],
-    )
-
-    # build the columns from benchmark folders
-    for file in files
-        tmp = CSV.read(joinpath(benchmarks, file))
-        _, k = findmax(tmp.ARI)
-        dataset = split(file, '.')[1]
-        dataset = split(dataset, '_')[end-1]
-
-        push!(df,
-            (
-                dataset  = dataset,
-                nu       = tmp.nu[k],
-                sparsity = tmp.sparsity[k],
-                k        = Int(tmp.classes[k]),
-                ARI      = abs(tmp.ARI[k]),
-                VI       = abs(tmp.VI[k]),
-                NMI      = abs(tmp.NMI[k]),
-            )
-        )
-    end
-
-    return df
+    return output
 end
+#
+# function validation_table(experiment, algorithm)
+#     # path to benchmarks directory
+#     benchmarks = joinpath(experiment, "benchmarks")
+#
+#     # select files with benchmark times
+#     files = readdir(benchmarks)
+#     filter!(x -> occursin("validation", x), files)
+#
+#     # match files by algorithm
+#     needle = Regex("\\b$(algorithm)_(.)+")
+#     filter!(x -> occursin(needle, x), files)
+#     filter!(x -> occursin(".out", x), files)
+#
+#     if isempty(files)
+#         @warn "no benchmark files found for $(experiment) using $(algorithm); skipping"
+#         return DataFrame()
+#     end
+#
+#     df = DataFrame(
+#         dataset=String[],
+#         nu=Float64[],
+#         sparsity=Float64[],
+#         k=Int[],
+#         ARI=Float64[],
+#         VI=Float64[],
+#         NMI=Float64[],
+#     )
+#
+#     # build the columns from benchmark folders
+#     for file in files
+#         tmp = CSV.read(joinpath(benchmarks, file))
+#         _, k = findmax(tmp.ARI)
+#         dataset = split(file, '.')[1]
+#         dataset = split(dataset, '_')[end-1]
+#
+#         push!(df,
+#             (
+#                 dataset  = dataset,
+#                 nu       = tmp.nu[k],
+#                 sparsity = tmp.sparsity[k],
+#                 k        = Int(tmp.classes[k]),
+#                 ARI      = abs(tmp.ARI[k]),
+#                 VI       = abs(tmp.VI[k]),
+#                 NMI      = abs(tmp.NMI[k]),
+#             )
+#         )
+#     end
+#
+#     return df
+# end
