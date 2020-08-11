@@ -3,14 +3,14 @@ title: Benchmarks 1, Metric Projection
 ---
 
 ```{julia; echo=false; results="hidden"}
-include("../plotutils.jl")
-include("../tableutils.jl")
+include("plotutils.jl")
+include("tableutils.jl")
 ```
 
 Benchmarks were run with 3 different algorithms with different linear solvers (LSQR or CG) where applicable.
 Nesterov acceleration is used except in the case of ADMM.
 For ADMM, we used a heuristic to update the step size $\mu$ that keeps primal and dual residuals close to each other (within 1 order of magnitude).
-The annealing schedule is set to $\rho_{n} = \min\{10^{6}, 1.09^{\lfloor n / 20\rfloor}\}$, meaning $\rho_{n}$ is multiplied by 1.09 every 20 iterations.
+The annealing schedule is set to $\rho_{n} = \min\{10^{6}, 1.1^{\lfloor n / 20\rfloor}\}$, meaning $\rho_{n}$ is multiplied by 1.1 every 20 iterations.
 
 Convergene is assessed using relative and absolute tolerance parameters, $\epsilon_{1}$ and $\epsilon_{2}$, applied as follows:
 
@@ -19,69 +19,186 @@ Convergene is assessed using relative and absolute tolerance parameters, $\epsil
 3. squared distance, $q_{n}^{2} \le \epsilon_{2}$
 
 Here $f_{n}$ and $q_{n}$ correspond to terms appearing in the penalized objective $h_{\rho}(x_{n}) = f(x_{n}) + \frac{\rho}{2} q(x_{n})^{2}$.
-Each run is alloted a maxium of $5 \times 10^{3}$ iterations to achieve convergence with the choices $\epsilon_{1} = 10^{-6}$ and $\epsilon_{2} = 10^{-6}$.
+Each run is alloted a maxium of $3000$ iterations to achieve convergence with the choices $\epsilon_{1} = 10^{-6}$ and $\epsilon_{2} = 10^{-6}$.
 
 Results for CPU time and memory use are averaged over 10 runs using `@elapsed`.
 
-### MM Algorithm
+```{julia; echo=false; results="hidden"}
+problem = "metric"
+params = [:nodes]
+grouping = [:nodes, :algorithm]
+transformations = (
+    :cpu_time => mean,
+    :cpu_time => std,
+)
 
-##### LSQR
-```{julia}
-df = summary_table("metric", "MM_LSQR")
-latexify(df, fmt = FancyNumberFormatter(4))
+summarize = function(x, transformations; kwargs...)
+    df = summarize_experiments(problem, x, params;
+        transformations=transformations, kwargs...)
+    return df
+end
 ```
 
-##### CG
-```{julia}
-df = summary_table("metric", "MM_CG")
+### MM Algorithm
+
+```{julia; echo=false}
+colnames = [
+    "n",
+    "MM_CG (mean)", "MM_LSQR (mean)",
+    "MM_CG (std)",  "MM_LSQR (std)"
+]
+df = summarize("MM_*.dat", transformations)
+rename!(df, Symbol.(colnames))
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
 ### Steepest Descent
 
-```{julia}
-df = summary_table("metric", "SD")
+```{julia; echo=false}
+colnames = ["n", "SD (mean)", "SD (std)"]
+df = summarize("SD_*.dat", transformations)
+rename!(df, Symbol.(colnames))
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
 ### ADMM
 
-##### LSQR
-```{julia}
-df = summary_table("metric", "ADMM_LSQR")
+```{julia; echo=false}
+colnames = [
+    "n",
+    "ADMM_CG (mean)", "ADMM_LSQR (mean)",
+    "ADMM_CG (std)",  "ADMM_LSQR (std)"
+]
+df = summarize("ADMM*.dat", transformations)
+rename!(df, Symbol.(colnames))
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
-##### CG
-```{julia}
-df = summary_table("metric", "ADMM_CG")
+### MM Subspace
+
+```{julia; echo=false}
+colnames = [
+    "n",
+    "MMS10_CG (mean)", "MMS10_LSQR (mean)",
+    "MMS5_CG (mean)", "MMS5_LSQR, (mean)",
+    "MMS10_CG (std)",  "MMS10_LSQR (std)",
+    "MMS5_CG (std)",  "MMS5_LSQR (std)"
+]
+df = summarize("MMS*.dat", transformations)
+rename!(df, Symbol.(colnames))
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
-### MM Subspace (5)
+### Table 1: MM vs SD vs ADMM
 
-##### LSQR
-```{julia}
-df = summary_table("metric", "MMS5_LSQR")
+Comparison of MM, SD, and ADMM on various performance metrics.
+The loss and distance to the constraint set are scaled by $10^{-3}$ and $10^{3}$, respectively.
+
+- Algorithm 1: MM using CG
+- Algorithm 2: Steepest Descent (SD)
+- Algorithm 3: ADMM using CG
+
+```{julia; echo=false}
+#
+#   selected algorithms
+#
+experiments = ("MM_CG*.dat", "SD_*.dat", "ADMM_CG*.dat")
+
+#
+#   benchmark data
+#
+transformations = (
+    :cpu_time => mean,
+)
+
+benchmark = DataFrame[]
+for experiment in experiments
+    push!(benchmark, summarize(experiment, transformations,
+        directory="benchmarks"))
+end
+
+#
+#   algorithm trace
+#
+transformations = (
+    :loss      => last,
+    :distance  => last,
+    :iteration => last,
+)
+
+history = DataFrame[]
+for experiment in experiments
+    push!(history, summarize(experiment, transformations,
+        directory="figures"))
+end
+
+tscale = 1e0
+lscale = 1e-3
+dscale = 1e3
+iscale = 1e0
+
+df = DataFrame(
+    n = benchmark[1].nodes,
+    alg1_time = benchmark[1][!,2] * tscale,
+    alg2_time = benchmark[2][!,2] * tscale,
+    alg3_time = benchmark[3][!,2] * tscale,
+    alg1_loss = history[1][!,2] * lscale,
+    alg2_loss = history[2][!,2] * lscale,
+    alg3_loss = history[3][!,2] * lscale,
+    alg1_dist = history[1][!,3] * dscale,
+    alg2_dist = history[2][!,3] * dscale,
+    alg3_dist = history[3][!,3] * dscale,
+    alg1_iter = history[1][!,4] * iscale,
+    alg2_iter = history[2][!,4] * iscale,
+    alg3_iter = history[3][!,4] * iscale,
+)
+
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
-##### CG
-```{julia}
-df = summary_table("metric", "MMS5_CG")
-latexify(df, fmt = FancyNumberFormatter(4))
-```
+### Table 6: SD + ADMM hybrid
 
-### MM Subspace (10)
+Results for a hybrid algorithm that splits the optimization problem into two phases:
 
-##### LSQR
-```{julia}
-df = summary_table("metric", "MMS10_LSQR")
-latexify(df, fmt = FancyNumberFormatter(4))
-```
+- **Phase 1**: Solve the penalized problem using steepest descent to obtain a solution; label it $\bf{x}_{\mathrm{solution}}$.
+- **Phase 2**: Project to the constraint set by solving $\bf{x}_{\mathrm{feasible}} = \mathrm{argmin}~\|\bf{x} - \bf{x}_{\mathrm{solution}}\|^{2}~\text{subject to}~\bf{x} \in C$ using ADMM.
 
-##### CG
-```{julia}
-df = summary_table("metric", "MMS10_CG")
+Importantly, the penalty coefficient at the end of Phase 1, $\rho_{n}$, is carried over to Phase 2.
+This hybrid method produces the approximation $\bf{x}_{\mathrm{feasible}}$, which is a point in $C$ that is close to the solution of the target optimization problem.
+
+The following table reports results for the method with $\epsilon_{2} = 10^{-6}$ and a maximum of 3000 iterations.
+Specifically, the iterations are split as 2000 and 1000 for Phase 1 and Phase 2, respectively.
+
+```{julia; echo=false}
+using LinearAlgebra
+
+transformations1 = (
+    :cpu_time => mean,
+    :cpu_time => std,
+)
+lengthm2(x) = length(x) - 2
+transformations2 = (
+    :loss => last,
+    :distance => last,
+    :iteration => lengthm2, # 2 extra records for initialization
+)
+
+colnames = [
+    "n",
+    "time (mean)", "time (std)",
+    "loss", "distance", "iteration"
+]
+df1 = summarize("SDADMM*.dat", transformations1)
+df2 = summarize("SDADMM*.dat", transformations2, directory="figures")
+df = join(df1, df2, on=:nodes)
+rename!(df, Symbol.(colnames))
+
+for i in eachindex(df.n)
+    nodes = df.n[i]
+    Y = CSV.read("aw-area51/metric/benchmarks/SDADMM_CG_$(nodes).in") |> Matrix
+    X = CSV.read("aw-area51/metric/benchmarks/SDADMM_CG_$(nodes).out") |> Matrix
+    df.loss[i] = norm(X-Y)^2 / 4 * lscale
+end
+
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
