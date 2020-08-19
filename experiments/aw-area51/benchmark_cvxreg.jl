@@ -95,14 +95,29 @@ end
     ρ0 = kw[:rho]
     penalty(ρ, n) = min(1e6, ρ0 * 1.1 ^ floor(n/20))
 
-    θ, ξ = cvxreg_fit(algorithm, problem.y, problem.X; penalty = penalty, kwargs...)
+    # extra processing step for hybrid algorithm
+    if algorithm isa SDADMM
+        maxiters = kw[:maxiters]
+        phase1 = round(Int, 2/3 * maxiters) # 2/3 iterations allocated for SD
+        phase2 = round(Int, 1/3 * maxiters) # 1/3 iterations allocated for ADMM
+        
+        θ, ξ = cvxreg_fit(algorithm, problem.y, problem.X;
+            phase1=phase1,
+            phase2=phase2,
+            penalty=penalty,
+            kwargs...)
+    else
+        θ, ξ = cvxreg_fit(algorithm, problem.y, problem.X;
+            penalty=penalty,
+            kwargs...)
+    end
 
     return (θ = θ, ξ = ξ)
 end
 
 function cvxreg_save_results(file, problem, problem_size, solution, cpu_time, memory)
     # compute mean squared error with respect to ground truth
-    MSE = mean((solution.θ .- problem.y) .^ 2)
+    MSE = mean((solution.θ .- problem.y_truth) .^ 2)
 
     # save benchmark results
     df = DataFrame(

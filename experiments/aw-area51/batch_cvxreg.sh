@@ -72,4 +72,10 @@ while read probsize
     #
     # FNAME=MMS10_CG_${d}_${n}
     # jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+
+    # SD + ADMM hybrid
+    FNAME=SDADMM_CG_${n}
+    jlbenchmark --features ${d} --samples ${n} --algorithm SDADMM --accel --ls CG --maxiters ${MAXITERS} \
+        --filename ${FNAME}.dat \
+        --atol 1e-12
 done < ${DIR}/cvxreg/jobs/${JOBNAME}.in
