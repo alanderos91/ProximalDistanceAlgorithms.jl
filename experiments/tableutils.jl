@@ -3,8 +3,11 @@ using Glob, CSV, DataFrames, Latexify, Statistics
 const DIR = joinpath("experiments", "aw-area51")
 
 function glob_benchmark_data(problem, experiment, parameters;
-    directory = "benchmarks")
+    directory = "benchmarks",
+    regex = r"[^_]*_[^_\d]*")
+    #
     # glob the data for specific experiment
+    #
     pattern = experiment
     directory = "aw-area51/$(problem)/$(directory)/"
     files = glob(pattern, directory)
@@ -15,11 +18,14 @@ function glob_benchmark_data(problem, experiment, parameters;
         """)
     end
 
+    #
     # assemble into a large DataFrame
+    #
     df = DataFrame()
     for file in files
+        #
         # match characters up to the second '_' or digit
-        regex = r"[^_]*_[^_\d]*"
+        #
         m = match(regex, basename(file))
         algorithm = string(m.match)
 
@@ -32,12 +38,16 @@ function glob_benchmark_data(problem, experiment, parameters;
         df = vcat(df, tmp)
     end
 
+    #
     # sort data by input parameters
+    #
     if !isempty(parameters)
         sort!(df, parameters)
     end
 
+    #
     # reorder columns
+    #
     colorder = vcat(parameters, setdiff(names(df), parameters))
     select!(df, colorder)
 

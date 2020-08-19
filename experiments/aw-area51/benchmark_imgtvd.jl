@@ -150,7 +150,7 @@ function imgtvd_save_results(file, problem, problem_size, solution, cpu_time, me
     x3 = ["PSNR"; PSNR]
     x4 = ["ISNR"; ISNR]
     x5 = ["SSIM"; SSIM]
-    arr = [sparsity MSE PSNR ISNR SSIM]
+    arr = [x1 x2 x3 x4 x5]
     save_array(basefile * "_validation.out", arr)
 
     # save all the candidate images; make sure images are valid
