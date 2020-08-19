@@ -394,3 +394,147 @@ function mazumder_standardization(y, X)
 
     return y_scaled, X_scaled
 end
+
+#################################
+#   hybrid SD + ADMM prototype  #
+#################################
+
+function cvxreg_fit(algorithm::SDADMM, response, covariates;
+    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), phase1=10, phase2=10, kwargs...) where LS
+    #
+    # extract problem information
+    d, n = size(covariates) # features × samples
+    M = n*(n-1)             # number of subradient constraints
+    N = n*(d+1)             # total number of optimization variables
+
+    # allocate optimization variables
+    x = zeros(N); copyto!(x, response)
+    y = zeros(M)
+    λ = zeros(M)
+    SD_variables = (x = x,)
+    ADMM_variables = (x = x, y = y, λ = λ)
+
+    # allocate derivatives
+    ∇f = zero(x)
+    ∇q = similar(x)
+    ∇h = similar(x)
+    ∇²f = spzeros(N, N)
+    for j in 1:n
+        ∇²f[j,j] = 1
+    end
+
+    derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
+
+    # generate operators
+    D = instantiate_fusion_matrix(CvxRegFM(covariates))
+    DtD = D'D
+    # D = CvxRegFM(covariates)
+    a = response
+    P(x) = min.(x, 0)
+    # A₁ = [LinearMap(I, n) LinearMap(spzeros(n, n*d))]
+    A₁ = spzeros(n, n*(d+1))
+    for j in 1:n
+        A₁[j,j] = 1
+    end
+    operators = (D = D, DtD = DtD, P = P, A₁ = A₁, a = a)
+
+    # allocate buffers for mat-vec multiplication, projections, and so on
+    z = similar(Vector{eltype(x)}, M)
+    Pz = similar(z)
+    v = similar(z)
+
+    # choose algorithm for linear solve
+    if ls isa Val{:LSQR}
+        A₂ = D
+        A = QuadLHS(A₁, A₂, x, 1.0)
+        b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
+        linsolver = LSQRWrapper(A, x, b)
+    else
+        b = similar(x)  # b has one block
+        linsolver = CGWrapper(D, x, b)
+    end
+
+    # finish initializing buffers
+    y_prev = similar(y)
+    r = similar(y)
+    s = similar(x)
+    tmpx = similar(x)
+    buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
+
+    # create views, if needed
+    θ = view(x, 1:n)
+    ξ = view(x, n+1:N)
+    ∇h_θ = view(∇h, 1:n)
+    ∇h_ξ = view(∇h, n+1:N)
+    views = (θ = θ, ξ = ξ, ∇h_θ = ∇h_θ, ∇h_ξ = ∇h_ξ)
+
+    # make kwargs a NamedTuple
+    kwt = values(kwargs)
+
+    #
+    # Phase 1: Steepest Descent
+    #
+
+    # update kwargs with interation limit
+    SD_kwargs = (kwt..., maxiters=phase1,)
+
+    # build problem and optimize
+    objective = cvxreg_objective
+    algmap = cvxreg_iter
+
+
+    prob1 = ProxDistProblem(SD_variables, derivatives, operators, buffers, views, linsolver)
+    _, iteration, _ = optimize!(SteepestDescent(), objective, algmap, prob1, rho, mu; SD_kwargs...)
+
+    #
+    # Phase 2: ADMM
+    #
+
+    # initialize ADMM variables
+    mul!(y, D, x)
+
+    # want the new solution to stay clsoe to current solution
+    a = copy(x)
+
+    # rebuild penalty funciton to account for iterations so far
+    f = kwt.penalty
+    f_penalty(rho, iter) = f(rho, iter + iteration - 1)
+    rho = f(rho, iteration)
+
+    # update kwargs with new penalty function and turn off acceleration
+    ADMM_kwargs = (kwt..., penalty=f_penalty, accel=Val(:none), maxiters=phase2,)
+
+    # build new problem and optimize
+    objective = cvxreg_objective2
+    derivatives = (∇f = ∇f, ∇²f = I, ∇q = ∇q, ∇h = ∇h)
+    operators = (D = D, DtD = DtD, P = P, A₁ = I, a = a)
+
+    prob2 = ProxDistProblem(ADMM_variables, derivatives, operators, buffers, views, linsolver)
+    optimize!(ADMM(), objective, algmap, prob2, rho, mu; ADMM_kwargs...)
+
+    return copy(θ), reshape(ξ, d, n)
+end
+
+function cvxreg_objective2(::AlgorithmOption, prob, ρ)
+    @unpack x = prob.variables
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack D, P, a = prob.operators
+    @unpack z, Pz, v = prob.buffers
+    @unpack θ = prob.views
+
+    # evaulate gradient of loss
+    @. ∇f = x - a
+
+    # evaluate gradient of penalty
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
+
+    loss = SqEuclidean()(x, a) / 2
+    penalty = dot(v, v)
+    normgrad = dot(∇h, ∇h)
+
+    return loss, penalty, normgrad
+end
