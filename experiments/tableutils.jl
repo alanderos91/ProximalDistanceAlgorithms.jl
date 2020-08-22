@@ -1,7 +1,5 @@
 using Glob, CSV, DataFrames, Latexify, Statistics
 
-const DIR = joinpath("experiments", "aw-area51")
-
 function glob_benchmark_data(problem, experiment, parameters;
     directory = "benchmarks",
     regex = r"[^_]*_[^_\d]*")
@@ -133,3 +131,16 @@ end
 #
 #     return df
 # end
+
+function add_missing_columns(df, cols, vals)
+    tmp = copy(df)
+    for (j, (colname, value)) in enumerate(zip(cols, vals))
+        col = repeat([value], inner=(nrow(df),))
+        if hasproperty(tmp, colname)
+            tmp[!, colname] = col
+        else
+            insertcols!(tmp, j, colname => col)
+        end
+    end
+    return tmp
+end
