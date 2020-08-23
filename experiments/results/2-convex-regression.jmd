@@ -160,10 +160,10 @@ end
 #
 # assemble table
 #
-tscale = 1e0
-lscale = 1e2
-dscale = 1e3
-mscale = 1e3
+tscale = 1e0 # x 1
+lscale = 1e2 # x 100
+dscale = 1e3 # x 1000
+mscale = 1e3 # x 1000
 maindf = DataFrame(
             d        = benchmark[1].features,
             n        = benchmark[1].samples,
@@ -189,5 +189,41 @@ latexify(maindf, fmt = FancyNumberFormatter(4))
 ### Table 7: SD + ADMM hybrid
 
 ```{julia; echo=false}
+using LinearAlgebra
 
+transformations1 = (
+    :cpu_time => mean,
+    :cpu_time => std,
+    :MSE => first,
+)
+lengthm2(x) = length(x) - 2
+transformations2 = (
+    :loss => last,
+    :distance => last,
+    :iteration => lengthm2, # 2 extra records for initialization
+)
+
+colnames = [
+    "d", "n",
+    "time (mean)", "time (std)", "MSE",
+    "loss", "distance", "iteration"
+]
+df1 = summarize("SDADMM_CG*.dat", transformations1)
+df2 = summarize("SDADMM_CG*.dat", transformations2, directory="figures")
+df = join(df1, df2, on=[:features, :samples])
+rename!(df, Symbol.(colnames))
+
+for i in 1:nrow(df)
+    d = df.d[i]
+    n = df.n[i]
+    yin = CSV.read("aw-area51/cvxreg/benchmarks/SDADMM_CG_$(d)_$(n)_y.in") |> Matrix
+    yout = CSV.read("aw-area51/cvxreg/benchmarks/SDADMM_CG_$(d)_$(n)_theta.out") |> Matrix
+    df.loss[i] = norm(yin-yout)^2 / 2
+end
+
+df.loss .*= lscale      # x 100
+df.distance .*= dscale  # x 1000
+df.MSE .*= mscale       # x 1000
+
+latexify(df, fmt=FancyNumberFormatter(4))
 ```
