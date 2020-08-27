@@ -99,7 +99,7 @@ include(joinpath("metric_nearness", "operators.jl"))
 include(joinpath("metric_nearness", "implementation.jl"))
 
 export metric_projection, metric_example
-export MetricFM, MetricFGM
+export MetricFM, MetricFGM, MetricInv
 
 # example: convex clustering
 include(joinpath("convex_clustering", "operators.jl"))

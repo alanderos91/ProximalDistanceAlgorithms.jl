@@ -1,6 +1,6 @@
 @testset "metric projection" begin
     # simulated examples for testing
-    nodes = (16, 32, 64)
+    nodes = (16, 32, 64, 128)
     tests = (D_mul_x, Dt_mul_z, DtD_mul_x)
 
     @testset "fusion matrix" begin
@@ -44,6 +44,50 @@
                 @test expected ≈ observed
             end
             println()
+        end
+    end
+
+    @testset "inv(I + ρ D'D)" begin
+        for n in nodes
+            # create fusion matrix
+            D = MetricFM(n)                     # LinearMap
+            S = instantiate_fusion_matrix(D)    # SparseMatrix
+            N = D.N
+            println("$(n) nodes; $(N) × $(N) inverse\n")
+
+            # create vectors for testing
+            b = rand(size(D, 2))
+            tmpx = zero(b)
+            observed = zero(b)
+            expected = zero(b)
+
+            ρvals = [
+                1.2345e0, # should always be correct
+                1.2345e3, # possibly badly behaved
+                1.2345e6  # badly behaved; implementation should handle this case gracefully
+            ]
+
+            for ρ in ρvals
+                print("   ρ = $(ρ)\n")
+                print("     inv(A):        ")
+
+                # direct methods
+                invStS = @time inv(Matrix(I + ρ*S'S))
+                invDtD = MetricInv(D'D, ρ)
+
+                # iterative methods
+                linsolver = ProximalDistanceAlgorithms.CGWrapper(D, observed, b)
+                A = ProximalDistanceAlgorithms.ProxDistHessian(I, D'D, tmpx, ρ)
+
+                print("     MetricInv:     "); @time mul!(observed, invDtD, b)
+                print("     x = inv(A)*b:  "); @time mul!(expected, invStS, b)
+                @test observed ≈ expected
+
+                fill!(observed, 0)
+                print("     CG:            "); @time ProximalDistanceAlgorithms.linsolve!(linsolver, observed, A, b)
+                @test observed ≈ expected
+                print("\n")
+            end
         end
     end
 end

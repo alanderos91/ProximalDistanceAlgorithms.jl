@@ -61,6 +61,7 @@ function __cg__!(x, A, b, statevars,
     return nothing
 end
 
+# generic template for solving (∇²f + ρ D'D) x = b
 struct ProxDistHessian{T,matT1,matT2,vecT} <: LinearMap{T}
     ∇²f::matT1
     DtD::matT2
