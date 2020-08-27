@@ -39,22 +39,16 @@ MAXITERS=3000
 while read n
     do
     # MM
-    FNAME=MM_LSQR_${n}
-    jlbenchmark --nodes ${n} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
-
-    FNAME=MM_CG_${n}
-    jlbenchmark --nodes ${n} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=MM_${n}
+    jlbenchmark --nodes ${n} --algorithm MM --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # Steepest Descent
     FNAME=SD_${n}
     jlbenchmark --nodes ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # ADMM
-    FNAME=ADMM_LSQR_${n}
-    jlbenchmark --nodes ${n} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
-
-    FNAME=ADMM_CG_${n}
-    jlbenchmark --nodes ${n} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    FNAME=ADMM_${n}
+    jlbenchmark --nodes ${n} --algorithm ADMM --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
     # MM Subspace{5}
     FNAME=MMS5_LSQR_${n}
@@ -71,8 +65,8 @@ while read n
     jlbenchmark --nodes ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     # SD + ADMM hybrid
-    FNAME=SDADMM_CG_${n}
-    jlbenchmark --nodes ${n} --algorithm SDADMM --accel --ls CG --maxiters ${MAXITERS} \
+    FNAME=SDADMM_${n}
+    jlbenchmark --nodes ${n} --algorithm SDADMM --accel --maxiters ${MAXITERS} \
         --filename ${FNAME}.dat \
         --atol 1e-12
         
