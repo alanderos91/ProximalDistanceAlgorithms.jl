@@ -48,11 +48,11 @@ function print_info(f, A)
 end
 
 # fusion matrices
-include("convex_regression.jl")
-include("convex_clustering.jl")
+# include("convex_regression.jl")
+# include("convex_clustering.jl")
 include("metric_nearness.jl")
-include("image_denoising.jl")
-include("condition_number.jl")
+# include("image_denoising.jl")
+# include("condition_number.jl")
 
 # projections
-include("projections.jl")
+# include("projections.jl")
