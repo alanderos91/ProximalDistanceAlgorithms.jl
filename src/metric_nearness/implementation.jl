@@ -119,37 +119,24 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     Pz = similar(z)
     v = similar(z)
 
-    # select linear solver, if needed
+    # linear solver only needed for MMSubSpace methods
     # TODO: check that this gets folded in correctly
-    if needs_linsolver(algorithm)
-        if algorithm isa MMSubSpace
-            K = subspace_size(algorithm)
-            β = zeros(K)
+    if algorithm isa MMSubSpace
+        K = subspace_size(algorithm)
+        β = zeros(K)
 
-            if ls isa Val{:LSQR}
-                A₁ = LinearMap(I, N)
-                A₂ = D
-                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
-                b = similar(typeof(x), N+M)
-                linsolver = LSQRWrapper(A, β, b)
-            else
-                b = similar(typeof(x), K)
-                linsolver = CGWrapper(G, β, b)
-            end
+        if ls isa Val{:LSQR}
+            A₁ = LinearMap(I, N)
+            A₂ = D
+            A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+            b = similar(typeof(x), N+M)
+            linsolver = LSQRWrapper(A, β, b)
         else
-            if ls isa Val{:LSQR}
-                A₁ = LinearMap(I, N)
-                A₂ = D
-                A = QuadLHS(A₁, A₂, x, 1.0)
-                b = similar(typeof(x), N+M) # b has two block
-                linsolver = LSQRWrapper(A, x, b)
-            else
-                b = similar(x) # b has one block
-                linsolver = CGWrapper(D, x, b)
-            end
+            b = similar(typeof(x), K)
+            linsolver = CGWrapper(G, β, b)
         end
     else
-        b = nothing
+        b = similar(x)
         linsolver = nothing
     end
 
@@ -243,33 +230,16 @@ function metric_iter(::MM, prob, ρ, μ)
     @unpack ∇²f = prob.derivatives
     @unpack D, a = prob.operators
     @unpack b, Pz, tmpx = prob.buffers
-    linsolver = prob.linsolver
 
-    if linsolver isa LSQRWrapper
-        # build LHS of A*x = b
-        # forms a BlockMap so non-allocating
-        # however, A*x and A'b have small allocations due to views?
-        A₁ = LinearMap(I, size(D, 2))
-        A₂ = D
-        A = QuadLHS(A₁, A₂, tmpx, √ρ)
+    # build RHS of A'A*x = A'b; A'b = a + ρ*D'P(D*x)
+    mul!(b, D', Pz)
+    axpby!(true, a, ρ, b)
 
-        # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
-        n = length(a)
-        copyto!(b, 1, a, 1, n)
-        for k in eachindex(Pz)
-            b[n+k] = √ρ * Pz[k]
-        end
-    else
-        # LHS of A'A*x = A'b
-        A = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+    # build inverse for LHS of A'A*x = A'b; A'A = I + ρ*D'D
+    A⁻¹ = MetricInv(D'D, ρ)
 
-        # build RHS of A'A*x = A'b; A'b = a + ρ*D'P(D*x)
-        mul!(b, D', Pz)
-        axpby!(true, a, ρ, b)
-    end
-
-    # solve the linear system
-    linsolve!(linsolver, x, A, b)
+    # solve the linear system directly
+    mul!(x, A⁻¹, b)
 
     return 1.0
 end
@@ -279,35 +249,19 @@ function metric_iter(::ADMM, prob, ρ, μ)
     @unpack ∇²f = prob.derivatives
     @unpack D, P, a = prob.operators
     @unpack z, Pz, v, b, tmpx = prob.buffers
-    linsolver = prob.linsolver
 
     # x block update
     @. v = y - λ
-    if linsolver isa LSQRWrapper
-        # build LHS of A*x = b
-        # forms a BlockMap so non-allocating
-        # however, A*x and A'b have small allocations due to views?
-        A₁ = LinearMap(I, size(D, 2))
-        A₂ = D
-        A = QuadLHS(A₁, A₂, tmpx, √μ)
+    
+    # build RHS of A*x = b; b = a + μ*D'(y-λ)
+    mul!(b, D', v)
+    axpby!(1, a, μ, b)
 
-        # build RHS of A*x = b; b = [a; √μ * (y-λ)]
-        n = length(a)
-        copyto!(b, 1, a, 1, length(a))
-        for k in eachindex(v)
-            @inbounds b[n+k] = √μ * v[k]
-        end
-    else
-        # LHS of A*x = b is already stored
-        A = ProxDistHessian(∇²f, D'D, tmpx, μ)
+    # build inverse for LHS of A'A*x = A'b; A'A = I + ρ*D'D
+    A⁻¹ = MetricInv(D'D, μ)
 
-        # build RHS of A*x = b; b = a + μ*D'(y-λ)
-        mul!(b, D', v)
-        axpby!(1, a, μ, b)
-    end
-
-    # solve the linear system
-    linsolve!(linsolver, x, A, b)
+    # solve the linear system directly
+    mul!(x, A⁻¹, b)
 
     # y block update
     α = (ρ / μ)
@@ -450,17 +404,9 @@ function metric_projection(algorithm::SDADMM, A, W=I;
     Pz = similar(z)
     v = similar(z)
 
-    # choose algorithm for linear solve
-    if ls isa Val{:LSQR}
-        A₁ = LinearMap(I, N)
-        A₂ = D
-        A = QuadLHS(A₁, A₂, x, 1.0)
-        b = similar(typeof(x), N+M) # b has two block
-        linsolver = LSQRWrapper(A, x, b)
-    else
-        b = similar(x) # b has one block
-        linsolver = CGWrapper(D, x, b)
-    end
+    # linear solver not needed
+    b = similar(x) # b has one block
+    linsolver = nothing
 
     # finish initializing buffers
     y_prev = zero(y)
