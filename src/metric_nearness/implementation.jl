@@ -210,14 +210,14 @@ end
 function metric_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
-    @unpack z = prob.buffers
+    @unpack D, DtD = prob.operators
+    @unpack z, tmpx = prob.buffers
 
     # evaluate step size, γ
-    mul!(z, D, ∇h)
-    a = dot(∇h, ∇h) # ||∇h(x)||^2
-    b = dot(z, z)   # ||D*∇h(x)||^2
-    c = a           # ||W^1/2 * ∇h(x)||^2
+    mul!(tmpx, DtD, ∇h)
+    a = dot(∇h, ∇h)     # ||∇h(x)||^2
+    b = dot(∇h, tmpx)   # ||D*∇h(x)||^2
+    c = a               # ||W^1/2 * ∇h(x)||^2
     γ = a / (c + ρ*b + eps())
 
     # steepest descent, x_new = x_old - γ*∇h(x_old)
