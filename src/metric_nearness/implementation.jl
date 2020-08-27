@@ -105,14 +105,15 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     end
 
     # generate operators
-    D = MetricFM(n, M, N)   # fusion matrix
-    P(x) = max.(x, 0)       # projection onto non-negative orthant
+    D = MetricFM(n)     # fusion matrix
+    DtD = D'D           # cache D'D, which creates a small array for reduction algorithms
+    P(x) = max.(x, 0)   # projection onto non-negative orthant
     a = similar(x)
     k = 0
     for j in 1:n, i in j+1:n
         a[k+=1] = A[i,j]
     end
-    operators = (D = D, P = P, a = a)
+    operators = (D = D, DtD = DtD, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -228,18 +229,18 @@ end
 function metric_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, a = prob.operators
+    @unpack D, DtD, a = prob.operators
     @unpack b, Pz, tmpx = prob.buffers
 
     # build RHS of A'A*x = A'b; A'b = a + ρ*D'P(D*x)
     mul!(b, D', Pz)
     axpby!(true, a, ρ, b)
 
-    # build inverse for LHS of A'A*x = A'b; A'A = I + ρ*D'D
-    A⁻¹ = MetricInv(D'D, ρ)
+    # build LHS of A'A*x = A'b; A'A = I + ρ*D'D
+    A = ProxDistHessian(∇²f, DtD, tmpx, ρ)
 
     # solve the linear system directly
-    mul!(x, A⁻¹, b)
+    ldiv!(x, A, b)
 
     return 1.0
 end
@@ -247,7 +248,7 @@ end
 function metric_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, P, a = prob.operators
+    @unpack D, DtD, P, a = prob.operators
     @unpack z, Pz, v, b, tmpx = prob.buffers
 
     # x block update
@@ -257,11 +258,11 @@ function metric_iter(::ADMM, prob, ρ, μ)
     mul!(b, D', v)
     axpby!(1, a, μ, b)
 
-    # build inverse for LHS of A'A*x = A'b; A'A = I + ρ*D'D
-    A⁻¹ = MetricInv(D'D, μ)
+    # build LHS of A'A*x = A'b; A'A = I + ρ*D'D
+    A = ProxDistHessian(∇²f, DtD, tmpx, μ)
 
     # solve the linear system directly
-    mul!(x, A⁻¹, b)
+    ldiv!(x, A, b)
 
     # y block update
     α = (ρ / μ)
@@ -281,7 +282,7 @@ end
 function metric_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
-    @unpack D = prob.operators
+    @unpack D, DtD = prob.operators
     @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
 
@@ -304,7 +305,7 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
         end
     else
         # build LHS, A = G'*H*G = G'*(∇²f + ρ*D'D)*G
-        H = ProxDistHessian(∇²f, D'D, tmpx, ρ)
+        H = ProxDistHessian(∇²f, DtD, tmpx, ρ)
         A = MMSOp2(H, G, tmpGx1, tmpGx2)
 
         # build RHS, b = -G'*∇h
@@ -390,14 +391,15 @@ function metric_projection(algorithm::SDADMM, A, W=I;
     derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
 
     # generate operators
-    D = MetricFM(n, M, N)   # fusion matrix
-    P(x) = max.(x, 0)       # projection onto non-negative orthant
+    D = MetricFM(n)     # fusion matrix
+    DtD = D'D
+    P(x) = max.(x, 0)   # projection onto non-negative orthant
     a = similar(x)
     k = 0
     for j in 1:n, i in j+1:n
         a[k+=1] = A[i,j]
     end
-    operators = (D = D, P = P, a = a)
+    operators = (D = D, DtD = DtD, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)

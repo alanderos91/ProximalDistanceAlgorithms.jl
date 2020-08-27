@@ -2,7 +2,8 @@ struct MetricFM{T} <: FusionMatrix{T}
     n::Int # nodes in dissimilarity matrix
     M::Int # rows implied by n
     N::Int # columns implied by n
-    I::TriVecIndices # map Cartesian coordinates to trivec index
+    I::TriVecIndices
+    tmpv::Vector{Float64}
 end
 
 # constructors
@@ -10,19 +11,13 @@ end
 function MetricFM{T}(n::Integer) where {T<:Number}
     N = binomial(n, 2)
     M = N * (n-1)
-
-    return MetricFM{T}(n, M, N)
-end
-
-function MetricFM{T}(n::Integer, M::Integer, N::Integer) where {T<:Number}
     I = TriVecIndices(n)
-
-    return MetricFM{T}(n, M, N, I)
+    tmpv = zeros(n)
+    return MetricFM{T}(n, M, N, I, tmpv)
 end
 
 # default eltype to Int64
 MetricFM(n::Integer) = MetricFM{Int}(n)
-MetricFM(n::Integer, M::Integer, N::Integer) = MetricFM{Int}(n, M, N)
 
 # implementation
 Base.size(D::MetricFM) = (D.M, D.N)
@@ -120,14 +115,14 @@ end
 struct MetricFGM{T} <: FusionGramMatrix{T}
     n::Int      # number of nodes
     N::Int      # size of matrix
-    indices::TriVecIndices
+    tmpv::Vector{Float64}
 end
 
 # constructors
 function MetricFGM{T}(n::Integer) where {T<:Number}
     N = binomial(n, 2)
-    indices = TriVecIndices(n)
-    return MetricFGM{T}(n, N, indices)
+    tmpv = zeros(n)
+    return MetricFGM{T}(n, N, tmpv)
 end
 
 # default to Float64
@@ -137,80 +132,33 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
 function LinearMaps.A_mul_B!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
-    n = DtD.n
-    indices = DtD.indices
+    @unpack n, tmpv = DtD
 
-    # apply I block of D'D
-    # copyto!(y, 1, x, 1, length(x))
+    # clear sums and update cache, v = M'*x
+    __update_DtD_cache__!(tmpv, x, n)
 
-    # apply T'T block of D'D
-    # @inbounds for j in 1:n-2, i in j+1:n-1
-    #     i1 = indices[i,j]; a = x[i1]
-
-    #     @inbounds for k in i+1:n
-    #         i2 = indices[k,i]; b = x[i2]
-    #         i3 = indices[k,j]; c = x[i3]
-
-    #         y[i1] += 3*a - b - c
-    #         y[i2] += 3*b - a - c
-    #         y[i3] += 3*c - a - b
-    #     end
-    # end
-    ij = 1
-    for j in 1:n
-        vj = trivec_colsum(x, n, j) + trivec_rowsum(x, n, j)
-        for i in j+1:n
-            vi = trivec_colsum(x, n, i) + trivec_rowsum(x, n, i)
-            @inbounds y[ij] = 3*(n-1) * x[ij] - (vi + vj)
-            ij += 1
-        end
+    # complete mat-vec operation: (T'T + I)*x = 3(n-1) x - M*M'*x
+    idx = 1
+    for j in 1:n, i in j+1:n
+        @inbounds y[idx] = 3*(n-1) * x[idx] - (tmpv[i] + tmpv[j])
+        idx += 1
     end
 
     return y
 end
 
-function trivec_colsum(x, n, k)
-    (k ≥ n) || (k < 1) && return zero(eltype(x))
-
-    vk = zero(eltype(x))
-    start = 1
-    for j in 1:k-1
-        start += n-j
+function __update_DtD_cache__!(tmpv, x, n)
+    idx = 1
+    fill!(tmpv, 0)
+    for j in 1:n, i in j+1:n
+        @inbounds tmpv[j] += x[idx]
+        @inbounds tmpv[i] += x[idx]
+        idx += 1
     end
-    @simd for j in 1:n-k
-        @inbounds vk += x[start+j-1]
-    end
-    return vk
+    return tmpv
 end
 
-function trivec_rowsum(x, n, k)
-    (k ≤ 1) || (k > n) && return zero(eltype(x))
-
-    vk = zero(eltype(x))
-    ix = k-1
-    for i in 1:k-1
-        @inbounds vk += x[ix]
-        ix += n-i-1
-    end
-    return vk
-end
-
-Base.:(*)(Dt::TransposeMap{T,MetricFM{T}}, D::MetricFM{T}) where T = MetricFGM{T}(D.n, D.N, TriVecIndices(D.n))
-
-# solves (I + ρ D'D) x = b in metric projection problem
-struct MetricInv{matT,T} <: FusionMatrix{T}
-    DtD::matT
-    ρ::T
-end
-
-Base.size(A::MetricInv) = size(A.DtD)
-
-# LinearAlgebra traits
-LinearAlgebra.issymmetric(A::MetricInv) = true
-LinearAlgebra.ishermitian(A::MetricInv) = true
-LinearAlgebra.isposdef(A::MetricInv) = true
-
-# internal API
+Base.:(*)(Dt::TransposeMap{T,MetricFM{T}}, D::MetricFM{T}) where T = MetricFGM{T}(D.n, D.N, D.tmpv)
 
 #
 # (I + ρ D'D)⁻¹ = a * I + a*b*ρ * M*M' + 4*a*b*c*ρ² * ones(m,m)
@@ -220,28 +168,29 @@ LinearAlgebra.isposdef(A::MetricInv) = true
 # b = inv((2*n-1)*ρ+1)
 # c = inv((n-1)*ρ+1)
 #
-function LinearMaps.A_mul_B!(y, A::MetricInv, x)
+function LinearAlgebra.ldiv!(y, H::ProxDistHessian{T,matT1,matT2}, x) where {T,matT1<:UniformScaling,matT2<:MetricFGM}
     # pull fusion gram matrix and other parameters
-    @unpack ρ, DtD = A
-    @unpack n = DtD
+    @unpack DtD, ρ = H
+    @unpack n, tmpv = DtD
 
     # define constants
     a = inv(3*(n-1)*ρ+1)
     b = inv((2*n-1)*ρ+1)
     c = inv((n-1)*ρ+1)
 
-    # y = (a*b*ρ * M*M') x = (a*b*ρ * (3*(n-1) I - D'D)) x
-    mul!(y, DtD, x)
-    # @. y = a*b*ρ * (3*(n-1)*x - y)
-    beta = a*b*ρ
-    alpha = 3*(n-1) * beta
-    axpby!(alpha, x, -beta, y)
+    c1 = a
+    c2 = a * b * ρ
+    c3 = 4 * sum(x) * a * b * c * abs2(ρ)
 
-    # y += a * I + 4*a*b*c*ρ² * ones(m,m)
-    xsum = sum(x)
-    @. y = y + a*x + 4*a*b*c*ρ^2 * xsum
-    # axpy!(a, x, y)
-    # @. y = y + 4*a*b*c*ρ^2 * xsum
+    # clear sums and update cache, v = M'*x
+    __update_DtD_cache__!(tmpv, x, n)
+
+    # complete mat-vec operation: (T'T + I)*x = 3(n-1) x - M*M'*x
+    idx = 1
+    for j in 1:n, i in j+1:n
+        @inbounds y[idx] = c1 * x[idx] + c2 * (tmpv[i] + tmpv[j]) + c3
+        idx += 1
+    end
 
     return y
 end

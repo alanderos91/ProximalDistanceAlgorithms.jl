@@ -55,6 +55,10 @@
             N = D.N
             println("$(n) nodes; $(N) × $(N) inverse\n")
 
+            # cache Gram matrices
+            DtD = D'D
+            StS = S'S
+
             # create vectors for testing
             b = rand(size(D, 2))
             tmpx = zero(b)
@@ -71,15 +75,12 @@
                 print("   ρ = $(ρ)\n")
                 print("     inv(A):        ")
 
-                # direct methods
-                invStS = @time inv(Matrix(I + ρ*S'S))
-                invDtD = MetricInv(D'D, ρ)
-
-                # iterative methods
+                # setup data structures
+                invStS = @time inv(Matrix(I + ρ*StS))
+                A = ProximalDistanceAlgorithms.ProxDistHessian(I, DtD, tmpx, ρ)
                 linsolver = ProximalDistanceAlgorithms.CGWrapper(D, observed, b)
-                A = ProximalDistanceAlgorithms.ProxDistHessian(I, D'D, tmpx, ρ)
 
-                print("     MetricInv:     "); @time mul!(observed, invDtD, b)
+                print("     MetricInv:     "); @time ldiv!(observed, A, b)
                 print("     x = inv(A)*b:  "); @time mul!(expected, invStS, b)
                 @test observed ≈ expected
 

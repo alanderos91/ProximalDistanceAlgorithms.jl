@@ -13,6 +13,8 @@ using IterativeSolvers
 using IterativeSolvers: CGStateVariables, Adivtype
 using DataStructures
 
+import LinearAlgebra: ldiv!
+
 using LinearMaps
 using LinearMaps: TransposeMap
 import LinearMaps: A_mul_B!, At_mul_B!
