@@ -9,12 +9,9 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 # directory with scripts
 DIR=${PKG}/experiments/aw-area51
 
-# directory to Julia
-JLDIR=${HOME}/julia-1.5
-
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_imgtvd.jl "$@";
+    julia --project=${PKG} ${DIR}/benchmark_imgtvd.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -39,11 +36,11 @@ MAXITERS=5000
 while read image
     do
     # Steepest Descent
-    # FNAME=SD_${image}_l0
-    # jlbenchmark --image ${image} --algorithm SD --proj l0 --maxiters ${MAXITERS} --accel\
-    #     --filename ${FNAME}.dat \
-    #     --start 0.5 --step 2e-2 \
-    #     --atol 1e-4 --rtol 1e-4
+    FNAME=SD_${image}_l0
+    jlbenchmark --image ${image} --algorithm SD --proj l0 --maxiters ${MAXITERS} --accel\
+        --filename ${FNAME}.dat \
+        --start 0.5 --step 2e-2 \
+        --atol 1e-4 --rtol 1e-4
 
     FNAME=SD_${image}_l1
     jlbenchmark --image ${image} --algorithm SD --proj l1 --maxiters ${MAXITERS} --accel \

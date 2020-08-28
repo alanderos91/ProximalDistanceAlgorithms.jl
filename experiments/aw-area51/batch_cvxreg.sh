@@ -9,12 +9,9 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 # directory with scripts
 DIR=${PKG}/experiments/aw-area51
 
-# directory to Julia
-JLDIR=${HOME}/julia-1.5
-
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_cvxreg.jl "$@";
+    julia --project=${PKG} ${DIR}/benchmark_cvxreg.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -43,39 +40,39 @@ while read probsize
 
     # MM
     FNAME=MM_LSQR_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MM --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     FNAME=MM_CG_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MM --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     # Steepest Descent
     FNAME=SD_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm SD --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     # ADMM
     FNAME=ADMM_LSQR_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm ADMM --ls LSQR --maxiters ${MAXITERS} --filename ${FNAME}.dat --atol 1e-6
 
     FNAME=ADMM_CG_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm ADMM --ls CG --maxiters ${MAXITERS} --filename ${FNAME}.dat --atol 1e-6
 
     # MM Subspace{5}
     FNAME=MMS5_LSQR_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     FNAME=MMS5_CG_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     # MM Subspace{10}
     FNAME=MMS10_LSQR_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
     
     FNAME=MMS10_CG_${d}_${n}
-    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    jlbenchmark --features ${d} --samples ${n} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat --atol 1e-6
 
     # SD + ADMM hybrid
     FNAME=SDADMM_CG_${d}_${n}
     jlbenchmark --features ${d} --samples ${n} --algorithm SDADMM --accel --ls CG --maxiters ${MAXITERS} \
         --filename ${FNAME}.dat \
-        --atol 1e-12
+        --atol 0.0
 done < ${DIR}/cvxreg/jobs/${JOBNAME}.in

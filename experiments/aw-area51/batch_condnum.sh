@@ -9,12 +9,9 @@ PKG=${HOME}/Projects/ProximalDistanceAlgorithms
 # directory with scripts
 DIR=${PKG}/experiments/aw-area51
 
-# directory to Julia
-JLDIR=${HOME}/julia-1.5
-
 # function for running benchmark
 jlbenchmark () {
-    ${JLDIR}/bin/julia --project=${PKG} ${DIR}/benchmark_condnum.jl "$@";
+    julia --project=${PKG} ${DIR}/benchmark_condnum.jl "$@";
 }
 
 # redirect all output to a randomly generated log file
@@ -53,17 +50,17 @@ while read probsize
     FNAME=ADMM_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm ADMM --ls NA --maxiters ${MAXITERS} --filename ${FNAME}.dat
 
-    # # MM Subspace{5}
-    # FNAME=MMS5_LSQR_${p}_${percent}
-    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # MM Subspace{5}
+    FNAME=MMS5_LSQR_${p}_${percent}
+    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
     FNAME=MMS5_CG_${p}_${percent}
     jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 5 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # # MM Subspace{10}
-    # FNAME=MMS10_LSQR_${p}_${percent}
-    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    # MM Subspace{10}
+    FNAME=MMS10_LSQR_${p}_${percent}
+    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls LSQR --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 
-    # FNAME=MMS10_CG_${p}_${percent}
-    # jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
+    FNAME=MMS10_CG_${p}_${percent}
+    jlbenchmark --p ${p} --percent ${percent} --algorithm MMS --subspace 10 --ls CG --maxiters ${MAXITERS} --accel --filename ${FNAME}.dat
 done < ${DIR}/condnum/jobs/${JOBNAME}.in
