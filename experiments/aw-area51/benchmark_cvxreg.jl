@@ -93,7 +93,7 @@ end
 @inline function run_cvxreg(algorithm, problem, options; kwargs...)
     kw = Dict(kwargs)
     ρ0 = kw[:rho]
-    penalty(ρ, n) = min(1e6, ρ0 * 1.09 ^ floor(n/20))
+    penalty(ρ, n) = min(1e6, ρ0 * 1.75 ^ floor(n/100))
 
     # extra processing step for hybrid algorithm
     if algorithm isa SDADMM
