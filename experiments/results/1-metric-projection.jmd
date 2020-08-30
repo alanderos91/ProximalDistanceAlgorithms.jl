@@ -39,13 +39,58 @@ summarize = function(x, transformations; kwargs...)
 end
 ```
 
+```{julia; echo=false}
+CLEAN = false
+
+if CLEAN
+    DIREXAMPLE = joinpath("aw-area51", problem)
+    ncovariates = (1, 2, 10, 20)
+    nodes = (32, 64, 128, 256)
+
+    # benchmark = DataFrame[]
+    # history = DataFrame[]
+
+    for n in nodes
+        example = "$(n)"
+        println("Processing example nodes=$(example)")
+        cols = [:nodes]
+        vals = [n]
+        #
+        # benchmark files; need to add dataset column
+        #
+        println("   Checking benchmark files...")
+        for file in glob("*$(example)*.dat", joinpath(DIREXAMPLE, "benchmarks"))
+            println("   - $(file) matched.")
+            df = CSV.read(file)
+            tmp = add_missing_columns(df, cols, vals)
+            CSV.write(file, tmp)
+            # push!(benchmark, tmp)
+        end
+        #
+        # history files; need to add dataset, features, samples, and classes columns
+        #
+        println("   Checking history files...")
+        for file in glob("*$(example)*.dat", joinpath(DIREXAMPLE, "figures"))
+            println("   - $(file) matched.")
+            #
+            # read, extract problem data, and add to DataFrame
+            #
+            df = CSV.read(file)
+            tmp = add_missing_columns(df, cols, vals)
+            CSV.write(file, tmp)
+            # push!(history, tmp)
+        end
+        println()
+    end
+end
+```
+
 ### MM Algorithm
 
 ```{julia; echo=false}
 colnames = [
     "n",
-    "MM_CG (mean)", "MM_LSQR (mean)",
-    "MM_CG (std)",  "MM_LSQR (std)"
+    "MM (mean)", "MM (std)",
 ]
 df = summarize("MM_*.dat", transformations)
 rename!(df, Symbol.(colnames))
@@ -66,10 +111,9 @@ latexify(df, fmt = FancyNumberFormatter(4))
 ```{julia; echo=false}
 colnames = [
     "n",
-    "ADMM_CG (mean)", "ADMM_LSQR (mean)",
-    "ADMM_CG (std)",  "ADMM_LSQR (std)"
+    "ADMM (mean)", "ADMM (std)",
 ]
-df = summarize("ADMM*.dat", transformations)
+df = summarize("ADMM_*.dat", transformations)
 rename!(df, Symbol.(colnames))
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
@@ -92,17 +136,14 @@ latexify(df, fmt = FancyNumberFormatter(4))
 ### Table 1: MM vs SD vs ADMM
 
 Comparison of MM, SD, and ADMM on various performance metrics.
-The loss and distance to the constraint set are scaled by $10^{-3}$ and $10^{3}$, respectively.
 
-- Algorithm 1: MM using CG
-- Algorithm 2: Steepest Descent (SD)
-- Algorithm 3: ADMM using CG
+**Note:** The loss and distance to the constraint set are scaled by $10^{-3}$ and $10^{3}$, respectively.
 
 ```{julia; echo=false}
 #
 #   selected algorithms
 #
-experiments = ("MM_CG*.dat", "SD_*.dat", "ADMM_CG*.dat")
+experiments = ("MM_*.dat", "SD_*.dat", "ADMM_*.dat")
 
 #
 #   benchmark data
@@ -153,6 +194,14 @@ df = DataFrame(
     alg3_iter = history[3][!,4] * iscale,
 )
 
+rename!(df, Symbol.([
+  "n",
+  "time (MM)", "time (SD)", "time (ADMM)",
+  "loss (MM)", "loss (SD)", "loss (ADMM)",
+  "dist (MM)", "dist (SD)", "dist (ADMM)",
+  "iter (MM)", "iter (SD)", "iter (ADMM)",
+]))
+
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
@@ -166,8 +215,11 @@ Results for a hybrid algorithm that splits the optimization problem into two pha
 Importantly, the penalty coefficient at the end of Phase 1, $\rho_{n}$, is carried over to Phase 2.
 This hybrid method produces the approximation $\bf{x}_{\mathrm{feasible}}$, which is a point in $C$ that is close to the solution of the target optimization problem.
 
-The following table reports results for the method with $\epsilon_{2} = 10^{-6}$ and a maximum of 3000 iterations.
+The following table reports results for the method with $\epsilon_{2} = 0$ and a maximum of 3000 iterations.
 Specifically, the iterations are split as 2000 and 1000 for Phase 1 and Phase 2, respectively.
+Iterations in excess of 2000 are ADMM iterations.
+
+**Note:** The loss and distance to the constraint set are scaled by $10^{-3}$ and $10^{3}$, respectively.
 
 ```{julia; echo=false}
 using LinearAlgebra
@@ -188,15 +240,15 @@ colnames = [
     "time (mean)", "time (std)",
     "loss", "distance", "iteration"
 ]
-df1 = summarize("SDADMM*.dat", transformations1)
-df2 = summarize("SDADMM*.dat", transformations2, directory="figures")
+df1 = summarize("SDADMM_*.dat", transformations1)
+df2 = summarize("SDADMM_*.dat", transformations2, directory="figures")
 df = join(df1, df2, on=:nodes)
 rename!(df, Symbol.(colnames))
 
 for i in eachindex(df.n)
     nodes = df.n[i]
-    Y = CSV.read("aw-area51/metric/benchmarks/SDADMM_CG_$(nodes).in") |> Matrix
-    X = CSV.read("aw-area51/metric/benchmarks/SDADMM_CG_$(nodes).out") |> Matrix
+    Y = CSV.read("aw-area51/metric/benchmarks/SDADMM_$(nodes).in") |> Matrix
+    X = CSV.read("aw-area51/metric/benchmarks/SDADMM_$(nodes).out") |> Matrix
     df.loss[i] = norm(X-Y)^2 / 4 * lscale
 end
 
