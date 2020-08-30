@@ -68,6 +68,10 @@ if CLEAN
 end
 ```
 
+Benchmark convex regression problem for input data $y_{i} = \varphi(\boldsymbol{x}_{i})$ with $\boldsymbol{x}_{i} \mathbb{R}^{d}$, with sample size $n$.
+Convergence parameters are set to $\epsilon_{1} = 10^{-6}$ and $\epsilon_{2} = 10^{-3}$.
+The annealing schedule used is $\rho_{n} = 1.75^{\lfloor{n/100}\rfloor}$.
+
 ### MM
 
 ```{julia; echo=false}
@@ -117,13 +121,32 @@ colnames = [
     "CG (mean)", "LSQR (mean)",
     "CG (std)", "LSQR (std)"
 ]
-df = summarize("MMS*.dat", transformations)
+df = summarize("MMS5*.dat", transformations)
 rename!(df, colnames)
 sort!(df, [:covariates, :samples])
 latexify(df, fmt = FancyNumberFormatter(4))
 ```
 
-### Table 2
+### MM Subspace (10)
+
+```{julia; echo=false}
+colnames = [
+    "covariates", "samples",
+    "CG (mean)", "LSQR (mean)",
+    "CG (std)", "LSQR (std)"
+]
+df = summarize("MMS10*.dat", transformations)
+rename!(df, colnames)
+sort!(df, [:covariates, :samples])
+latexify(df, fmt = FancyNumberFormatter(4))
+```
+
+### Table 2: MM vs SD vs ADMM
+
+- Based on version using CG for linear solve
+- scale loss by $10^{3}$
+- scale distance by $10^{3}$
+- scale MSE by $10^{3}$
 
 ```{julia; echo=false}
 #
@@ -161,7 +184,7 @@ end
 # assemble table
 #
 tscale = 1e0 # x 1
-lscale = 1e2 # x 100
+lscale = 1e3 # x 100
 dscale = 1e3 # x 1000
 mscale = 1e3 # x 1000
 maindf = DataFrame(
@@ -180,6 +203,16 @@ maindf = DataFrame(
             mseSD    = benchmark[2][!, 4] * mscale,
             mseADMM  = benchmark[3][!, 4] * mscale,
        )
+#
+# pretty printing for output
+#
+rename!(maindf, [
+    "d", "n",
+    "time (MM)", "time (SD)", "time (ADMM)",
+    "loss (MM)", "loss (SD)", "loss (ADMM)",
+    "dist (MM)", "dist (SD)", "dist (ADMM)",
+    "MSE (MM)", "MSE (SD)", "MSE (ADMM)",
+])
 #
 # pass to Latexify for formatting and pretty printing
 #
