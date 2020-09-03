@@ -260,3 +260,157 @@ df.MSE .*= mscale       # x 1000
 
 latexify(df, fmt=FancyNumberFormatter(4))
 ```
+
+### Table 8: CG vs LSQR (MM)
+
+- scale loss by $10^{3}$
+- scale distance by $10^{3}$
+- scale MSE by $10^{3}$
+
+```{julia; echo=false}
+#
+#   selected algorithms
+#
+experiments = ("MM_CG", "MM_LSQR",)
+#
+#   benchmark data
+#
+transformations = (:cpu_time => mean, :MSE => first)
+benchmark = DataFrame[]
+for experiment in experiments
+    push!(benchmark, summarize(experiment*"*.dat", transformations, directory="benchmarks", regex=r"[^_]*_"))
+end
+#
+#   convergence history
+#
+transformations = (
+    :loss      => last,
+    :distance  => last,
+    :iteration => last,
+)
+history = DataFrame[]
+for experiment in experiments
+    push!(history, summarize(experiment*"*.dat", transformations, directory="figures"))
+end
+#
+# sort table by samples, then features
+#
+for i in eachindex(benchmark)
+    sort!(benchmark[i], [:samples, :features])
+    sort!(history[i], [:samples, :features])
+end
+#
+# assemble table
+#
+tscale = 1e0 # x 1
+lscale = 1e3 # x 100
+dscale = 1e3 # x 1000
+maindf = DataFrame(
+            d        = benchmark[1].features,
+            n        = benchmark[1].samples,
+            timeCG   = benchmark[1][!, 3] * tscale,
+            timeLSQR = benchmark[2][!, 3] * tscale,
+            lossCG   = history[1][!, 3] * lscale,
+            lossLSQR = history[2][!, 3] * lscale,
+            distCG   = history[1][!, 4] * dscale,
+            distLSQR = history[2][!, 4] * dscale,
+            iterCG   = history[1][!, end],
+            iterLSQR = history[2][!, end],
+       )
+#
+# select d = 20
+#
+selected_rows = maindf.d .== 20
+maindf = maindf[selected_rows, :]
+#
+# pretty printing for output
+#
+rename!(maindf, [
+    "d", "n",
+    "time (CG)", "time (LSQR)",
+    "loss (CG)", "loss (LSQR)",
+    "dist (CG)", "dist (LSQR)",
+    "iter (CG)", "iter (LSQR)",
+])
+#
+# pass to Latexify for formatting and pretty printing
+#
+latexify(maindf, fmt = FancyNumberFormatter(4))
+```
+
+### Table 9: CG vs LSQR (ADMM)
+
+- scale loss by $10^{3}$
+- scale distance by $10^{3}$
+- scale MSE by $10^{3}$
+
+```{julia; echo=false}
+#
+#   selected algorithms
+#
+experiments = ("MM_CG", "MM_LSQR",)
+#
+#   benchmark data
+#
+transformations = (:cpu_time => mean, :MSE => first)
+benchmark = DataFrame[]
+for experiment in experiments
+    push!(benchmark, summarize(experiment*"*.dat", transformations, directory="benchmarks", regex=r"[^_]*_"))
+end
+#
+#   convergence history
+#
+transformations = (
+    :loss      => last,
+    :distance  => last,
+    :iteration => last,
+)
+history = DataFrame[]
+for experiment in experiments
+    push!(history, summarize(experiment*"*.dat", transformations, directory="figures"))
+end
+#
+# sort table by samples, then features
+#
+for i in eachindex(benchmark)
+    sort!(benchmark[i], [:samples, :features])
+    sort!(history[i], [:samples, :features])
+end
+#
+# assemble table
+#
+tscale = 1e0 # x 1
+lscale = 1e3 # x 100
+dscale = 1e3 # x 1000
+maindf = DataFrame(
+            d        = benchmark[1].features,
+            n        = benchmark[1].samples,
+            timeCG   = benchmark[1][!, 3] * tscale,
+            timeLSQR = benchmark[2][!, 3] * tscale,
+            lossCG   = history[1][!, 3] * lscale,
+            lossLSQR = history[2][!, 3] * lscale,
+            distCG   = history[1][!, 4] * dscale,
+            distLSQR = history[2][!, 4] * dscale,
+            iterCG   = history[1][!, end],
+            iterLSQR = history[2][!, end],
+       )
+#
+# select d = 20
+#
+selected_rows = maindf.d .== 20
+maindf = maindf[selected_rows, :]
+#
+# pretty printing for output
+#
+rename!(maindf, [
+    "d", "n",
+    "time (CG)", "time (LSQR)",
+    "loss (CG)", "loss (LSQR)",
+    "dist (CG)", "dist (LSQR)",
+    "iter (CG)", "iter (LSQR)",
+])
+#
+# pass to Latexify for formatting and pretty printing
+#
+latexify(maindf, fmt = FancyNumberFormatter(4))
+```
