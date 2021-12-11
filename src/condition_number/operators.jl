@@ -11,7 +11,7 @@ end
 # implementation
 Base.size(D::CondNumFM) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
     p = size(D, 2)
     c = D.c
     for j in eachindex(x)
@@ -24,7 +24,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.At_mul_B!(x::AbstractVector, D::CondNumFM, z::AbstractVector)
+function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CondNumFM}, z::AbstractVector)
     p = size(D, 2)
     c = D.c
 
@@ -64,7 +64,7 @@ end
 
 Base.size(DtD::CondNumFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.A_mul_B!(y::AbstractVector, DtD::CondNumFGM, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, DtD::CondNumFGM, x::AbstractVector)
     p = DtD.N
     c = DtD.c
 

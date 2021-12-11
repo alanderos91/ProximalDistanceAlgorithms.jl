@@ -17,7 +17,6 @@ import LinearAlgebra: ldiv!
 
 using LinearMaps
 using LinearMaps: TransposeMap
-import LinearMaps: A_mul_B!, At_mul_B!
 
 # algorithm types
 abstract type AlgorithmOption end

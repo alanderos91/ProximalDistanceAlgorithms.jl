@@ -22,7 +22,7 @@ MetricFM(n::Integer) = MetricFM{Int}(n)
 # implementation
 Base.size(D::MetricFM) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::MetricFM, x::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::MetricFM, x::AbstractVector)
     edge = 0 # edge counter
     n = D.n
     T = D.I
@@ -48,7 +48,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::MetricFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.At_mul_B!(x::AbstractVector, D::MetricFM, z::AbstractVector)
+function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:MetricFM}, z::AbstractVector)
     edge = 0
     N = size(D, 2)
     n = D.n
@@ -131,7 +131,7 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 # implementation
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.A_mul_B!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
     @unpack n, tmpv = DtD
 
     # clear sums and update cache, v = M'*x

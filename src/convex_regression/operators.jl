@@ -22,7 +22,7 @@ CvxRegBlockA(n::Integer) = CvxRegBlockA{Int}(n)
 # implementation
 Base.size(D::CvxRegBlockA) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVector)
    n = D.n
 
    # apply A block of D = [A B]
@@ -40,7 +40,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVec
    return z
 end
 
-function LinearMaps.At_mul_B!(θ::AbstractVector, D::CvxRegBlockA, z::AbstractVector)
+function LinearMaps.mul!(θ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlockA}, z::AbstractVector)
    n = D.n
 
    for j in 1:n
@@ -94,7 +94,7 @@ CvxRegAGM(n::Integer) = CvxRegAGM{Int}(n)
 # implementation
 Base.size(D::CvxRegAGM) = (D.N, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegAGM, θ::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::CvxRegAGM, θ::AbstractVector)
    N = D.N
    c = sum(θ)
    @inbounds for i in 1:N
@@ -131,7 +131,7 @@ end
 # implementation
 Base.size(D::CvxRegBlockB) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVector)
    d = D.d
    n = D.n
    X = D.X
@@ -162,7 +162,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVec
    return z
 end
 
-function LinearMaps.At_mul_B!(ξ::AbstractVector, D::CvxRegBlockB, z::AbstractVector)
+function LinearMaps.mul!(ξ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlockB}, z::AbstractVector)
    d = D.d
    n = D.n
    X = D.X
@@ -249,7 +249,7 @@ end
 # implementation
 Base.size(D::CvxRegFM) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z, D::CvxRegFM, x)
+function LinearMaps.mul!(z, D::CvxRegFM, x)
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))
@@ -258,7 +258,7 @@ function LinearMaps.A_mul_B!(z, D::CvxRegFM, x)
    return z
 end
 
-function LinearMaps.At_mul_B!(x, D::CvxRegFM, z)
+function LinearMaps.mul!(x, D::TransposeMap{<:Any,<:CvxRegFM}, z)
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))

@@ -26,7 +26,7 @@ Base.size(D::CvxClusterFM) = (D.M, D.N)
 cvxclst_apply_fusion_matrix!(Y, U)
 ```
 """
-function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxClusterFM, x::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::CvxClusterFM, x::AbstractVector)
     d, n, = D.d, D.n
 
     # copy terms to be subtracted
@@ -50,7 +50,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::CvxClusterFM, x::AbstractVect
     return z
 end
 
-function LinearMaps.At_mul_B!(x::AbstractVector, D::CvxClusterFM, z::AbstractVector)
+function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CvxClusterFM}, z::AbstractVector)
     d, n, = D.d, D.n
 
     # initialize for accumulation
@@ -117,7 +117,7 @@ CvxClusterFGM(d, n) = CvxClusterFGM{Int}(d, n)
 # implementation
 Base.size(DtD::CvxClusterFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.A_mul_B!(y::AbstractVector, DtD::CvxClusterFGM, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, DtD::CvxClusterFGM, x::AbstractVector)
     d, n = DtD.d, DtD.n
 
     for j in 1:n, k in 1:d

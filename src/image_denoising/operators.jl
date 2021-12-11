@@ -17,7 +17,7 @@ ImgTvdFM(m::Integer, n::Integer) = ImgTvdFM{Int}(m, n)
 # implementation
 Base.size(D::ImgTvdFM) = (D.M, D.N)
 
-function LinearMaps.A_mul_B!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
+function LinearMaps.mul!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -45,7 +45,7 @@ function LinearMaps.A_mul_B!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.At_mul_B!(x::AbstractVector, D::ImgTvdFM, z::AbstractVector)
+function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:ImgTvdFM}, z::AbstractVector)
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -130,7 +130,7 @@ ImgTvdFGM(m::Integer, n::Integer) = ImgTvdFGM{Int}(m, n)
 # implementation
 Base.size(DtD::ImgTvdFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.A_mul_B!(y::AbstractVector, DtD::ImgTvdFGM, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, DtD::ImgTvdFGM, x::AbstractVector)
     m, n = DtD.m, DtD.n
     imind = LinearIndices((1:m, 1:n))
 

@@ -78,7 +78,7 @@ LinearAlgebra.isposdef(H::ProxDistHessian)    = false
 
 # internal API
 
-function LinearMaps.A_mul_B!(y, H::ProxDistHessian, x)
+function LinearMaps.mul!(y, H::ProxDistHessian, x)
     mul!(H.tmpx, H.DtD, x)
     mul!(y, H.∇²f, x)
     axpy!(H.ρ, H.tmpx, y)
@@ -337,7 +337,7 @@ LinearAlgebra.issymmetric(H::QuadLHS) = false
 LinearAlgebra.ishermitian(H::QuadLHS) = false
 LinearAlgebra.isposdef(H::QuadLHS)    = false
 
-function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
+function LinearMaps.mul!(y, op::QuadLHS, x)
     M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
@@ -356,7 +356,7 @@ function LinearMaps.A_mul_B!(y, op::QuadLHS, x)
     return y
 end
 
-function LinearMaps.At_mul_B!(x, op::QuadLHS, y)
+function LinearMaps.mul!(x, op::TransposeMap{<:Any,<:QuadLHS}, y)
     M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
@@ -389,7 +389,7 @@ end
 
 Base.size(A::MMSOp1) = (size(A.A1, 1) + size(A.A2, 1), size(A.G, 2))
 
-function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
     @unpack A1, A2, G, tmpGx1, c = A
 
     # get dimensions
@@ -413,7 +413,7 @@ function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
     return y
 end
 
-function LinearMaps.At_mul_B!(x::AbstractVector, A::MMSOp1, y::AbstractVector)
+function LinearMaps.mul!(x::AbstractVector, A::TransposeMap{<:Any,<:MMSOp1}, y::AbstractVector)
     @unpack A1, A2, G, tmpGx1, tmpGx2, c = A
 
     # get dimensions
@@ -452,7 +452,7 @@ LinearAlgebra.issymmetric(::MMSOp2) = true
 
 Base.size(A::MMSOp2) = (size(A.G,2), size(A.G,2))
 
-function LinearMaps.A_mul_B!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
+function LinearMaps.mul!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
     @unpack H, G, tmpGx1, tmpGx2 = A
 
     # (1) tmpGx = H*G*x
