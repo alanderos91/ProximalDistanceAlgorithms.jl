@@ -3,14 +3,16 @@
     #   l0 tests
     #
     l0_range = (10^2, 10^3, 10^4)
-    l0_sparse = (1, 25, 50)
+    l0_sparse = (0, 50, 75, 95, 100)
 
     # for reproducible tests
     Random.seed!(5357)
 
     @testset "l0: size $(n), $(s)% sparsity" for n in l0_range, s in l0_sparse
-        k = round(Int, s/100 * n)
+        k = round(Int, (1-s/100) * n)
         x = randn(n)
+        idx = collect(eachindex(x))
+        buffer = zeros(n)
 
         # for checking correct solution
         xsorted = sort(x, by=abs, rev=true)
@@ -19,14 +21,14 @@
         #   finding the correct pivot element
         #
         correct_pivot = xsorted[k]
-        pivot = ProxDist.l0_search_partialsort!(copy(x), k)
+        pivot = ProxDist.l0_search_partialsort!(idx, x, k, true)
 
         @test pivot == correct_pivot
 
         #
         #   projection onto {x : |x|_0 ≤ k}
         #
-        xproj = ProxDist.project_l0_ball!(copy(x), copy(x), k)
+        xproj = ProxDist.project_l0_ball!(copy(x), idx, k, buffer)
         xnonz = sort(xproj, by=abs, rev=true)
 
         # check that the correct values are preserved
