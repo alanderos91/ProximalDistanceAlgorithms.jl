@@ -20,10 +20,11 @@
         #
         #   finding the correct pivot element
         #
-        correct_pivot = xsorted[k]
-        pivot = ProxDist.l0_search_partialsort!(idx, x, k, true)
-
-        @test pivot == correct_pivot
+        if k > 0
+            correct_pivot = xsorted[k]
+            pivot = ProxDist.l0_search_partialsort!(idx, x, k, true)
+            @test pivot == correct_pivot
+        end
 
         #
         #   projection onto {x : |x|_0 ≤ k}
