@@ -1,3 +1,47 @@
+using ProximalDistanceAlgorithms: trivec_index
+
+function make_matrix(D::MetricFM)
+    # helper function
+    function __set_row!(I, J, V, s1, s2, s3, t)
+        z = 3*(t-1)+1
+    
+        I[z] = t
+        J[z] = s1
+        V[z] = -1
+    
+        I[z+1] = t
+        J[z+1] = s2
+        V[z+1] = 1
+    
+        I[z+2] = t
+        J[z+2] = s3
+        V[z+2] = 1
+    
+        return nothing
+    end
+
+    n = D.n
+    nrows = 3*3*binomial(n,3)
+
+    I = zeros(Int, nrows)
+    J = zeros(Int, nrows)
+    V = zeros(eltype(D), nrows)
+
+    edge = 0
+    for j in 1:n-2, i in j+1:n-1, k in i+1:n
+        # map to linear indices
+        s1 = trivec_index(n, i, j)
+        s2 = trivec_index(n, k, i)
+        s3 = trivec_index(n, k, j)
+
+        edge += 1; __set_row!(I, J, V, s1, s2, s3, edge) # T_ijk
+        edge += 1; __set_row!(I, J, V, s2, s1, s3, edge) # T_jik
+        edge += 1; __set_row!(I, J, V, s3, s1, s2, edge) # T_kij
+    end
+
+    return [sparse(I, J, V); LinearAlgebra.I]
+end
+
 @testset "metric projection" begin
     # simulated examples for testing
     nodes = (16, 32, 64, 128)
@@ -6,8 +50,8 @@
     @testset "fusion matrix" begin
         for n in nodes
             # create fusion matrix
-            D = MetricFM(n)                     # LinearMap
-            S = instantiate_fusion_matrix(D)    # SparseMatrix
+            D = MetricFM(n)     # LinearMap
+            S = make_matrix(D)  # SparseMatrix
             M, N = size(D)
             println("$(n) nodes; $(M) × $(N) matrix\n")
 
@@ -50,8 +94,8 @@
     @testset "inv(I + ρ D'D)" begin
         for n in nodes
             # create fusion matrix
-            D = MetricFM(n)                     # LinearMap
-            S = instantiate_fusion_matrix(D)    # SparseMatrix
+            D = MetricFM(n)     # LinearMap
+            S = make_matrix(D)  # SparseMatrix
             N = D.N
             println("$(n) nodes; $(N) × $(N) inverse\n")
 

@@ -11,7 +11,7 @@ end
 # implementation
 Base.size(D::CondNumFM) = (D.M, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CondNumFM, x::AbstractVector)
     p = size(D, 2)
     c = D.c
     for j in eachindex(x)
@@ -24,7 +24,8 @@ function LinearMaps.mul!(z::AbstractVector, D::CondNumFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CondNumFM}, z::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CondNumFM}, z::AbstractVector)
+    D = Dt.lmap
     p = size(D, 2)
     c = D.c
 
@@ -47,16 +48,6 @@ function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CondNumFM}, 
     return x
 end
 
-function instantiate_fusion_matrix(D::CondNumFM{T}) where T
-    p², p = size(D)
-    c = D.c
-
-    C = kron(-c*ones(p), I(p))
-    S = kron(I(p), ones(p))
-
-    return sparse(C + S)
-end
-
 struct CondNumFGM{T} <: FusionGramMatrix{T}
     c::T
     N::Int
@@ -64,7 +55,7 @@ end
 
 Base.size(DtD::CondNumFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.mul!(y::AbstractVector, DtD::CondNumFGM, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, DtD::CondNumFGM, x::AbstractVector)
     p = DtD.N
     c = DtD.c
 

@@ -1,3 +1,20 @@
+function make_matrix(D::CvxClusterFM)
+    d, n = D.d, D.n
+    Idn = I(n)  # n by n identity matrix
+    Idd = I(d)  # d by d identity matrix
+
+    # standard basis vectors in R^n
+    e = [Idn[:,i] for i in 1:n]
+
+    # Construct blocks for fusion matrix.
+    # The blocks (i,j) are arranged in dictionary order.
+    # Loop order is crucial to keeping blocks in dictionary order.
+    Dblock = [kron((e[i] - e[j])', Idd) for j in 1:n for i in j+1:n]
+    S = sparse(vcat(Dblock...))
+
+    return S
+end
+
 function run_cvxcluster_tests(tests, D, S, x, y, z)
     # pre-compile
     println("  warm-up:")
@@ -29,7 +46,7 @@ end
         for d in domain_size, n in sample_size
             # create fusion matrix
             D = CvxClusterFM(d, n)
-            S = instantiate_fusion_matrix(D)
+            S = make_matrix(D)
             M, N = size(D)
             println("$(d) features, $(n) samples; $(M) × $(N) matrix\n")
 

@@ -1,3 +1,13 @@
+function make_matrix(D::CondNumFM)
+    p², p = size(D)
+    c = D.c
+
+    C = kron(-c*ones(p), I(p))
+    S = kron(I(p), ones(p))
+
+    return sparse(C + S)
+end
+
 # default
 condnum_DtD_mul_x(D, x, y, z) = DtD_mul_x(D, x, y, z)
 
@@ -48,7 +58,7 @@ end
         for p in nsingular_values
             # create fusion matrix
             D = CondNumFM(c, p)
-            S = instantiate_fusion_matrix(D)
+            S = make_matrix(D)
             M, N = size(D)
             println("$(p) singular values; $(M) × $(N) matrix")
 

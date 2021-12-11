@@ -17,7 +17,7 @@ ImgTvdFM(m::Integer, n::Integer) = ImgTvdFM{Int}(m, n)
 # implementation
 Base.size(D::ImgTvdFM) = (D.M, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::ImgTvdFM, x::AbstractVector)
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -45,7 +45,8 @@ function LinearMaps.mul!(z::AbstractVector, D::ImgTvdFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:ImgTvdFM}, z::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:ImgTvdFM}, z::AbstractVector)
+    D = Dt.lmap
     m, n = D.m, D.n
     M, N = D.M, D.N
     xind = LinearIndices((1:m, 1:n))
@@ -90,30 +91,6 @@ function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:ImgTvdFM}, z
     return x
 end
 
-function instantiate_fusion_matrix(D::ImgTvdFM{T}) where T <: Number
-    m, n = D.m, D.n
-
-    # forward difference operator on columns
-    Sx = spzeros(m-1, m)
-    for i in 1:m-1
-        Sx[i,i] = -1
-        Sx[i,i+1] = 1
-    end
-
-    # forward difference operator on rows
-    Sy = spzeros(n,n-1)
-    for i in 1:n-1
-        Sy[i,i] = -1
-        Sy[i+1,i] = 1
-    end
-
-    # stack operators and add redundant row
-    S = [kron(I(n), Sx); kron(Sy', I(m)); zeros(1, m*n)]
-    S[end] = 1
-
-    return S
-end
-
 struct ImgTvdFGM{T} <: FusionGramMatrix{T}
     m::Int
     n::Int
@@ -130,7 +107,7 @@ ImgTvdFGM(m::Integer, n::Integer) = ImgTvdFGM{Int}(m, n)
 # implementation
 Base.size(DtD::ImgTvdFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.mul!(y::AbstractVector, DtD::ImgTvdFGM, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, DtD::ImgTvdFGM, x::AbstractVector)
     m, n = DtD.m, DtD.n
     imind = LinearIndices((1:m, 1:n))
 

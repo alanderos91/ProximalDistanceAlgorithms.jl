@@ -26,7 +26,7 @@ Base.size(D::CvxClusterFM) = (D.M, D.N)
 cvxclst_apply_fusion_matrix!(Y, U)
 ```
 """
-function LinearMaps.mul!(z::AbstractVector, D::CvxClusterFM, x::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxClusterFM, x::AbstractVector)
     d, n, = D.d, D.n
 
     # copy terms to be subtracted
@@ -50,7 +50,8 @@ function LinearMaps.mul!(z::AbstractVector, D::CvxClusterFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CvxClusterFM}, z::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxClusterFM}, z::AbstractVector)
+    D = Dt.lmap
     d, n, = D.d, D.n
 
     # initialize for accumulation
@@ -70,34 +71,8 @@ function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:CvxClusterFM
 
         offset += d*(n-i)
     end
-end
 
-"""
-```
-instantiate_fusion_matrix(D::CvxClusterFM)
-```
-
-Construct a block matrix `D` such that `Dblock * vec(A) == A[:,i] - A[:,j]`.
-The result `D` is compatible with `vec(A)`, where `A` is `d` by `n`.
-
-Blocks are stacked in dictionary order.
-For example, if `n = 3` then the blocks are ordered `(2,1), (3,1), (3,2)`.
-"""
-function instantiate_fusion_matrix(D::CvxClusterFM{T}) where {T<:Number}
-    d, n = D.d, D.n
-    Idn = I(n)  # n by n identity matrix
-    Idd = I(d)  # d by d identity matrix
-
-    # standard basis vectors in R^n
-    e = [Idn[:,i] for i in 1:n]
-
-    # Construct blocks for fusion matrix.
-    # The blocks (i,j) are arranged in dictionary order.
-    # Loop order is crucial to keeping blocks in dictionary order.
-    Dblock = [kron((e[i] - e[j])', Idd) for j in 1:n for i in j+1:n]
-    S = sparse(vcat(Dblock...))
-
-    return S
+    return x
 end
 
 struct CvxClusterFGM{T} <: FusionGramMatrix{T}
@@ -117,7 +92,7 @@ CvxClusterFGM(d, n) = CvxClusterFGM{Int}(d, n)
 # implementation
 Base.size(DtD::CvxClusterFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.mul!(y::AbstractVector, DtD::CvxClusterFGM, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, DtD::CvxClusterFGM, x::AbstractVector)
     d, n = DtD.d, DtD.n
 
     for j in 1:n, k in 1:d

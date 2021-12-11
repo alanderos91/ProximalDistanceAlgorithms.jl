@@ -78,7 +78,7 @@ LinearAlgebra.isposdef(H::ProxDistHessian)    = false
 
 # internal API
 
-function LinearMaps.mul!(y, H::ProxDistHessian, x)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, H::ProxDistHessian, x::AbstractVector)
     mul!(H.tmpx, H.DtD, x)
     mul!(y, H.∇²f, x)
     axpy!(H.ρ, H.tmpx, y)
@@ -337,7 +337,7 @@ LinearAlgebra.issymmetric(H::QuadLHS) = false
 LinearAlgebra.ishermitian(H::QuadLHS) = false
 LinearAlgebra.isposdef(H::QuadLHS)    = false
 
-function LinearMaps.mul!(y, op::QuadLHS, x)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, op::QuadLHS, x::AbstractVector)
     M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
@@ -356,7 +356,7 @@ function LinearMaps.mul!(y, op::QuadLHS, x)
     return y
 end
 
-function LinearMaps.mul!(x, op::TransposeMap{<:Any,<:QuadLHS}, y)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, op::TransposeMap{<:Any,<:QuadLHS}, y::AbstractVector)
     M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
@@ -389,7 +389,7 @@ end
 
 Base.size(A::MMSOp1) = (size(A.A1, 1) + size(A.A2, 1), size(A.G, 2))
 
-function LinearMaps.mul!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, A::MMSOp1, x::AbstractVector)
     @unpack A1, A2, G, tmpGx1, c = A
 
     # get dimensions
@@ -413,7 +413,7 @@ function LinearMaps.mul!(y::AbstractVector, A::MMSOp1, x::AbstractVector)
     return y
 end
 
-function LinearMaps.mul!(x::AbstractVector, A::TransposeMap{<:Any,<:MMSOp1}, y::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, A::TransposeMap{<:Any,<:MMSOp1}, y::AbstractVector)
     @unpack A1, A2, G, tmpGx1, tmpGx2, c = A
 
     # get dimensions
@@ -452,7 +452,7 @@ LinearAlgebra.issymmetric(::MMSOp2) = true
 
 Base.size(A::MMSOp2) = (size(A.G,2), size(A.G,2))
 
-function LinearMaps.mul!(y::AbstractVector, A::MMSOp2, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, A::MMSOp2, x::AbstractVector)
     @unpack H, G, tmpGx1, tmpGx2 = A
 
     # (1) tmpGx = H*G*x

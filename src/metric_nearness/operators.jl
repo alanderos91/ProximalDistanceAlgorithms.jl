@@ -22,7 +22,7 @@ MetricFM(n::Integer) = MetricFM{Int}(n)
 # implementation
 Base.size(D::MetricFM) = (D.M, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::MetricFM, x::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::MetricFM, x::AbstractVector)
     edge = 0 # edge counter
     n = D.n
     T = D.I
@@ -48,8 +48,9 @@ function LinearMaps.mul!(z::AbstractVector, D::MetricFM, x::AbstractVector)
     return z
 end
 
-function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:MetricFM}, z::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:MetricFM}, z::AbstractVector)
     edge = 0
+    D = Dt.lmap
     N = size(D, 2)
     n = D.n
     I = D.I
@@ -68,48 +69,7 @@ function LinearMaps.mul!(x::AbstractVector, D::TransposeMap{<:Any,<:MetricFM}, z
         x[I[k,i]] += -bac + abc + cab
     end
 
-    return z
-end
-
-function instantiate_fusion_matrix(D::MetricFM{T}) where {T<:Number}
-    n = D.n
-    nrows = 3*3*binomial(n,3)
-
-    I = zeros(Int, nrows)
-    J = zeros(Int, nrows)
-    V = zeros(T, nrows)
-
-    edge = 0
-    for j in 1:n-2, i in j+1:n-1, k in i+1:n
-        # map to linear indices
-        s1 = trivec_index(n, i, j)
-        s2 = trivec_index(n, k, i)
-        s3 = trivec_index(n, k, j)
-
-        edge += 1; __set_row!(I, J, V, s1, s2, s3, edge) # T_ijk
-        edge += 1; __set_row!(I, J, V, s2, s1, s3, edge) # T_jik
-        edge += 1; __set_row!(I, J, V, s3, s1, s2, edge) # T_kij
-    end
-
-    return [sparse(I, J, V); LinearAlgebra.I]
-end
-
-function __set_row!(I, J, V, s1, s2, s3, t)
-    z = 3*(t-1)+1
-
-    I[z] = t
-    J[z] = s1
-    V[z] = -1
-
-    I[z+1] = t
-    J[z+1] = s2
-    V[z+1] = 1
-
-    I[z+2] = t
-    J[z+2] = s3
-    V[z+2] = 1
-
-    return nothing
+    return x
 end
 
 struct MetricFGM{T} <: FusionGramMatrix{T}
@@ -131,7 +91,7 @@ MetricFGM(n::Integer) = MetricFGM{Float64}(n)
 # implementation
 Base.size(DtD::MetricFGM) = (DtD.N, DtD.N)
 
-function LinearMaps.mul!(y::AbstractVector, DtD::MetricFGM, x::AbstractVector)
+function LinearAlgebra.mul!(y::AbstractVecOrMat, DtD::MetricFGM, x::AbstractVector)
     @unpack n, tmpv = DtD
 
     # clear sums and update cache, v = M'*x

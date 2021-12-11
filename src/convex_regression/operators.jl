@@ -22,7 +22,7 @@ CvxRegBlockA(n::Integer) = CvxRegBlockA{Int}(n)
 # implementation
 Base.size(D::CvxRegBlockA) = (D.M, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegBlockA, θ::AbstractVector)
    n = D.n
 
    # apply A block of D = [A B]
@@ -40,9 +40,10 @@ function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockA, θ::AbstractVector)
    return z
 end
 
-function LinearMaps.mul!(θ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlockA}, z::AbstractVector)
+function LinearAlgebra.mul!(θ::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegBlockA}, z::AbstractVector)
+   D = Dt.lmap # retrieve underlying linear map
    n = D.n
-
+   
    for j in 1:n
       @inbounds θ[j] = sum(z[(n-1)*(j-1)+i] for i in 1:n-1)
    end
@@ -62,28 +63,6 @@ function LinearMaps.mul!(θ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlock
    return θ
 end
 
-function instantiate_fusion_matrix(D::CvxRegBlockA)
-   n = D.n
-   A = spzeros(Int, n*(n-1), n)
-
-   # form A block of D = [A B]
-   k = 1
-   for j in 1:n
-      for i in 1:j-1
-         A[k,i] = -1
-         A[k,j] = 1
-         k += 1
-      end
-      for i in j+1:n
-         A[k,i] = -1
-         A[k,j] = 1
-         k += 1
-      end
-   end
-
-   return A
-end
-
 struct CvxRegAGM{T} <: FusionGramMatrix{T}
    N::Int
 end
@@ -94,7 +73,7 @@ CvxRegAGM(n::Integer) = CvxRegAGM{Int}(n)
 # implementation
 Base.size(D::CvxRegAGM) = (D.N, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::CvxRegAGM, θ::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegAGM, θ::AbstractVector)
    N = D.N
    c = sum(θ)
    @inbounds for i in 1:N
@@ -131,7 +110,7 @@ end
 # implementation
 Base.size(D::CvxRegBlockB) = (D.M, D.N)
 
-function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVector)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegBlockB, ξ::AbstractVector)
    d = D.d
    n = D.n
    X = D.X
@@ -162,7 +141,8 @@ function LinearMaps.mul!(z::AbstractVector, D::CvxRegBlockB, ξ::AbstractVector)
    return z
 end
 
-function LinearMaps.mul!(ξ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlockB}, z::AbstractVector)
+function LinearAlgebra.mul!(ξ::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegBlockB}, z::AbstractVector)
+   D = Dt.lmap # retrieve underlying linear map
    d = D.d
    n = D.n
    X = D.X
@@ -193,33 +173,8 @@ function LinearMaps.mul!(ξ::AbstractVector, D::TransposeMap{<:Any,<:CvxRegBlock
    return ξ
 end
 
-function instantiate_fusion_matrix(D::CvxRegBlockB)
-   d = D.d
-   n = D.n
-   M, N = size(D)
-   X = D.X
-
-   B = spzeros(eltype(D), M, N)
-
-   constraint = 1
-   for j in 1:n
-      for i in 1:j-1
-         for k in 1:d
-            @inbounds B[constraint,d*(j-1)+k] = X[k,i] - X[k,j]
-         end
-         constraint += 1
-      end
-
-      for i in j+1:n
-         for k in 1:d
-            @inbounds B[constraint,d*(j-1)+k] = X[k,i] - X[k,j]
-         end
-         constraint += 1
-      end
-   end
-
-   return B
-end
+# overrides for _unsafe_mul!; see https://github.com/Jutho/LinearMaps.jl/issues/157
+LinearMaps._unsafe_mul!(y::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegBlockB}, x::AbstractVector) = mul!(y, Dt, x)
 
 struct CvxRegFM{T,matA,matB} <: FusionMatrix{T}
    A::matA
@@ -249,7 +204,7 @@ end
 # implementation
 Base.size(D::CvxRegFM) = (D.M, D.N)
 
-function LinearMaps.mul!(z, D::CvxRegFM, x)
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegFM, x::AbstractVector)
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))
@@ -258,7 +213,8 @@ function LinearMaps.mul!(z, D::CvxRegFM, x)
    return z
 end
 
-function LinearMaps.mul!(x, D::TransposeMap{<:Any,<:CvxRegFM}, z)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegFM}, z::AbstractVector)
+   D = Dt.lmap # retrieve underlying linear map
    d, n = D.d, D.n
    θ = view(x, 1:n)
    ξ = view(x, n+1:n*(1+d))
@@ -267,8 +223,4 @@ function LinearMaps.mul!(x, D::TransposeMap{<:Any,<:CvxRegFM}, z)
    return x
 end
 
-function instantiate_fusion_matrix(D::CvxRegFM)
-   A = instantiate_fusion_matrix(D.A)
-   B = instantiate_fusion_matrix(D.B)
-   return [A B]
-end
+LinearMaps._unsafe_mul!(y::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegFM}, x::AbstractVector) = mul!(y, Dt, x)

@@ -85,7 +85,7 @@ include("optimize.jl")
 include("acceleration.jl")
 include("projections.jl")
 
-export initialize_history, instantiate_fusion_matrix
+export initialize_history
 export slow_schedule, fast_schedule
 
 # example: convex regression
