@@ -65,8 +65,7 @@ julia> metric_projection(SteepestDescent(), A, penalty=f, maxiters=200)
  6.29205  1.29205  0.0
 ```
 """
-function metric_projection(algorithm::AlgorithmOption, A, W=I;
-    rho::Real=1.0, mu::Real=1.0, ls=Val(:LSQR), kwargs...)
+function metric_projection(algorithm::AlgorithmOption, A, W=I; ls=Val(:LSQR), kwargs...)
     #
     # extract problem dimensions
     n = size(A, 1)      # number of nodes
@@ -164,10 +163,12 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I;
     # pack everything into ProxDistProblem container
     objective = metric_objective
     algmap = metric_iter
-    prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+    old_variables = deepcopy(variables)
+    prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+    prob_tuple = (objective, algmap, prob)
 
     # solve the optimization problem
-    optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+    optimize!(algorithm, prob_tuple; kwargs...)
 
     # symmetrize solution
     k = 0
@@ -196,11 +197,12 @@ function metric_objective(::AlgorithmOption, prob, ρ)
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
-    loss = SqEuclidean()(x, a) / 2  # 1/2 * ||W^1/2 * (x-y)||^2
-    penalty = dot(v, v)             # D*x - P(D*x)
-    normgrad = dot(∇h, ∇h)          # ||∇h(x)||^2
+    loss = SqEuclidean()(x, a)  # ||W^1/2 * (x-y)||^2
+    distance = dot(v, v)        # ||D*x - P(D*x)||^2
+    objective = 1//2*loss + ρ/2 * distance
+    normgrad = dot(∇h, ∇h)      # ||∇h(x)||^2
 
-    return loss, penalty, normgrad
+    return IterationResult(loss, objective, distance, normgrad)
 end
 
 ############################

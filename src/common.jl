@@ -1,8 +1,41 @@
+struct IterationResult
+    loss::Float64
+    objective::Float64
+    distance::Float64
+    gradient::Float64
+end
+
+# destructuring
+Base.iterate(r::IterationResult) = (r.loss, Val(:objective))
+Base.iterate(r::IterationResult, ::Val{:objective}) = (r.objective, Val(:distance))
+Base.iterate(r::IterationResult, ::Val{:distance}) = (r.distance, Val(:gradient))
+Base.iterate(r::IterationResult, ::Val{:gradient}) = (r.gradient, Val(:done))
+Base.iterate(r::IterationResult, ::Val{:done}) = nothing
+
+struct SubproblemResult
+    iters::Int
+    loss::Float64
+    objective::Float64
+    distance::Float64
+    gradient::Float64
+end
+
+function SubproblemResult(iters, r::IterationResult)
+    return SubproblemResult(iters, r.loss, r.objective, r.distance, r.gradient)
+end
+
+# destructuring
+Base.iterate(r::SubproblemResult) = (r.iters, Val(:loss))
+Base.iterate(r::SubproblemResult, ::Val{:loss}) = (r.loss, Val(:objective))
+Base.iterate(r::SubproblemResult, ::Val{:objective}) = (r.objective, Val(:distance))
+Base.iterate(r::SubproblemResult, ::Val{:distance}) = (r.distance, Val(:gradient))
+Base.iterate(r::SubproblemResult, ::Val{:gradient}) = (r.gradient, Val(:done))
+Base.iterate(r::SubproblemResult, ::Val{:done}) = nothing
+
 ##### annealing schedules #####
 
-__default_schedule(ρ::Real, iteration::Integer) = ρ
-slow_schedule(ρ::Real, iteration::Integer) = iteration % 250 == 0 ? 1.5*ρ : ρ
-fast_schedule(ρ::Real, iteration::Integer) = iteration % 50 == 0 ? 1.1*ρ : ρ
+geometric_schedule(ρ::Real, n::Int, a::Real=1.2) = a*ρ
+const DEFAULT_ANNEALING = geometric_schedule
 
 ##### convergence history #####
 

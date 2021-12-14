@@ -2,33 +2,12 @@
 
 struct ProxDistProblem{VAR,DER,OPS,BUF,VWS,LS}
     variables::VAR
+    old_variables::VAR
     derivatives::DER
     operators::OPS
     buffers::BUF
     views::VWS
     linsolver::LS
-end
-
-##### checking convergence #####
-
-"""
-Evaluate convergence using the following three checks:
-
-    1. relative change in `loss` is within `rtol`,
-    2. relative change in `dist` is within `rtol`, and
-    3. magnitude of `dist` is smaller than `atol`
-
-Returns `true` if any of (1)-(3) are violated, `false` otherwise.
-"""
-function check_convergence(loss, dist, rtol, atol)
-    diff1 = abs(loss.new - loss.old)
-    diff2 = abs(dist.new - dist.old)
-
-    flag1 = diff1 > rtol * (loss.old + 1)
-    flag2 = diff2 > rtol * (dist.old + 1)
-    flag3 = dist.new > atol
-
-    return flag1 || flag2 || flag3
 end
 
 ##### for computing adaptive stepsize in ADMM #####
@@ -99,56 +78,115 @@ end
 
 ##### common solution interface #####
 
-@noinline function optimize!(algorithm::AlgorithmOption, objective, algmap, prob, ρ, μ;
-    maxiters::Integer = 100,
-    penalty::Function = __default_schedule,
-    history::histT    = nothing,
-    rtol::Real        = 1e-6,
-    atol::Real        = 1e-4,
-    accel::accelT     = Val(:none), kwargs...) where {histT, accelT}
-    #
-    # select acceleration algorithm
-    accelerator = get_accelerator(accel, prob.variables)
+"""
+TODO
+"""
+function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
+    nouter::Int=100,
+    dtol::Real=1e-6,
+    rtol::Real=1e-6,
+    rho_init::Real=1.0,
+    rho_max::Real=1e8,
+    penalty::Function=DEFAULT_ANNEALING,
+    mu_init::Real=1.0,
+    verbose::Bool=false,
+    # cb::Function=DEFAULT_CALLBACK,
+    kwargs...) where probT
+    # get objective function, iteration map, and problem object
+    __objective__, __iterate__, problem = prob_tuple
 
-    # initialize algorithm
-    f_loss, h_dist, h_ngrad = objective(algorithm, prob, ρ)
-    data = package_data(f_loss, h_dist, h_ngrad, one(f_loss), ρ)
-    update_history!(history, data, 0)
+    # Initialize ρ and iteration count.
+    ρ, iters = rho_init, 0
 
-    loss = (old = f_loss, new = Inf)
-    dist = (old = h_dist, new = Inf)
-    not_converged = check_convergence(loss, dist, rtol, atol)
-    iteration = 1
+    # Check initial values for loss, objective, distance, and norm of gradient.
+    init_result = __objective__(algorithm, problem, ρ)
+    result = SubproblemResult(0, init_result)
+    old = result.distance
 
-    # main optimization loop
-    while not_converged && iteration ≤ maxiters
-        apply_before_algmap!(algorithm, prob, iteration, ρ, μ)
+    for iter in 1:nouter
+        # Solve minimization problem for fixed rho; always reset mu.
+        result = anneal!(algorithm, prob_tuple, ρ, mu_init; verbose=verbose, kwargs...)
+        verbose && @printf "\n%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "OUTER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
 
-        # apply algorithm map
-        stepsize = algmap(algorithm, prob, ρ, μ)
+        # Update total iteration count.
+        iters += result.iters
 
-        # update penalty and momentum
-        ρ_new = penalty(ρ, iteration)
-        if ρ != ρ_new
-            restart!(accelerator, prob.variables)
+        # Check for convergence to constrained solution.
+        dist = sqrt(result.distance)
+        if dist < dtol || abs(dist - old) < rtol * (1 + old)
+            break
+        else
+          old = dist
         end
-        apply_momentum!(accelerator, prob.variables)
-        ρ = ρ_new
+                
+        # Update according to annealing schedule.
+        ρ = ifelse(iter < nouter, min(rho_max, penalty(ρ, iter)), ρ)
+    end
+    println()
 
-        # convergence history
-        f_loss, h_dist, h_ngrad = objective(algorithm, prob, ρ)
-        data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
-        update_history!(history, data, iteration)
+    return SubproblemResult(iters, result.loss, result.objective, result.distance, result.gradient)
+end
 
-        loss = (old = loss.new, new = f_loss)
-        dist = (old = dist.new, new = h_dist)
-        not_converged = check_convergence(loss, dist, rtol, atol)
-        iteration += 1
 
-        ρ, μ = apply_after_algmap!(algorithm, prob, iteration, ρ, μ)
+"""
+Solve minimization problem with fixed ρ.
+"""
+function anneal!(algorithm::AlgorithmOption, prob_tuple::probT, ρ, μ;
+    ninner::Int=10^4,
+    gtol::Real=1e-6,
+    delay::Int=10,
+    verbose::Bool=false,
+    history::histT=nothing,
+    accel::accelT=Val(:none),
+    kwargs...
+    ) where {probT, histT, accelT}
+    # get objective function, iteration map, and problem object
+    __objective__, __iterate__, problem = prob_tuple
+
+    # Check initial values for loss, objective, distance, and norm of gradient.
+    result = __objective__(algorithm, problem, ρ)
+    old = result.objective
+
+    if sqrt(result.gradient) < gtol
+        return SubproblemResult(0, result)
     end
 
-    converged = !not_converged
+    # Initialize iteration counts.
+    if problem.variables isa AbstractArray
+        copyto!(problem.variables, problem.old_variables)
+    else
+        foreach(_varsubset_ -> copyto!(_varsubset_[1], _varsubset_[2]), zip(problem.variables, problem.old_variables))
+    end
+    iters = 0
+    accel_iter = 1
 
-    return prob, iteration, converged
+    for iter in 1:ninner
+        iters += 1
+
+        apply_before_algmap!(algorithm, problem, iter, ρ, μ)
+
+        # Apply the algorithm map to minimize the quadratic surrogate.
+        __iterate__(algorithm, problem, ρ, μ)
+
+        # Update loss, objective, distance, and gradient.
+        result = __objective__(algorithm, problem, ρ)
+        verbose && @printf "\n\t%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "INNER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
+
+        # data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
+        # update_history!(history, data, iteration)
+
+        # Assess convergence.
+        obj = result.objective
+        gradsq = sqrt(result.gradient)
+        if gradsq < gtol
+            break
+        elseif iter < ninner
+            needs_reset = iter < delay || obj > old
+            accel_iter = apply_momentum!(accel, problem.variables, problem.old_variables, accel_iter, needs_reset)
+            old = obj
+            apply_after_algmap!(algorithm, problem, iter, ρ, μ)
+        end
+    end
+
+    return SubproblemResult(iters, result)
 end

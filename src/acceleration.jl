@@ -1,62 +1,35 @@
-# no acceleration
-get_accelerator(::Val{:none}, vars) = nothing
-apply_momentum!(::Nothing, vars) = vars
-restart!(::Nothing, vars) = nothing
+# catches case without acceleration with dispatch to avoid extra branch
+apply_momentum!(::Val{:none}, x, y, iter::Int, needs_rest::Bool) = 1
 
-# Nesterov acceleration
-mutable struct Nesterov{T}
-    oldvars::T
-    n::Int
-
-    # type can be a vector, matrix, or named tuple
-    Nesterov(vars::T) where T = new{T}(deepcopy(vars), 1)
-end
-
-get_accelerator(::Val{:nesterov}, optvars) = Nesterov(optvars)
-
-# dispatch for array types
-function apply_momentum!(accelerator::Nesterov, optvars::AbstractArray)
-    n = accelerator.n + 1
-    accelerator.n = n
-    __apply_momentum!(optvars, accelerator.oldvars, n)
-    return optvars
-end
-
-# dispatch for named tuples
-function apply_momentum!(accelerator::Nesterov, optvars::NamedTuple)
-    n = accelerator.n + 1
-    accelerator.n = n
-    for (x, y) in zip(optvars, accelerator.oldvars)
-        __apply_momentum!(x, y, n)
+# checks if acceleration can be applied first
+function apply_momentum!(accel, x, y, iter::Int, needs_reset::Bool)
+    if needs_reset # Reset acceleration scheme
+        __restart__(accel, x, y)
+        iter = 1
+    else # apply acceleration acceleration 
+        __momentum__(accel, x, y, iter)
+        iter += 1
     end
-    return optvars
+    return iter
 end
 
-# generic implementation for array types
-function __apply_momentum!(x::AbstractArray, y::AbstractArray, n)
-    @inbounds for i in eachindex(x)
-        xi = x[i]
-        yi = y[i]
-        zi = xi + (n-1)/(n+2) * (xi-yi)
-        y[i] = xi
-        x[i] = zi
+############################
+# dispatch for NamedTuples #
+############################
+__momentum__(accel, x::NamedTuple, y::NamedTuple, iter::Int) = foreach(z -> __momentum__(accel, z[1], z[2], iter), zip(x, y))
+__restart__(accel, x::NamedTuple, y::NamedTuple) = foreach(z -> __restart__(accel, z[1], z[2]), zip(x, y))
+
+###########################
+# Nesterov implementation #
+###########################
+
+function __momentum__(::Val{:nesterov}, x::AbstractArray, y::AbstractArray, iter::Int, r::Int=3)
+    γ = (iter - 1) / (iter + r - 1)
+    for i in eachindex(x)
+        xi, yi = x[i], y[i]
+        zi = xi + γ * (xi - yi)
+        x[i], y[i] = zi, xi
     end
-
-    return nothing
 end
 
-# dispatch for arrays
-function restart!(accelerator::Nesterov, optvars::AbstractArray)
-    copyto!(accelerator.oldvars, optvars)
-    # accelerator.n = 1
-    return nothing
-end
-
-# dispatch for named tuples
-function restart!(accelerator::Nesterov, optvars::NamedTuple)
-    for (x, y) in zip(optvars, accelerator.oldvars)
-        copyto!(y, x)
-    end
-    # accelerator.n = 1
-    return nothing
-end
+__restart__(::Val{:nesterov}, x::AbstractArray, y::AbstractArray) = copyto!(y, x)

@@ -356,7 +356,8 @@ function LinearAlgebra.mul!(y::AbstractVecOrMat, op::QuadLHS, x::AbstractVector)
     return y
 end
 
-function LinearAlgebra.mul!(x::AbstractVecOrMat, op::TransposeMap{<:Any,<:QuadLHS}, y::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, opt::TransposeMap{<:Any,<:QuadLHS}, y::AbstractVector)
+    op = opt.lmap
     M₁ = size(op.A₁, 1)
     M = size(op, 1)
 
@@ -413,7 +414,8 @@ function LinearAlgebra.mul!(y::AbstractVecOrMat, A::MMSOp1, x::AbstractVector)
     return y
 end
 
-function LinearAlgebra.mul!(x::AbstractVecOrMat, A::TransposeMap{<:Any,<:MMSOp1}, y::AbstractVector)
+function LinearAlgebra.mul!(x::AbstractVecOrMat, At::TransposeMap{<:Any,<:MMSOp1}, y::AbstractVector)
+    A = At.lmap
     @unpack A1, A2, G, tmpGx1, tmpGx2, c = A
 
     # get dimensions
