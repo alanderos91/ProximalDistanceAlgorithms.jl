@@ -61,8 +61,8 @@ function LinearAlgebra.mul!(y::AbstractVecOrMat, DtD::CondNumFGM, x::AbstractVec
 
     a = p*(c^2 + 1)
     b = -2*c*sum(x)
-    for k in eachindex(x)
-        y[k] = a*x[k] + b
+    @simd for k in eachindex(x)
+        @inbounds y[k] = a*x[k] + b
     end
     return y
 end

@@ -25,7 +25,7 @@ __restart__(accel, x::NamedTuple, y::NamedTuple) = foreach(z -> __restart__(acce
 
 function __momentum__(::Val{:nesterov}, x::AbstractArray, y::AbstractArray, iter::Int, r::Int=3)
     γ = (iter - 1) / (iter + r - 1)
-    for i in eachindex(x)
+    @inbounds @simd for i in eachindex(x)
         xi, yi = x[i], y[i]
         zi = xi + γ * (xi - yi)
         x[i], y[i] = zi, xi

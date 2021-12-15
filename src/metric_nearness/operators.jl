@@ -151,7 +151,7 @@ function LinearAlgebra.ldiv!(y, H::ProxDistHessian{T,matT1,matT2}, x) where {T,m
     # complete mat-vec operation: (T'T + I)*x = 3(n-1) x - M*M'*x
     idx = 1
     for j in 1:n
-        tmpvj = tmpv[j]
+        @inbounds tmpvj = tmpv[j]
         @simd for i in j+1:n
             @inbounds y[idx] = c1 * x[idx] + c2 * (tmpv[i] + tmpvj) + c3
             idx += 1
