@@ -40,62 +40,83 @@ const DEFAULT_ANNEALING = geometric_schedule
 ##### convergence history #####
 
 # notes:
-# report 'distance' as dist(Dx,S)^2
+# report 'distance' as dist(Dx,S)
 # report 'objective' as 0.5 * (loss + rho * distance)
 # report 'gradient' as norm(gradient)
 
-function initialize_history(hint::Integer, sample_rate::Integer = 1)
+function initialize_history(hint::Integer, sample_rate::Integer=1)
     history = (
         sample_rate = sample_rate,
         loss      = sizehint!(Float64[], hint),
         distance  = sizehint!(Float64[], hint),
         objective = sizehint!(Float64[], hint),
         gradient  = sizehint!(Float64[], hint),
-        stepsize  = sizehint!(Float64[], hint),
+        # stepsize  = sizehint!(Float64[], hint),
         rho       = sizehint!(Float64[], hint),
         iteration = sizehint!(Int[], hint),
     )
 
-    return history
+    # create a closure to pass into program
+    logger = function(kind, algorithm, iter, result, problem, ρ, μ)
+        update_history!(history, kind, algorithm, iter, result, problem, ρ, μ)
+    end
+
+    return history, logger
 end
-
-"""
-Package arguments into a `NamedTuple` and standardize reporting:
-
-- Input `distance` is assumed to be 'dist(Dx,C)^2' so we take its square root.
-- Input `objective` is reported as '0.5 * (loss + rho * distance)'.
-- Input `gradient` is assumed to be 'norm^2' so we take its square root.
-"""
-function package_data(loss, distance, gradient, stepsize, rho)
-    data = (
-        loss      = loss,
-        distance  = sqrt(distance),
-        objective = loss + rho * distance / 2,
-        gradient  = sqrt(gradient),
-        stepsize  = stepsize,
-        rho       = rho,
-    )
-
-    return data
-end
-
-# default: do nothing
-update_history!(::Nothing, data, iteration) = nothing
 
 # implementation: object with named fields
-function update_history!(history::NamedTuple, data, iteration)
-    if iteration % history.sample_rate == 0
-        push!(history.loss, data.loss)
-        push!(history.distance, data.distance)
-        push!(history.objective, data.objective)
-        push!(history.gradient, data.gradient)
-        push!(history.stepsize, data.stepsize)
-        push!(history.rho, data.rho)
-        push!(history.iteration, iteration)
+update_history!(history::NamedTuple, ::Val{:outer}, algorithm, iter, result, problem, ρ, μ) = nothing
+
+function update_history!(history::NamedTuple, ::Val{:inner}, algorithm, iter, result, problem, ρ, μ)
+    if iter % history.sample_rate == 0
+        push!(history.loss, result.loss)
+        push!(history.distance, sqrt(result.distance))
+        push!(history.objective, result.objective)
+        push!(history.gradient, sqrt(result.gradient))
+        # push!(history.stepsize, data.stepsize)
+        push!(history.rho, ρ)
+        push!(history.iteration, iter)
     end
 
     return nothing
 end
+
+##### printing convergence history #####
+
+function initialize_printing_logger(or::Int, ir::Int)
+    logger = function(kind, algorithm, iter, result, problem, ρ, μ)
+        print_convergence_history(or, ir, kind, algorithm, iter, result, problem, ρ, μ)
+    end
+
+    return logger
+end
+
+function print_convergence_history(or::Int, ir::Int, ::Val{:outer}, algorithm, iter, result, problem, ρ, μ)
+    if iter == 0
+        println("     \tITER\tLOSS\t\tOBJECTIVE\tDISTANCE\tGRADIENT")
+    end
+    if iter % or == 0
+        @printf "\n%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "OUTER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
+    end
+    return nothing
+end
+
+function print_convergence_history(or::Int, ir::Int, ::Val{:inner}, algorithm, iter, result, problem, ρ, μ)
+    if iter % ir == 0
+        @printf "\n%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "INNER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
+    end
+    return nothing
+end
+
+##### default callbacks #####
+__do_nothing_callback__(kind, algorithm, iter, result, problem, ρ, μ) = nothing
+
+function print_convergence_history(kind, algorithm, iter, result, problem, ρ, μ)
+    print_convergence_history(1, 100, kind, algorithm, iter, result, problem, ρ, μ)
+end
+
+const DEFAULT_CALLBACK = __do_nothing_callback__
+const DEFAULT_LOGGING = print_convergence_history
 
 ##### linear operators #####
 

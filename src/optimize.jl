@@ -89,9 +89,8 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
     rho_max::Real=1e8,
     penalty::Function=DEFAULT_ANNEALING,
     mu_init::Real=1.0,
-    verbose::Bool=false,
-    # cb::Function=DEFAULT_CALLBACK,
-    kwargs...) where probT
+    callback::cbT=DEFAULT_CALLBACK,
+    kwargs...) where {probT, cbT}
     # get objective function, iteration map, and problem object
     __objective__, __iterate__, problem = prob_tuple
 
@@ -102,6 +101,7 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
     init_result = __objective__(algorithm, problem, ρ)
     result = SubproblemResult(0, init_result)
     old = sqrt(result.distance)
+    callback(Val(:outer), algorithm, 0, result, problem, ρ, mu_init)
 
     if old ≤ dtol
         SubproblemResult(0, result.loss, result.objective, result.distance, result.gradient)
@@ -109,8 +109,8 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
 
     for iter in 1:nouter
         # Solve minimization problem for fixed rho; always reset mu.
-        result = anneal!(algorithm, prob_tuple, ρ, mu_init; verbose=verbose, kwargs...)
-        verbose && @printf "\n%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "OUTER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
+        result = anneal!(algorithm, prob_tuple, ρ, mu_init; callback=callback, kwargs...)
+        callback(Val(:outer), algorithm, iter, result, problem, ρ, mu_init)
 
         # Update total iteration count.
         iters += result.iters
@@ -129,7 +129,6 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
         # Update according to annealing schedule.
         ρ = ifelse(iter < nouter, min(rho_max, penalty(ρ, iter)), ρ)
     end
-    println()
 
     return SubproblemResult(iters, result.loss, result.objective, result.distance, result.gradient)
 end
@@ -142,16 +141,16 @@ function anneal!(algorithm::AlgorithmOption, prob_tuple::probT, ρ, μ;
     ninner::Int=10^4,
     gtol::Real=1e-6,
     delay::Int=10,
-    verbose::Bool=false,
-    history::histT=nothing,
+    callback::cbT=DEFAULT_CALLBACK,
     accel::accelT=Val(:none),
     kwargs...
-    ) where {probT, histT, accelT}
+    ) where {probT, cbT, accelT}
     # get objective function, iteration map, and problem object
     __objective__, __iterate__, problem = prob_tuple
 
     # Check initial values for loss, objective, distance, and norm of gradient.
     result = __objective__(algorithm, problem, ρ)
+    callback(Val(:inner), algorithm, 0, result, problem, ρ, μ)
     old = result.objective
 
     if sqrt(result.gradient) < gtol
@@ -177,10 +176,7 @@ function anneal!(algorithm::AlgorithmOption, prob_tuple::probT, ρ, μ;
 
         # Update loss, objective, distance, and gradient.
         result = __objective__(algorithm, problem, ρ)
-        verbose && @printf "\n\t%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "INNER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
-
-        # data = package_data(f_loss, h_dist, h_ngrad, stepsize, ρ)
-        # update_history!(history, data, iteration)
+        callback(Val(:inner), algorithm, iter, result, problem, ρ, μ)
 
         # Assess convergence.
         obj = result.objective
