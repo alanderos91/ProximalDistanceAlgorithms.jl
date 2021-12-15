@@ -28,6 +28,7 @@ function project_l0_ball!(x, idx, k, buffer)
     p = abs(pivot)
     nonzero_count = 0
     for i in eachindex(x)
+        if x[i] == 0 continue end
         if abs(x[i]) < p
             x[i] = 0
         else
@@ -80,62 +81,13 @@ end
 
 # type to store extra arrays used in projection
 struct L0Projection <: Function
+    k::Int
     idx::Vector{Int}
     buffer::Vector{Int}
-
-    function L0Projection(n::Int)
-        new(collect(1:n), Vector{Int}(undef, n))
-    end
 end
 
-function (P::L0Projection)(x, k)
-    project_l0_ball!(x, P.idx, k, P.buffer)
-end
-
-struct L0ColProjection{T} <: Function
-    nu::Int
-    ncols::Int
-    colsz::Int
-    colnorm::Vector{T}
-    buffer::Vector{T}
-end
-
-function (P::L0ColProjection)(dest, src)
-    @unpack nu, ncols, colsz, colnorm, buffer = P
-
-    # compute column norms
-    for k in 1:ncols
-        # extract the corresponding column
-        start = colsz * (k-1) + 1
-        stop  = start + colsz - 1
-        col   = @view src[start:stop]
-
-        # compute norm for the column and save to vectors
-        colnorm_k = norm(col)
-        colnorm[k] = colnorm_k
-        buffer[k]  = colnorm_k
-    end
-
-    # project column norms to l0 ball
-    project_l0_ball!(colnorm, buffer, nu)
-
-    # keep columns with nonzero norm
-    for k in 1:ncols
-        start = colsz * (k-1) + 1
-        stop  = start + colsz - 1
-
-        if colnorm[k] > 0
-            for i in start:stop
-                dest[i] = src[i]
-            end
-        else
-            for i in start:stop
-                dest[i] = 0
-            end
-        end
-    end
-
-    return dest
+function (P::L0Projection)(x)
+    project_l0_ball!(x, P.idx, P.k, P.buffer)
 end
 
 function project_l0_ball!(X::AbstractMatrix, idx, scores, k, buffer; by::Union{Val{:row}, Val{:col}}=Val(:row))
@@ -174,16 +126,18 @@ function project_l0_ball!(X::AbstractMatrix, idx, scores, k, buffer; by::Union{V
     # preserve the top k elements
     p = abs(pivot)
     nonzero_count = 0
-    for i in eachindex(scores)
+    for (i, xᵢ) in enumerate(itr2)
+        if scores[i] == 0 continue end
+
         # row is not in the top k
         if scores[i] < p
-            fill!(view(X, i, :), 0)
+            fill!(xᵢ, 0)
             scores[i] = 0
         else # row is in the top k
             nonzero_count += 1
         end
     end
-
+    
     # resolve ties
     if nonzero_count > k
         number_to_drop = nonzero_count - k
@@ -202,19 +156,20 @@ function project_l0_ball!(X::AbstractMatrix, idx, scores, k, buffer; by::Union{V
     return X
 end
 
-struct StructuredL0Projection <: Function
+struct StructuredL0Projection{KIND} <: Function
+    k::Int
     idx::Vector{Int}
     buffer::Vector{Int}
     scores::Vector{Float64}
-
-    function StructuredL0Projection(n::Int)
-        new(collect(1:n), Vector{Int}(undef, n), Vector{Float64}(undef, n))
-    end
+    kind::KIND
 end
 
-function (P::StructuredL0Projection)(X::AbstractMatrix, k)
-    project_l0_ball!(X, P.idx, P.scores, k, P.buffer, by=Val(:col))
+function (P::StructuredL0Projection)(X::AbstractMatrix)
+    project_l0_ball!(X, P.idx, P.scores, P.k, P.buffer, by=P.kind)
 end
+
+ColumnL0Projection(k, idx, buffer, scores) = StructuredL0Projection(k, idx, buffer, scores, Val(:col))
+RowL0Projection(k, idx, buffer, scores) = StructuredL0Projection(k, idx, buffer, scores, Val(:row))
 
 #################################
 #   projection onto l1 ball     #
@@ -334,10 +289,11 @@ function condat_algorithm2!(y, a)
 end
 
 struct L1Projection{T} <: Function
+    radius::T
     xtmp::Vector{T}
 end
 
-function (P::L1Projection)(x, radius)
-    project_l1_ball2!(x, P.xtmp, radius)
+function (P::L1Projection)(x)
+    project_l1_ball2!(x, P.xtmp, P.radius)
     return x
 end
