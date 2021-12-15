@@ -101,7 +101,7 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
     # Check initial values for loss, objective, distance, and norm of gradient.
     init_result = __objective__(algorithm, problem, ρ)
     result = SubproblemResult(0, init_result)
-    old = result.distance
+    old = sqrt(result.distance)
 
     for iter in 1:nouter
         # Solve minimization problem for fixed rho; always reset mu.
@@ -113,7 +113,10 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
 
         # Check for convergence to constrained solution.
         dist = sqrt(result.distance)
-        if dist < dtol || abs(dist - old) < rtol * (1 + old)
+        if dist ≤ dtol || abs(dist - old) ≤ rtol * (1 + old)
+            break
+        elseif dist > old
+            @warn "Failed to decrease distance penalty at iteration $(iter). Annealing schedule may be too aggressive."
             break
         else
           old = dist
@@ -178,14 +181,19 @@ function anneal!(algorithm::AlgorithmOption, prob_tuple::probT, ρ, μ;
         # Assess convergence.
         obj = result.objective
         gradsq = sqrt(result.gradient)
-        if gradsq < gtol
+        if gradsq ≤ gtol
             break
         elseif iter < ninner
-            needs_reset = iter < delay || obj > old
+            needs_reset = accel_iter < delay || obj > old
             accel_iter = apply_momentum!(accel, problem.variables, problem.old_variables, accel_iter, needs_reset)
             old = obj
             apply_after_algmap!(algorithm, problem, iter, ρ, μ)
         end
+    end
+    if problem.variables isa AbstractArray
+        copyto!(problem.old_variables, problem.variables)
+    else
+        foreach(_varsubset_ -> copyto!(_varsubset_[1], _varsubset_[2]), zip(problem.old_variables, problem.variables))
     end
 
     return SubproblemResult(iters, result)
