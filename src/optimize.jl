@@ -103,6 +103,10 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
     result = SubproblemResult(0, init_result)
     old = sqrt(result.distance)
 
+    if old ≤ dtol
+        SubproblemResult(0, result.loss, result.objective, result.distance, result.gradient)
+    end
+
     for iter in 1:nouter
         # Solve minimization problem for fixed rho; always reset mu.
         result = anneal!(algorithm, prob_tuple, ρ, mu_init; verbose=verbose, kwargs...)
