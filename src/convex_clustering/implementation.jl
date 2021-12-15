@@ -645,26 +645,26 @@ function knn_weights(W, k)
     n = size(W, 1)
     w = [W[i,j] for j in 1:n for i in j+1:n] |> vec
     i = 1
-    neighbors = tri2vec.((i+1):n, i, n)
+    neighbors = trivec_index.(n, (i+1):n, i)
     keep = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
 
     for i in 2:(n-1)
-        group_A = tri2vec.((i+1):n, i, n)
-        group_B = tri2vec.(i, 1:(i-1), n)
+        group_A = trivec_index.(n, (i+1):n, i)
+        group_B = trivec_index.(n, i, 1:(i-1))
         neighbors = [group_A; group_B]
         knn = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
         keep = union(knn, keep)
     end
 
     i = n
-    neighbors = tri2vec.(i, 1:(i-1), n)
+    neighbors = trivec_index.(n, i, 1:(i-1))
     knn = neighbors[sortperm(w[neighbors], rev = true)[1:k]]
     keep = union(knn, keep)
 
     W_knn = zero(W)
 
     for j in 1:n, i in j+1:n
-        l = tri2vec(i, j, n)
+        l = trivec_index(n, i, j)
         if l in keep
             W_knn[i,j] = W[i,j]
             W_knn[j,i] = W[i,j]
@@ -673,8 +673,6 @@ function knn_weights(W, k)
 
     return W_knn
 end
-
-tri2vec(i, j, n) = (i-j) + n*(j-1) - (j*(j-1))>>1
 
 """
 ```
