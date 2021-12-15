@@ -27,12 +27,7 @@ This indirectly affects the performance of the algorithm and should only be used
 - `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
-function denoise_image(algorithm::AlgorithmOption, image;
-    nu::Integer=0,
-    tv::Real=1.0,
-    rev::Bool=true,
-    rho::Real=1.0,
-    mu::Real=1.0, ls=Val(:LSQR), proj=Val(:l0), kwargs...)
+function denoise_image(algorithm::AlgorithmOption, image; nu::Integer=0, tv::Real=1.0, rev::Bool=true, ls=Val(:LSQR), proj=Val(:l0), kwargs...)
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -71,12 +66,13 @@ function denoise_image(algorithm::AlgorithmOption, image;
     # generate operators
     D = ImgTvdFM(n, p)
     a = copy(x)
-    cache = zeros(M-1)
+    projection_idx = collect(1:M-1)
+    projection_cache = zeros(M-1)
 
     if proj isa Val{:l0}
-        P = L0Projection(nu, cache)
+        P = L0Projection(nu, projection_idx, projection_cache)
     elseif proj isa Val{:l1}
-        P = L1Projection(tv, cache)
+        P = L1Projection(tv, projection_cache)
     else
         error("unsupported projection choice, $(proj)")
     end
@@ -144,10 +140,12 @@ function denoise_image(algorithm::AlgorithmOption, image;
     # pack everything into ProxDistProblem container
     objective = imgtvd_objective
     algmap = imgtvd_iter
-    prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+    old_variables = deepcopy(variables)
+    prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+    prob_tuple = (objective, algmap, prob)
 
     # solve the optimization problem
-    optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+    optimize!(algorithm, prob_tuple; kwargs...)
 
     return X
 end
@@ -178,8 +176,6 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 function denoise_image_path(algorithm::AlgorithmOption, image;
     stepsize::Real=0.1,
     start::Real=Inf,
-    rho::Real=1.0,
-    mu::Real=1.0,
     history::histT=nothing,
     ls::LS=Val(:LSQR), proj=Val(:l0), kwargs...) where {histT, LS}
     #
@@ -207,6 +203,7 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     else
         variables = (x = x,)
     end
+    old_variables = deepcopy(variables)
 
     # allocate derivatives
     ∇f = needs_gradient(algorithm) ? similar(x) : nothing
@@ -230,7 +227,8 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     z = similar(Vector{eltype(x)}, M)
     Pz = similar(z)
     v = similar(z)
-    cache = zeros(M-1)
+    projection_idx = collect(1:M-1)
+    projection_buffer = zeros(M-1)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
@@ -293,8 +291,9 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     X_path = typeof(X)[]
     s_path = Float64[]
 
-    # initialize solution path heuristic
+    # check initial total variation and initialize solution path heuristic
     mul!(z, D, x)
+    tv_init = norm(z, 1)
     nconstraint = 0
     for j in 1:M-1
         # derivatives within 10^-3 are set to 0
@@ -311,28 +310,27 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     prog = ProgressThresh(zero(r), "Searching solution path...")
     while r ≥ 0
-        if proj isa Val{:l0}
+        if proj isa Val{:l0} # update sparsity level / model size
             nu = round(Int, r*(M-1))
-            P = L0Projection(nu, cache)
-        elseif proj isa Val{:l1}
-            mul!(z, D, x)
-            tv = r * norm(z, 1)
-            P = L1Projection(tv, cache)
+            P = L0Projection(nu, projection_idx, projection_buffer)
+        elseif proj isa Val{:l1} # update radius
+            tv = r * tv_init
+            P = L1Projection(tv, projection_buffer)
         else
             error("unsupported projection choice, $(proj)")
         end
 
         operators = (D = D, P = P, a = a)
-        prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+        prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+        prob_tuple = (objective, algmap, prob)
+        _, iter, _ = optimize!(algorithm, prob_tuple; kwargs...)
 
-        _, iter, _ = optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
-
-        # update history
-        if !(history === nothing)
-            f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
-            data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
-            update_history!(history, data, iter-1)
-        end
+        # # update history
+        # if !(history === nothing)
+        #     f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
+        #     data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
+        #     update_history!(history, data, iter-1)
+        # end
 
         # record current solution
         push!(X_path, copy(X))      # record solution
@@ -380,21 +378,23 @@ function imgtvd_objective(::AlgorithmOption, prob, ρ)
     M = length(z)
     zview = @view z[1:M-1]
     Pview = @view Pz[1:M-1]
-    P(Pview, zview) # project z onto ball, storing it in Pz
+    copyto!(Pview, zview)
+    P(Pview)        # project z onto ball, storing it in Pz
+    Pz[end] = z[end]
     @. v = z - Pz   # compute vector pointing to constraint set
 
     # handle component coming from extra row in fusion matrix
-    Pz[end] = z[end]
     v[end] = 0
 
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
-    loss = SqEuclidean()(x, a) / 2
-    penalty = dot(v, v)
+    loss = SqEuclidean()(x, a)
+    distance = dot(v, v)
+    objective = 1//2 * loss + ρ/2 * distance
     normgrad = dot(∇h, ∇h)
 
-    return loss, penalty, normgrad
+    return IterationResult(loss, objective, distance, normgrad)
 end
 
 ############################
@@ -498,7 +498,8 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
     M = length(v)
     vview = @view v[1:M-1]
     Pview = @view Pz[1:M-1]
-    P(Pview, vview)
+    copyto!(Pview, vview)
+    P(Pview)
 
     # handle component coming from extra row in fusion matrix
     Pz[end] = v[end]

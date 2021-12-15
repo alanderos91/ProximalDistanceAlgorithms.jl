@@ -90,7 +90,7 @@ export slow_schedule, fast_schedule
 
 # example: convex regression
 include(joinpath("convex_regression", "operators.jl"))
-# include(joinpath("convex_regression", "implementation.jl"))
+include(joinpath("convex_regression", "implementation.jl"))
 
 export cvxreg_fit, cvxreg_example, mazumder_standardization
 export CvxRegBlockA, CvxRegBlockB, CvxRegFM
@@ -104,7 +104,7 @@ export MetricFM, MetricFGM, MetricInv
 
 # example: convex clustering
 include(joinpath("convex_clustering", "operators.jl"))
-# include(joinpath("convex_clustering", "implementation.jl"))
+include(joinpath("convex_clustering", "implementation.jl"))
 
 export convex_clustering, convex_clustering_path, convex_clustering_data
 export gaussian_weights, knn_weights, gaussian_cluster, assign_classes
@@ -112,14 +112,14 @@ export CvxClusterFM
 
 # example: total variation image denoising
 include(joinpath("image_denoising", "operators.jl"))
-# include(joinpath("image_denoising", "implementation.jl"))
+include(joinpath("image_denoising", "implementation.jl"))
 
 export denoise_image, denoise_image_path
 export ImgTvdFM
 
 # example: improving condition number
 include(joinpath("condition_number", "operators.jl"))
-# include(joinpath("condition_number", "implementation.jl"))
+include(joinpath("condition_number", "implementation.jl"))
 
 export reduce_cond
 export CondNumFM

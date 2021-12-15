@@ -75,6 +75,9 @@ function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxClu
     return x
 end
 
+# overrides for _unsafe_mul!; see https://github.com/Jutho/LinearMaps.jl/issues/157
+LinearMaps._unsafe_mul!(y::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxClusterFM}, x::AbstractVector) = mul!(y, Dt, x)
+
 struct CvxClusterFGM{T} <: FusionGramMatrix{T}
     d::Int  # number of features
     n::Int  # number of samples

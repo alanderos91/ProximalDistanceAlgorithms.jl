@@ -27,8 +27,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
-function reduce_cond(algorithm::AlgorithmOption, c, A;
-    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
+function reduce_cond(algorithm::AlgorithmOption, c, A; ls::LS=Val(:LSQR), kwargs...) where LS
     if !(algorithm isa MMSubSpace) && !(ls === nothing)
         @warn "Iterative linear solver not required. Option $(ls) will be ignored."
     end
@@ -113,10 +112,12 @@ function reduce_cond(algorithm::AlgorithmOption, c, A;
     # pack everything into ProxDistProblem container
     objective = condnum_objective
     algmap = condnum_iter
-    prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+    old_variables = deepcopy(variables)
+    prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+    prob_tuple = (objective, algmap, prob)
 
     # solve the optimization problem
-    optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+    optimize!(algorithm, prob_tuple; kwargs...)
 
     return U*Diagonal(x)*Vt
 end
@@ -139,10 +140,11 @@ function condnum_objective(::AlgorithmOption, prob, ρ)
     @. ∇h = ∇f + ρ*∇q
 
     loss = SqEuclidean()(x, σ)
-    penalty = dot(v, v)
+    distance = dot(v, v)
+    objective = 1//2 * loss + ρ/2 * distance
     normgrad = dot(∇h, ∇h)
 
-    return loss, penalty, normgrad
+    return IterationResult(loss, objective, distance, normgrad)
 end
 
 ############################

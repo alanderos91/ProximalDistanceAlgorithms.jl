@@ -28,11 +28,7 @@ This indirectly affects the performance of the algorithm and should only be used
 - `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
-function convex_clustering(algorithm::AlgorithmOption, weights, data;
-    nu::Integer=0,
-    rho::Real=1.0,
-    mu::Real=1.0,
-    ls::LS=Val(:LSQR), kwargs...) where LS
+function convex_clustering(algorithm::AlgorithmOption, weights, data; nu::Integer=0, ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(data)
@@ -66,10 +62,13 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     end
 
     # generate operators
-    P = L0ColProjection(nu, m, d, zeros(m), zeros(m))
+    P = ColumnL0Projection(nu, collect(1:m), zeros(Int, m), zeros(m))
     a = copy(x)
-    D = CvxClusterFM(d, n)
-    operators = (D = D, P = P, a = a)
+    w = Float64[]
+    for j in 1:n, i in j+1:n push!(w, weights[i,j]) end
+    _D = CvxClusterFM(d, n)
+    D = kron(Diagonal(w), LinearMap(I, d)) * _D
+    operators = (D = D, _D = _D, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -97,7 +96,7 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
                 A₁ = LinearMap(I, N)
                 A₂ = D
                 A = QuadLHS(A₁, A₂, x, 1.0)
-                b = similar(typeof(x), size(A₂, 1))
+                b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
             else
                 b = similar(x)
@@ -132,10 +131,12 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data;
     # pack everything into ProxDistProblem container
     objective = cvxclst_objective
     algmap = cvxclst_iter
-    prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+    old_variables = deepcopy(variables)
+    prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+    prob_tuple = (objective, algmap, prob)
 
     # solve the optimization problem
-    optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+    optimize!(algorithm, prob_tuple; kwargs...)
 
     return X
 end
@@ -175,8 +176,6 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     start::Real=0.5,
     stepsize::Real=0.05,
-    rho::Real=1.0,
-    mu::Real=1.0,
     history::histT=nothing,
     ls::LS=Val(:LSQR), kwargs...) where {histT, LS}
     #
@@ -196,6 +195,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     else
         variables = (x = x,)
     end
+    old_variables = deepcopy(variables)
 
     # allocate derivatives
     ∇f = needs_gradient(algorithm) ? similar(x) : nothing
@@ -212,8 +212,6 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     end
 
     # generate operators
-    block_norm = zeros(m)   # stores column-wise distances
-    cache = zeros(m)        # mirrors block_norm; cache for pivot search
     a = copy(x)
     D = CvxClusterFM(d, n)
 
@@ -280,7 +278,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     algmap = cvxclst_iter
 
     # arrays needed for projection
-    colnorm, colnormcopy = zeros(m), zeros(m)
+    projection_idx, projection_buffer, projection_scores = collect(1:m), zeros(Int, m), zeros(m)
 
     # allocate outputs
     assignment = Vector{Int}[]
@@ -311,18 +309,19 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     prog = ProgressThresh(zero(r), "Searching clustering path...")
     while r ≥ 0
         nu = round(Int, r * m)
-        P = L0ColProjection(nu, m, d, colnorm, colnormcopy)
+        P = ColumnL0Projection(nu, projection_idx, projection_buffer, projection_scores)
         operators = (D = D, P = P, a = a)
-        prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+        prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+        prob_tuple = (objective, algmap, prob)
 
-        _, iter, _ = optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+        _, iter, _ = optimize!(algorithm, prob_tuple; kwargs...)
 
         # update history
-        if !(history === nothing)
-            f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
-            data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
-            update_history!(history, data, iter-1)
-        end
+        # if !(history === nothing)
+        #     f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
+        #     data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
+        #     update_history!(history, data, iter-1)
+        # end
 
         # record current solution
         push!(assignment, assign_classes(X)[2])
@@ -363,24 +362,27 @@ end
 function cvxclst_objective(::AlgorithmOption, prob, ρ)
     @unpack x = prob.variables
     @unpack ∇f, ∇q, ∇h = prob.derivatives
-    @unpack D, P, a = prob.operators
+    @unpack D, _D, P, a = prob.operators
     @unpack z, Pz, v = prob.buffers
 
     # evaulate gradient of loss
     @. ∇f = x - a
 
     # evaluate gradient of penalty
+    nrows, ncols = _D.d, round(Int, _D.M / _D.d) # TODO: cache m = M / d that was used to make D
     mul!(z, D, x)
-    P(Pz, z)        # TODO: figure out how to fix this ugly notation
+    Pz_mat = reshape(Pz, nrows, ncols)
+    copyto!(Pz, z); P(Pz_mat)
     @. v = z - Pz
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
-    loss = SqEuclidean()(x, a) / 2
-    penalty = dot(v, v)
+    loss = SqEuclidean()(x, a)
+    distance = dot(v, v)
+    objective = 1//2 * loss + ρ/2 * distance
     normgrad = dot(∇h, ∇h)
 
-    return loss, penalty, normgrad
+    return IterationResult(loss, objective, distance, normgrad)
 end
 
 ############################
@@ -444,7 +446,7 @@ end
 function cvxclst_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, P, a = prob.operators
+    @unpack D, _D, P, a = prob.operators
     @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
@@ -462,7 +464,7 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
         n = length(a)
         copyto!(b, 1, a, 1, length(a))
         for k in eachindex(v)
-            @inbounds b[n+k] = √μ * v[k]
+            b[n+k] = √μ * v[k]
         end
     else
         # assemble LHS
@@ -477,9 +479,10 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     linsolve!(linsolver, x, A, b)
 
     # y block update
+    nrows, ncols = _D.d, round(Int, _D.M / _D.d) # TODO: cache m = M / d that was used to make D
     mul!(z, D, x)
     α = (ρ / μ)
-    @. v = z + λ; Pv = Pz; P(Pv, v)
+    @. v = z + λ; Pv = Pz; copyto!(Pv, v); P(reshape(Pv, nrows, ncols))
     @inbounds @simd for j in eachindex(y)
         y[j] = α/(1+α) * Pv[j] + 1/(1+α) * v[j]
     end
@@ -509,10 +512,10 @@ function cvxclst_iter(::MMSubSpace, prob, ρ, μ)
 
         # build RHS of A*x = b; b = [a; √ρ * P(D*x)]
         n = length(a)
-        @inbounds for j in 1:n
+        for j in 1:n
             b[j] = -∇f[j]   # A₁*x - a
         end
-        @inbounds for k in eachindex(Pz)
+        for k in eachindex(Pz)
             b[n+k] = √ρ * Pz[k]
         end
     else
@@ -671,6 +674,8 @@ function knn_weights(W, k)
     return W_knn
 end
 
+tri2vec(i, j, n) = (i-j) + n*(j-1) - (j*(j-1))>>1
+
 """
 ```
 gaussian_clusters(centers, n)
@@ -678,9 +683,9 @@ gaussian_clusters(centers, n)
 
 Simulate a cluster with `n` points centered at the given `centroid`.
 """
-function gaussian_cluster(centroid, n)
+function gaussian_cluster(centroid, n; sigma::Real=0.1)
     d = length(centroid)
-    cluster = centroid .+ 0.1 * randn(d, n)
+    cluster = centroid .+ sigma * randn(d, n)
 
     return cluster
 end
@@ -693,11 +698,11 @@ function convex_clustering_data(file)
     dir = dirname(@__DIR__) # should point to src
     dir = dirname(dir)      # should point to top-level directory
 
-    df = CSV.read(joinpath(dir, "data", file), copycols = true)
+    df = CSV.read(joinpath(dir, "data", file), DataFrame, copycols = true)
 
     if basename(file) == "mammals.dat" # classes in column 2
         # extract data as features × columns
-        data = convert(Matrix{Float64}, df[:, 3:end-1])
+        data = Matrix{Float64}(df[:, 3:end-1])
         X = copy(transpose(data))
 
         # retrieve class assignments
@@ -705,7 +710,7 @@ function convex_clustering_data(file)
         classes = convert(Vector{Int}, indexin(df[:,2], class_name))
     else # classes in last column
         # extract data as features × columns
-        data = convert(Matrix{Float64}, df[:,1:end-1])
+        data = Matrix{Float64}(df[:,1:end-1])
         X = copy(transpose(data))
 
         # retrieve class assignments

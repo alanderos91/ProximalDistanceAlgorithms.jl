@@ -30,8 +30,7 @@ See also [`MM`](@ref), [`SteepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
 - `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
-function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
-    rho::Real=1.0, mu::Real=1.0, ls::LS=Val(:LSQR), kwargs...) where LS
+function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(covariates) # features × samples
@@ -71,7 +70,7 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     end
 
     # generate operators
-    D = instantiate_fusion_matrix(CvxRegFM(covariates))
+    D = CvxRegFM(covariates)
     DtD = D'D
     # D = CvxRegFM(covariates)
     a = response
@@ -146,10 +145,12 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates;
     # pack everything into ProxDistProblem container
     objective = cvxreg_objective
     algmap = cvxreg_iter
-    prob = ProxDistProblem(variables, derivatives, operators, buffers, views, linsolver)
+    old_variables = deepcopy(variables)
+    prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
+    prob_tuple = (objective, algmap, prob)
 
     # solve the optimization problem
-    optimize!(algorithm, objective, algmap, prob, rho, mu; kwargs...)
+    optimize!(algorithm, prob_tuple; kwargs...)
 
     return copy(θ), reshape(ξ, d, n)
 end
@@ -177,11 +178,12 @@ function cvxreg_objective(::AlgorithmOption, prob, ρ)
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
-    loss = SqEuclidean()(θ, a) / 2
-    penalty = dot(v, v)
+    loss = SqEuclidean()(θ, a)
+    distance = dot(v, v)
+    objective = 1//2 * loss + ρ/2 * distance
     normgrad = dot(∇h, ∇h)
 
-    return loss, penalty, normgrad
+    return IterationResult(loss, objective, distance, normgrad)
 end
 
 ############################
