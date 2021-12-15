@@ -349,8 +349,8 @@ Samples are uniform over the cube `[-1,1]^d`.
 
 Output is `(X, xdata)`, where `xdata` stores each sample as a vector.
 """
-function cvxreg_simulate_covariates(d, n)
-    xdata = sort!([2*rand(d) .- 1 for _ in 1:n])
+function cvxreg_simulate_covariates(rng::AbstractRNG, d, n)
+    xdata = sort!([2*rand(rng, d) .- 1 for _ in 1:n])
     X = hcat(xdata...)
 
     return X, xdata
@@ -362,9 +362,9 @@ Evaluate `φ: R^d --> R` at the points in `xdata` and simulate samples
 
 Output is returned as `(y, φ(x))`.
 """
-function cvxreg_simulate_responses(φ, xdata, σ)
+function cvxreg_simulate_responses(rng::AbstractRNG, φ, xdata, σ)
     y_truth = φ.(xdata)
-    noise = σ*randn(length(xdata))
+    noise = σ*randn(rng, length(xdata))
     y = y_truth + noise
 
     return y, y_truth
@@ -372,13 +372,15 @@ end
 
 """
 Generate an instance of a convex regression problem based on a convex function `φ: R^d --> R` with `n` samples.
-The `σ` parameter is the standard deviation of iid perturbations applied to the true values.
+
+The `σ` parameter is the standard deviation of iid perturbations applied to the true values. Optionally, pass a 
+`rng` to make simulation reproducible (default `StableRNG(1234)`).
 
 Output is returned as `(y, φ(x), X)`.
 """
-function cvxreg_example(φ, d, n, σ)
-    X, xdata = cvxreg_simulate_covariates(d, n)
-    y, y_truth = cvxreg_simulate_responses(φ, xdata, σ)
+function cvxreg_example(φ, d, n, σ; rng::AbstractRNG=StableRNG(1234))
+    X, xdata = cvxreg_simulate_covariates(rng, d, n)
+    y, y_truth = cvxreg_simulate_responses(rng, φ, xdata, σ)
 
     return y, y_truth, X
 end

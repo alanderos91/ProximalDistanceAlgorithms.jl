@@ -680,10 +680,12 @@ gaussian_clusters(centers, n)
 ```
 
 Simulate a cluster with `n` points centered at the given `centroid`.
+
+Optionally, pass a `rng` to make results reproducible or specify the standard deviation `sigma`.
 """
-function gaussian_cluster(centroid, n; sigma::Real=0.1)
+function gaussian_cluster(centroid, n; rng::AbstractRNG=StableRNG(1234), sigma::Real=0.1)
     d = length(centroid)
-    cluster = centroid .+ sigma * randn(d, n)
+    cluster = centroid .+ sigma * randn(rng, d, n)
 
     return cluster
 end

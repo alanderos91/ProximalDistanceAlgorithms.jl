@@ -8,6 +8,7 @@ using RecipesBase
 using CSV, DataFrames
 using Printf
 using ProgressMeter
+using Random, StableRNGs
 
 using IterativeSolvers
 using IterativeSolvers: CGStateVariables, Adivtype
