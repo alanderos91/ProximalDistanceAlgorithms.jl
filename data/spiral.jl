@@ -1,4 +1,4 @@
-using Random, Distances, CSV, DataFrames
+using Random, Distances, Random, StableRNGs, CSV, DataFrames
 
 # https://smorbieu.gitlab.io/generate-datasets-to-understand-some-clustering-algorithms-behavior/
 
@@ -7,7 +7,8 @@ function generate_spiral_data(n1, n2;
     x_shift = 2.5,
     y_shift = 2.5,
     angle_start = 2.5 * π,
-    noise_variance = 0.1,)
+    noise_variance = 0.1,
+    rng = StableRNG(1234))
     #
 
     # first spiral
@@ -26,8 +27,8 @@ function generate_spiral_data(n1, n2;
     x = [x1; x2]
     y = [y1; y2]
 
-    z1 = randn(n1 + n2)
-    z2 = randn(n1 + n2)
+    z1 = randn(rng, n1 + n2)
+    z2 = randn(rng, n1 + n2)
 
     x .+= x_shift .+ noise_variance .* z1
     y .+= y_shift .+ noise_variance .* z2
@@ -47,10 +48,10 @@ end
 n1 = parse(Int, ARGS[1])
 n2 = parse(Int, ARGS[2])
 
-Random.seed!(5357)
+rng = StableRNG(5357)
 
 # simulate
-feature1, feature2, classes = generate_spiral_data(n1, n2, noise_variance = 0.3)
+feature1, feature2, classes = generate_spiral_data(n1, n2, noise_variance=0.3, rng=rng)
 
 # save to file
 df = DataFrame(
@@ -59,4 +60,4 @@ df = DataFrame(
     classes  = classes,
 )
 
-CSV.write("spiral$(n1+n2).dat", df)
+CSV.write(joinpath("data", "spiral$(n1+n2).dat"), df)

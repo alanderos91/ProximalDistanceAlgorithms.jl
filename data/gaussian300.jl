@@ -1,15 +1,16 @@
-using ProximalDistanceAlgorithms, Random, Distances, CSV, DataFrames
+using ProximalDistanceAlgorithms, Random, StableRNGs, Distances, CSV, DataFrames
 
-Random.seed!(5357)
+rng = StableRNG(5357)
+σ = 0.2
 
 # simulate three clusters
 centroid = [[0.0, 0.0], [2.0, 2.0], [1.8, 0.5]]
 nclass = [150, 50, 100]
 
 # simulate three clusters
-X1 = gaussian_cluster(centroid[1], nclass[1])
-X2 = gaussian_cluster(centroid[2], nclass[2])
-X3 = gaussian_cluster(centroid[3], nclass[3])
+X1 = gaussian_cluster(centroid[1], nclass[1], rng=rng, sigma=σ)
+X2 = gaussian_cluster(centroid[2], nclass[2], rng=rng, sigma=σ)
+X3 = gaussian_cluster(centroid[3], nclass[3], rng=rng, sigma=σ)
 X = [X1 X2 X3]
 
 # class labels
@@ -30,4 +31,4 @@ df = DataFrame(
     classes  = classes,
 )
 
-CSV.write("gaussian300.dat", df)
+CSV.write(joinpath("data", "gaussian300.dat"), df)
