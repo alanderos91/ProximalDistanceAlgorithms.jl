@@ -78,12 +78,33 @@ end
 
 ##### common solution interface #####
 
-"""
-TODO
+@doc raw"""
+Solve a distance penalized problem along an annealing path using a specific `algorithm`.
+
+The `prob_tuple` should enter as `(objective, iteration_scheme, problem)`, where
+
+- `objective` is a function to evaluate the $\rho$-penalized objective for the problem,
+- `iteration_scheme` is a function to generate the next iterate for the given `algorithm`, and
+- `problem` is a type storing data, parameter estimates, and other data structures.
+
+**Note**: This function may exit early if minimizing a subproblem fails to decrease the distance penalty.
+
+# Keyword Arguments
+
+- `nouter`: The maximum number of subproblems to solve along the annealing path. (default=`100`).
+- `dtol`: A control parameter applied $\mathrm{dist}(\mathbf{D} \mathbf{x}, S)$ that determines proximity of solutions to the constraint set. (default=`1e-1`)
+- `rtol`: A control parameter for early exit when relative progress in minimizing the distance penalty slows to a crawl. Specifically, we check $|f(x_{n+1}) - f(x_{n})| \le \delta_{r} [1 + f(x_{n})]$ with $\delta_{r}$ = `rtol`.
+- `rho_init`: Initial value for $\rho$. (default=`1e-6`)
+- `rho_max`: Maximum value for $\rho$. (default=`1.0`)
+- `penalty`: A function used to update $\rho_{t+1}$ from $\rho_{t}$ or $t$. (default=`geometric_progression`)
+- `mu_init`: Initial value for $μ$ parameter used in ADMM. (default=`1.0`)
+- `callback`: A function to invoke after minimizing a particular subproblem. See [`print_convergence_history`](@ref) for an example.
+
+See also [`anneal!`](@ref) for additional arguments specific to solving a subproblem along the annealing path.
 """
 function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
     nouter::Int=100,
-    dtol::Real=1e-6,
+    dtol::Real=1e-1,
     rtol::Real=1e-6,
     rho_init::Real=1.0,
     rho_max::Real=1e8,
@@ -134,17 +155,29 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
 end
 
 
-"""
-Solve minimization problem with fixed ρ.
+@doc raw"""
+Solve a given minimization problem with fixed $\rho$ using a specific `algorithm`.
+
+The `prob_tuple` should enter as `(objective, iteration_scheme, problem)`, where
+
+- `objective` is a function to evaluate the $\rho$-penalized objective for the problem,
+- `iteration_scheme` is a function to generate the next iterate for the given `algorithm`, and
+- `problem` is a type storing data, parameter estimates, and other data structures.
+
+# Keyword Arguments
+
+- `ninner`: The maximum number of iterations to minimize the $\rho$-penalized objective. (default=`10^4`)
+- `gtol`: A control parameter on the scale of the gradient used to assess convergence. Specifically, we run the given `iteration_scheme` until ``\|\nabla h_{\rho}(x)\| \le \delta_{g}`` with $\delta_{g}$ = `gtol`. (default=`1e-2`).
+- `delay`: A fixed number of iterations to delay application of momentum to accelerate convergence (e.g. Nesterov acceleration). (default=`10`)
+- `accel`: An option for choice of acceleration technique. Choices are `Val(:none)` for no acceleration and `Val(:nesterov)` for Nesterov acceleration. (default=`Val(:none)`)
+- `callback`: A function to invoke after each update. See [`print_convergence_history`](@ref) for an example.
 """
 function anneal!(algorithm::AlgorithmOption, prob_tuple::probT, ρ, μ;
     ninner::Int=10^4,
-    gtol::Real=1e-6,
+    gtol::Real=1e-2,
     delay::Int=10,
     callback::cbT=DEFAULT_CALLBACK,
-    accel::accelT=Val(:none),
-    kwargs...
-    ) where {probT, cbT, accelT}
+    accel::accelT=Val(:none),) where {probT, cbT, accelT}
     # get objective function, iteration map, and problem object
     __objective__, __iterate__, problem = prob_tuple
 

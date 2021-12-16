@@ -13,56 +13,45 @@ h_{\rho}(x) = \frac{1}{2} \|W^{1/2}(x-a)\|^{2} + \frac{\rho}{2} \mathrm{dist}(Dx
 
 where ``a = \mathrm{trivec}(A)`` is a vectorized version of `A` with non-redundant entries and ``C`` is the intersection of the metric cone on semimetrics with a compatible non-negative orthant.
 
-See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref), [`optimize!`](@ref), [`anneal!`](@ref)
 
 # Keyword Arguments
 
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM`.
 - `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 
 ### Examples
 
 **How to define an annealing schedule**:
 ```jldoctest
-julia> f(rho, iter) = min(1e6, 1.1^floor(iter/20))
+julia> f(rho, iter) = 1.1*rho
 f (generic function with 1 method)
 
-julia> f(1.0, 5)
-1.0
-
-julia> f(1.0, 20)
+julia> f(1.0, 10)
 1.1
 
-julia> g(rho, iter) = iter % 20 == 0 ? min(1e6, 1.1*rho) : rho
+julia> g(rho, iter) = (1.1)^(iter-1)
 g (generic function with 1 method)
 
-julia> f(1.0, 21) == g(1.0, 21)
+julia> f(1.0, 10) == g(1.0, 0)
 true
 ```
 
 **How to use `metric_projection`**:
 ```jldoctest
-julia> A = [0.0 8.0 6.0; 8.0 0.0 1.0; 6.0 1.0 0.0]
+julia> X = [0.0 8.0 6.0; 8.0 0.0 1.0; 6.0 1.0 0.0]
 3×3 Array{Float64,2}:
  0.0  8.0  6.0
  8.0  0.0  1.0
  6.0  1.0  0.0
 
-julia> f(rho, iter) = min(1e6, 1.1^floor(iter/20))
+julia> f(rho, iter) = 1.1*rho
 f (generic function with 1 method)
 
-julia> metric_projection(SteepestDescent(), A, penalty=f, maxiters=200)
-3×3 Array{Float64,2}:
- 0.0      7.70795  6.29205
- 7.70795  0.0      1.29205
- 6.29205  1.29205  0.0
+julia> metric_projection(SteepestDescent(), X, penalty=f, nouter=100, ninner=10^4, gtol=1e-3, dtol=1e-3, rtol=0.0, accel=Val(:nesterov))
+3×3 Matrix{Float64}:
+ 0.0    7.667  6.333
+ 7.667  0.0    1.333
+ 6.333  1.333  0.0
 ```
 """
 function metric_projection(algorithm::AlgorithmOption, A, W=I; ls=Val(:LSQR), kwargs...)
