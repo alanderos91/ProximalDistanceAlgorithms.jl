@@ -65,7 +65,10 @@ function initialize_history(hint::Integer, sample_rate::Integer=1)
 end
 
 # implementation: object with named fields
-update_history!(history::NamedTuple, ::Val{:outer}, algorithm, iter, result, problem, ρ, μ) = nothing
+function update_history!(history::NamedTuple, ::Val{:outer}, algorithm, iter, result, problem, ρ, μ)
+    iter > 0 && push!(history.rho, ρ)
+    return nothing
+end
 
 function update_history!(history::NamedTuple, ::Val{:inner}, algorithm, iter, result, problem, ρ, μ)
     if iter % history.sample_rate == 0
@@ -74,7 +77,6 @@ function update_history!(history::NamedTuple, ::Val{:inner}, algorithm, iter, re
         push!(history.objective, result.objective)
         push!(history.gradient, sqrt(result.gradient))
         # push!(history.stepsize, data.stepsize)
-        push!(history.rho, ρ)
         push!(history.iteration, iter)
     end
 
@@ -93,7 +95,7 @@ end
 
 function print_convergence_history(or::Int, ir::Int, ::Val{:outer}, algorithm, iter, result, problem, ρ, μ)
     if iter == 0
-        println("     \tITER\tLOSS\t\tOBJECTIVE\tDISTANCE\tGRADIENT")
+        println("\n\n     \tITER\tLOSS\t\tOBJECTIVE\tDISTANCE\tGRADIENT")
     end
     if iter % or == 0
         @printf "\n%s\t%4d\t%4.4e\t%4.4e\t%4.4e\t%4.4e" "OUTER" iter result.loss result.objective sqrt(result.distance) sqrt(result.gradient)
@@ -107,6 +109,8 @@ function print_convergence_history(or::Int, ir::Int, ::Val{:inner}, algorithm, i
     end
     return nothing
 end
+
+print_convergence_history(or::Int, ir::Int, ::Val{:path}, algorithm, iter, result, problem, ρ, μ) = nothing
 
 ##### default callbacks #####
 __do_nothing_callback__(kind, algorithm, iter, result, problem, ρ, μ) = nothing
