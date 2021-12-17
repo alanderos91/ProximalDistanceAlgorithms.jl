@@ -11,22 +11,14 @@ A sparsity parameter `nu` quantifies the number of constraints `data[:,i] ≈ da
 each sample to the same cluster whereas `nu = binomial(samples, 2)` forces
 samples into their own clusters. Setting `rev=false` reverses this relationship.
 
-See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref), [`optimize!`](@ref), [`anneal!`](@ref)
 
 # Keyword Arguments
 
 - `nu::Integer=0`: A sparsity parameter that controls clusterings.
 - `rev::Bool=true`: A flag that changes the interpretation of `nu` from constraint violations (`rev=true`) to constraints satisfied (`rev=false`).
 This indirectly affects the performance of the algorithm and should only be used when crossing the threshold `nu = binomial(samples, 2) ÷ 2`.
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering(algorithm::AlgorithmOption, weights, data; nu::Integer=0, ls::LS=Val(:LSQR), kwargs...) where LS
     #
@@ -66,9 +58,9 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data; nu::Intege
     a = copy(x)
     w = Float64[]
     for j in 1:n, i in j+1:n push!(w, weights[i,j]) end
-    _D = CvxClusterFM(d, n)
-    D = kron(Diagonal(w), LinearMap(I, d)) * _D
-    operators = (D = D, _D = _D, P = P, a = a)
+    D = CvxClusterFM(d, n)
+    W = kron(Diagonal(w), LinearMap(I, d))
+    operators = (D = D, W = W, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -158,26 +150,21 @@ Returns a `NamedTuple` with fields `assignment` and `ν_path`.
 Setting `atol` to smaller values will generally improve the quality of clusterings and reduce the number of minimization steps. However, individual
 minimization steps become more expensive as a result.
 
-See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref), [`optimize!`](@ref), [`anneal!`](@ref)
 
 # Keyword Arguments
 
-- `stepsize::Float64=0.05`: A value between `0` and `1` that discretizes the search space. If no additional points are found to coalesce, then decrease `nu` by `stepsize*nu_max`.
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `start::Real=0.5`: Starting sparsity value where `1-start` is the proportion of significant differences.
+- `stepsize::Real=0.05`: A value between `0` and `1` that discretizes the search space. If no additional points are found to coalesce, then decrease `nu` by `stepsize*nu_max`.
+- `radius::Real=2`: A value determining how close centroid assignments must in order to be considered clustered.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     start::Real=0.5,
     stepsize::Real=0.05,
-    history::histT=nothing,
-    ls::LS=Val(:LSQR), kwargs...) where {histT, LS}
+    radius::Real=2,
+    callback::cbT=DEFAULT_CALLBACK,
+    ls::LS=Val(:LSQR), kwargs...) where {cbT, LS}
     #
     # extract problem information
     d, n = size(data)
@@ -213,7 +200,10 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     # generate operators
     a = copy(x)
+    w = Float64[]
+    for j in 1:n, i in j+1:n push!(w, weights[i,j]) end
     D = CvxClusterFM(d, n)
+    W = kron(Diagonal(w), LinearMap(I, d))
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -282,7 +272,8 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     # allocate outputs
     assignment = Vector{Int}[]
-    s_path = Float64[]
+    number_classes = Int[]
+    sparsity = Float64[]
 
     # initialize solution path heuristic
     mul!(z, D, x)
@@ -300,7 +291,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     rmax = 1.0
     rstep = stepsize
-    if 0 < start ≤ rmax
+    if 0 ≤ start ≤ rmax
         r = 1 - start
     else
         r = 1 - nconstraint / m
@@ -310,22 +301,28 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     while r ≥ 0
         nu = round(Int, r * m)
         P = ColumnL0Projection(nu, projection_idx, projection_buffer, projection_scores)
-        operators = (D = D, P = P, a = a)
+        operators = (D = D, W = W, P = P, a = a)
         prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
         prob_tuple = (objective, algmap, prob)
 
-        _, iter, _ = optimize!(algorithm, prob_tuple; kwargs...)
+        result = optimize!(algorithm, prob_tuple; callback=callback, kwargs...)
 
         # update history
-        # if !(history === nothing)
-        #     f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
-        #     data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
-        #     update_history!(history, data, iter-1)
-        # end
+        callback(Val(:inner), algorithm, result.iters, result, prob, 0.0, 0.0)
 
         # record current solution
-        push!(assignment, assign_classes(X)[2])
-        push!(s_path, 100 * (1-r))
+        _, assigned_classes, classes = assign_classes(X, radius)
+        s = round(100 * (1-r), sigdigits=4)
+        push!(assignment, assigned_classes)
+        push!(number_classes, classes)
+        push!(sparsity, s)
+
+        showvalues = [
+            (:sparsity, s),
+            (:classes, classes),
+            (:distance, sqrt(result.distance)),
+            (:gradient, sqrt(result.gradient)),
+        ]
 
         # count satisfied constraints
         nconstraint = 0
@@ -336,8 +333,8 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
             col     = @view z[startix:stopix]
             colnorm_k = norm(col)
 
-            # derivatives within 10^-3 are set to 0
-            nconstraint += (log10(colnorm_k) ≤ -3)
+            # derivatives within 10^-2 are set to 0
+            nconstraint += (log10(colnorm_k) ≤ -radius)
         end
 
         # decrease r with a heuristic that guarantees a decrease
@@ -347,10 +344,11 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         else
             r = r - rstep
         end
-        ProgressMeter.update!(prog, r)
+        
+        ProgressMeter.update!(prog, r, showvalues=showvalues)
     end
 
-    solution_path = (assignment = assignment, sparsity = s_path)
+    solution_path = (assignment=assignment, number_classes=number_classes, sparsity=sparsity)
 
     return solution_path
 end
@@ -362,15 +360,16 @@ end
 function cvxclst_objective(::AlgorithmOption, prob, ρ)
     @unpack x = prob.variables
     @unpack ∇f, ∇q, ∇h = prob.derivatives
-    @unpack D, _D, P, a = prob.operators
+    @unpack D, W, P, a = prob.operators
     @unpack z, Pz, v = prob.buffers
 
     # evaulate gradient of loss
     @. ∇f = x - a
 
     # evaluate gradient of penalty
-    nrows, ncols = _D.d, round(Int, _D.M / _D.d) # TODO: cache m = M / d that was used to make D
-    mul!(z, D, x)
+    nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
+    mul!(z, D, x)  # compute difference
+    mul!(Pz, W, z) # update to weighted differences
     Pz_mat = reshape(Pz, nrows, ncols)
     copyto!(Pz, z); P(Pz_mat)
     @. v = z - Pz
@@ -446,7 +445,7 @@ end
 function cvxclst_iter(::ADMM, prob, ρ, μ)
     @unpack x, y, λ = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, _D, P, a = prob.operators
+    @unpack D, W, P, a = prob.operators
     @unpack z, Pz, v, b, tmpx = prob.buffers
     linsolver = prob.linsolver
 
@@ -479,10 +478,12 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     linsolve!(linsolver, x, A, b)
 
     # y block update
-    nrows, ncols = _D.d, round(Int, _D.M / _D.d) # TODO: cache m = M / d that was used to make D
-    mul!(z, D, x)
+    nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
+    mul!(z, D, x)  # compute difference
     α = (ρ / μ)
-    @. v = z + λ; Pv = Pz; copyto!(Pv, v); P(reshape(Pv, nrows, ncols))
+    @. v = z + λ
+    Pv = Pz; mul!(Pv, W, v) # update to weighted differences
+    P(reshape(Pv, nrows, ncols)) # project to top k order statistics
     @inbounds @simd for j in eachindex(y)
         y[j] = α/(1+α) * Pv[j] + 1/(1+α) * v[j]
     end
