@@ -200,9 +200,17 @@ end
 
 function metric_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
-    @unpack D, DtD = prob.operators
-    @unpack z, tmpx = prob.buffers
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack P, D, DtD, a = prob.operators
+    @unpack z, Pz, v, tmpx = prob.buffers
+
+    # projection + gradient
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    @. ∇f = x - a
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # evaluate step size, γ
     mul!(tmpx, DtD, ∇h)
@@ -220,8 +228,12 @@ end
 function metric_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, DtD, a = prob.operators
-    @unpack b, Pz, tmpx = prob.buffers
+    @unpack P, D, DtD, a = prob.operators
+    @unpack b, z, Pz, tmpx = prob.buffers
+
+    # projection
+    mul!(z, D, x)
+    @. Pz = P(z)
 
     # build RHS of A'A*x = A'b; A'b = a + ρ*D'P(D*x)
     mul!(b, D', Pz)
@@ -272,10 +284,18 @@ end
 
 function metric_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
-    @unpack D, DtD = prob.operators
-    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
+    @unpack P, D, DtD, a = prob.operators
+    @unpack β, b, z, Pz, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
+
+    # projection + gradient
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    @. ∇f = x - a
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper

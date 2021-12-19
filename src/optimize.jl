@@ -13,11 +13,12 @@ end
 ##### for computing adaptive stepsize in ADMM #####
 
 function update_admm_residuals!(prob, μ)
-    @unpack y = prob.variables
+    @unpack x, y = prob.variables
     @unpack D = prob.operators
     @unpack z, r, s, y_prev = prob.buffers
 
-    @. r = z - y # assumes z = D*x
+    mul!(z, D, x)
+    @. r = z - y
     @. y_prev = μ * (y_prev - y)
     mul!(s, D', y_prev)
 
@@ -139,9 +140,6 @@ function optimize!(algorithm::AlgorithmOption, prob_tuple::probT;
         # Check for convergence to constrained solution.
         dist = sqrt(result.distance)
         if dist ≤ dtol || abs(dist - old) ≤ rtol * (1 + old)
-            break
-        elseif dist > old
-            @warn "Failed to decrease distance penalty at iteration $(iter). Annealing schedule may be too aggressive."
             break
         else
           old = dist

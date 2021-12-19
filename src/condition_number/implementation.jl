@@ -17,15 +17,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 
 # Keyword Arguments
 
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function reduce_cond(algorithm::AlgorithmOption, c, A; ls::LS=Val(:LSQR), kwargs...) where LS
     if !(algorithm isa MMSubSpace) && !(ls === nothing)
@@ -132,6 +124,7 @@ function condnum_objective(::AlgorithmOption, prob, ρ)
     @unpack D, P, σ = prob.operators
     @unpack z, Pz, v = prob.buffers
 
+    # projection + gradient
     mul!(z, D, x)
     @. Pz = P(z)
     @. v = z - Pz
@@ -154,10 +147,18 @@ end
 
 function condnum_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
-    @unpack z = prob.buffers
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack D, P, σ = prob.operators
+    @unpack z, Pz, v = prob.buffers
 
+    # projection + gradient
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    @. ∇f = x - σ
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ*∇q
+    
     # evaluate step size, γ
     mul!(z, D, ∇h)
     a = dot(∇h, ∇h)     # ||∇h(x)||^2
@@ -173,8 +174,12 @@ end
 
 function condnum_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack D, σ = prob.operators
-    @unpack Pz = prob.buffers
+    @unpack D, P, σ = prob.operators
+    @unpack z, Pz = prob.buffers
+
+    # projection
+    mul!(z, D, x)
+    @. Pz = P(z)
 
     # compute x = (I + ρ*D'D)^{-1} * (I; √ρ D)' * (σ; √ρ P(z))
     mul!(x, D', Pz)
@@ -233,10 +238,18 @@ end
 
 function condnum_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
-    @unpack D = prob.operators
-    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
+    @unpack P, D, σ = prob.operators
+    @unpack β, b, z, Pz, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
+
+    # projection + gradient
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    @. ∇f = x - σ
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ*∇q
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper

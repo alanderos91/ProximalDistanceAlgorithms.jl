@@ -16,19 +16,11 @@ where ``Dx = [D_{1} D_{2}] [\theta; \xi]`` encodes subgradient constraints
 \boldsymbol{x}_{j}}\rangle \le \theta_{j}``. The constraint set ``C``
 represents a compatible non-positive orthant.
 
-See also [`MM`](@ref), [`SteepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
+See also [`MM`](@ref), [`SteepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref), [`optimize!`](@ref), [`anneal!`](@ref)
 
 # Keyword Arguments
 
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
 - `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|W^{1/2}(x-a)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
 """
 function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val(:LSQR), kwargs...) where LS
     #
@@ -192,10 +184,20 @@ end
 
 function cvxreg_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
-    @unpack z = prob.buffers
-    @unpack ∇h_θ, ∇h_ξ = prob.views
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack D, P, a = prob.operators
+    @unpack z, Pz, v = prob.buffers
+    @unpack θ, ∇h_θ, ∇h_ξ = prob.views
+
+    # projection + gradient
+    @inbounds for j in eachindex(θ)
+        ∇f[j] = θ[j] - a[j]
+    end
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # evaluate step size, γ
     mul!(z, D, ∇h)
@@ -213,9 +215,13 @@ end
 function cvxreg_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, DtD, A₁, a = prob.operators   # a is bound to response
-    @unpack b, Pz, tmpx = prob.buffers
+    @unpack D, P, DtD, A₁, a = prob.operators   # a is bound to response
+    @unpack b, z, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
+
+    # projection
+    mul!(z, D, x)
+    @. Pz = P(z)
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
@@ -300,11 +306,21 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
 end
 
 function cvxreg_iter(::MMSubSpace, prob, ρ, μ)
-    @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack θ, x = prob.variables
+    @unpack ∇f, ∇q, ∇h, ∇²f, G = prob.derivatives
     @unpack D, DtD, A₁ = prob.operators
     @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
+
+    # projection + gradient
+    @inbounds for j in eachindex(θ)
+        ∇f[j] = θ[j] - a[j]
+    end
+    mul!(z, D, x)
+    @. Pz = P(z)
+    @. v = z - Pz
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper

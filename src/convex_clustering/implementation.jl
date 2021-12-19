@@ -7,20 +7,15 @@ Cluster `data` using an approximate convexification of ``k``-means.
 See [`convex_clustering_path`](@ref) for an algorithm that returns a list of candidate clusterings.
 
 The `data` are assumed to be arranged as a `features` by `samples` matrix.
-A sparsity parameter `nu` quantifies the number of constraints `data[:,i] ≈ data[:,j]` that are allowed to be violated. The choice `nu = 0` assigns
-each sample to the same cluster whereas `nu = binomial(samples, 2)` forces
-samples into their own clusters. Setting `rev=false` reverses this relationship.
 
 See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref), [`optimize!`](@ref), [`anneal!`](@ref)
 
 # Keyword Arguments
 
-- `nu::Integer=0`: A sparsity parameter that controls clusterings.
-- `rev::Bool=true`: A flag that changes the interpretation of `nu` from constraint violations (`rev=true`) to constraints satisfied (`rev=false`).
-This indirectly affects the performance of the algorithm and should only be used when crossing the threshold `nu = binomial(samples, 2) ÷ 2`.
+- `sparsity::Real=0.5`: A parameter controlling the number of clusters with `s=0` assigning each sample its own cluster and `s=1` coalescing to a single cluster.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
 """
-function convex_clustering(algorithm::AlgorithmOption, weights, data; nu::Integer=0, ls::LS=Val(:LSQR), kwargs...) where LS
+function convex_clustering(algorithm::AlgorithmOption, weights, data; sparsity::Real=0.5, ls::LS=Val(:LSQR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(data)
@@ -54,12 +49,13 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data; nu::Intege
     end
 
     # generate operators
-    P = ColumnL0Projection(nu, collect(1:m), zeros(Int, m), zeros(m))
+    k = round(Int, (1-sparsity)*m)
+    P = ColumnL0Projection(k, collect(1:m), zeros(Int, m), zeros(m))
     a = copy(x)
     w = Float64[]
     for j in 1:n, i in j+1:n push!(w, weights[i,j]) end
     D = CvxClusterFM(d, n)
-    W = kron(Diagonal(w), LinearMap(I, d))
+    W = Diagonal(w)
     operators = (D = D, W = W, P = P, a = a)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
@@ -160,9 +156,10 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
-    start::Real=0.5,
+    init_sparsity::Real=0.5,
+    max_sparsity::Real=1.0,
     stepsize::Real=0.05,
-    radius::Real=2,
+    magnitude::Real=-2,
     callback::cbT=DEFAULT_CALLBACK,
     ls::LS=Val(:LSQR), kwargs...) where {cbT, LS}
     #
@@ -203,7 +200,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     w = Float64[]
     for j in 1:n, i in j+1:n push!(w, weights[i,j]) end
     D = CvxClusterFM(d, n)
-    W = kron(Diagonal(w), LinearMap(I, d))
+    W = Diagonal(w)
 
     # allocate buffers for mat-vec multiplication, projections, and so on
     z = similar(Vector{eltype(x)}, M)
@@ -245,16 +242,9 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
 
     if algorithm isa ADMM
         mul!(y, D, x)
-        y_prev = similar(y)
-        r = similar(y)
-        s = similar(x)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, s = s, r = r, tmpx = tmpx)
+        buffers = (z=z, Pz=Pz, v=v, b=b, y_prev=similar(y), s=similar(x), r=similar(y), tmpx=similar(x))
     elseif algorithm isa MMSubSpace
-        tmpGx1 = zeros(N)
-        tmpGx2 = zeros(N)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
+        buffers = (z=z, Pz=Pz, v=v, b=b, β=β, tmpx=similar(x), tmpGx1=zeros(N), tmpGx2=zeros(N))
     else
         tmpx = similar(x)
         buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
@@ -275,78 +265,67 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     number_classes = Int[]
     sparsity = Float64[]
 
+    # create a closure to count constraints
+    Z = reshape(z, d, m) # use matrix view of Z
+    count_constraints = function()
+        mul!(z, D, x) # compute differences
+        number_coalesced = 0
+        for zᵢ in eachcol(Z) # count differences withhin the specificed order of magnitude
+            number_coalesced += log10(norm(zᵢ)) ≤ magnitude
+        end
+        number_coalesced
+    end
+
     # initialize solution path heuristic
-    mul!(z, D, x)
-    nconstraint = 0
-    for k in 1:m
-        # extract the corresponding column
-        startix = d * (k-1) + 1
-        stopix  = startix + d - 1
-        col     = @view z[startix:stopix]
-        colnorm_k = norm(col)
-
-        # derivatives within 10^-3 are set to 0
-        nconstraint += (log10(colnorm_k) ≤ -3)
-    end
-
-    rmax = 1.0
-    rstep = stepsize
-    if 0 ≤ start ≤ rmax
-        r = 1 - start
+    nconstraint = count_constraints()
+    if 0 ≤ init_sparsity ≤ max_sparsity
+        s = init_sparsity
     else
-        r = 1 - nconstraint / m
+        s = nconstraint / m
     end
 
-    prog = ProgressThresh(zero(r), "Searching clustering path...")
-    while r ≥ 0
-        nu = round(Int, r * m)
-        P = ColumnL0Projection(nu, projection_idx, projection_buffer, projection_scores)
+    prog = ProgressUnknown("Searching clustering path...")
+    ProgressMeter.next!(prog)
+    while init_sparsity ≤ s ≤ max_sparsity
+        k = round(Int, (1-s)*m)
+        P = ColumnL0Projection(k, projection_idx, projection_buffer, projection_scores)
         operators = (D = D, W = W, P = P, a = a)
         prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
         prob_tuple = (objective, algmap, prob)
 
-        result = optimize!(algorithm, prob_tuple; callback=callback, kwargs...)
+        result = optimize!(algorithm, prob_tuple; kwargs...)
 
         # update history
         callback(Val(:inner), algorithm, result.iters, result, prob, 0.0, 0.0)
 
         # record current solution
-        _, assigned_classes, classes = assign_classes(X, radius)
-        s = round(100 * (1-r), sigdigits=4)
+        _, assigned_classes, classes = assign_classes(X, magnitude)
         push!(assignment, assigned_classes)
         push!(number_classes, classes)
-        push!(sparsity, s)
+        push!(sparsity, 100*s)
 
         showvalues = [
-            (:sparsity, s),
+            (:sparsity, 100*s),
             (:classes, classes),
             (:distance, sqrt(result.distance)),
             (:gradient, sqrt(result.gradient)),
         ]
 
         # count satisfied constraints
-        nconstraint = 0
-        for k in 1:m
-            # extract the corresponding column
-            startix = d * (k-1) + 1
-            stopix  = startix + d - 1
-            col     = @view z[startix:stopix]
-            colnorm_k = norm(col)
+        nconstraint = count_constraints()
 
-            # derivatives within 10^-2 are set to 0
-            nconstraint += (log10(colnorm_k) ≤ -radius)
-        end
-
-        # decrease r with a heuristic that guarantees a decrease
-        rnew = 1 - nconstraint / m
-        if rnew < r - rstep
-            r = rnew
+        # increase s using the observed sparsity level or a fixed increase
+        s_proposal = nconstraint / m
+        if s_proposal > s + stepsize
+            s = s_proposal
         else
-            r = r - rstep
+            s = s + stepsize
         end
+        s = s + stepsize
         
-        ProgressMeter.update!(prog, r, showvalues=showvalues)
+        ProgressMeter.next!(prog, showvalues=showvalues)
     end
+    ProgressMeter.finish!(prog)
 
     solution_path = (assignment=assignment, number_classes=number_classes, sparsity=sparsity)
 
@@ -369,9 +348,11 @@ function cvxclst_objective(::AlgorithmOption, prob, ρ)
     # evaluate gradient of penalty
     nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
     mul!(z, D, x)  # compute difference
-    mul!(Pz, W, z) # update to weighted differences
     Pz_mat = reshape(Pz, nrows, ncols)
-    copyto!(Pz, z); P(Pz_mat)
+    copyto!(Pz, z)
+    rmul!(Pz_mat, W) # update to weighted differences
+    P(Pz_mat)
+    rdiv!(Pz_mat, W) # map back to original scale
     @. v = z - Pz
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
@@ -390,9 +371,22 @@ end
 
 function cvxclst_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
-    @unpack z = prob.buffers
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack D, W, P, a = prob.operators
+    @unpack z, Pz, v = prob.buffers
+
+    # projection + gradient
+    nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
+    @. ∇f = x - a
+    mul!(z, D, x)  # compute difference
+    Pz_mat = reshape(Pz, nrows, ncols)
+    copyto!(Pz, z)
+    rmul!(Pz_mat, W) # update to weighted differences
+    P(Pz_mat)
+    rdiv!(Pz_mat, W) # map back to original scale
+    @. v = z - Pz
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # evaluate step size, γ
     mul!(z, D, ∇h)
@@ -409,9 +403,18 @@ end
 function cvxclst_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, a = prob.operators
-    @unpack b, Pz, tmpx = prob.buffers
+    @unpack D, W, P, a = prob.operators
+    @unpack b, z, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
+
+    # projection
+    nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
+    mul!(z, D, x)  # compute difference
+    Pz_mat = reshape(Pz, nrows, ncols)
+    copyto!(Pz, z)
+    rmul!(Pz_mat, W) # update to weighted differences
+    P(Pz_mat)
+    rdiv!(Pz_mat, W) # map back to original scale
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
@@ -482,15 +485,19 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
     mul!(z, D, x)  # compute difference
     α = (ρ / μ)
     @. v = z + λ
-    Pv = Pz; mul!(Pv, W, v) # update to weighted differences
-    P(reshape(Pv, nrows, ncols)) # project to top k order statistics
+    Pv = Pz
+    Pv_mat = reshape(Pv, nrows, ncols)
+    copyto!(Pv, v)
+    rmul!(Pv_mat, W) # update to weighted differences
+    P(Pv_mat)        # project to sparsity
+    rdiv!(Pv_mat, W) # map back to original scale
     @inbounds @simd for j in eachindex(y)
         y[j] = α/(1+α) * Pv[j] + 1/(1+α) * v[j]
     end
 
     # λ block update
-    @inbounds @simd for j in eachindex(λ)
-        λ[j] = λ[j] + z[j] - y[j]
+    @inbounds for j in eachindex(λ)
+        λ[j] = λ[j] + (z[j] - y[j])
     end
 
     return μ
@@ -498,10 +505,23 @@ end
 
 function cvxclst_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
-    @unpack D, a = prob.operators
-    @unpack β, b, Pz, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
+    @unpack D, W, P, a = prob.operators
+    @unpack β, b, z, v, Pz, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
+
+    # projection + gradient
+    nrows, ncols = D.d, round(Int, D.M / D.d) # TODO: cache m = M / d that was used to make D
+    @. ∇f = x - a
+    mul!(z, D, x)  # compute difference
+    Pz_mat = reshape(Pz, nrows, ncols)
+    copyto!(Pz, z)
+    rmul!(Pz_mat, W) # update to weighted differences
+    P(Pz_mat)
+    rdiv!(Pz_mat, W) # map back to original scale
+    @. v = z - Pz
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
@@ -575,16 +595,14 @@ function visit!(component, A, j::Int)
     end
 end
 
-function assign_classes!(class, A, Δ, U, tol)
+function assign_classes!(class, A, Δ, U, magnitude)
     n = size(Δ, 1)
 
     Δ = pairwise(Euclidean(), U, dims = 2)
 
     # update adjacency matrix
     for j in 1:n, i in j+1:n
-        abs_dist = log(10, Δ[i,j])
-
-        if (abs_dist < -tol)
+        if log10(Δ[i,j]) ≤ magnitude
             A[i,j] = 1
             A[j,i] = 1
         else
@@ -599,13 +617,13 @@ function assign_classes!(class, A, Δ, U, tol)
     return (A, class, nclasses)
 end
 
-function assign_classes(U, tol = 3.0)
+function assign_classes(U, magnitude::Real=-2)
     n = size(U, 2)
     A = zeros(Bool, n, n)
     Δ = zeros(n, n)
     class = zeros(Int, n)
 
-    return assign_classes!(class, A, Δ, U, tol)
+    return assign_classes!(class, A, Δ, U, magnitude)
 end
 
 """
