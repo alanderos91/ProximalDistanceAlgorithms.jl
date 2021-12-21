@@ -1,13 +1,14 @@
 ---
 title: Example 2, Convex Regression
 weave_options:
-    fig_ext: .svg
+    fig_ext: .png
 ---
 
 ```{julia}
 using ProximalDistanceAlgorithms
-using LinearAlgebra, Random, Plots, DataFrames
-include("plotutils.jl")
+using LinearAlgebra, Random, StableRNGs, Plots, DataFrames
+include(joinpath(dirname(@__DIR__), "plotutils.jl"))
+gr(linewidth=3, dpi=120)
 ```
 
 ### Introduction
@@ -24,7 +25,7 @@ d = 1       # number of covariates
 n = 50      # number of samples
 σ = 0.1     # std dev in noise
 Random.seed!(512)
-response, truth, covariates = cvxreg_example(φ, d, n, σ)
+response, truth, covariates = cvxreg_example(φ, d, n, σ, rng=StableRNG(512))
 fig = plot(xlabel = "x", ylabel = "phi(x)")
 plot!(fig, vec(covariates), truth, label = "ground truth")
 scatter!(fig, vec(covariates), response, label = "observed", markersize = 4)
@@ -33,47 +34,57 @@ scatter!(fig, vec(covariates), response, label = "observed", markersize = 4)
 #### Setup
 
 ```{julia}
-function solve(response, covariates, algorithm, maxiters, penalty; mu = 1.0)
-    # use Nesterov acceleration unless we're running ADMM
-    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+function solve(response, covariates, algorithm, maxiters, penalty)
+    accel = Val(:nesterov)
+    gtol, dtol, rtol = 1e-3, 1e-2, 1e-6
 
     if algorithm isa SteepestDescent
         println("Steepest Descent + Nesterov")
 
         # track loss, penalized objective, gradient, etc.
-        history = initialize_history(maxiters+1)
+        history, logger = initialize_history(maxiters)
 
         # warm-up
         println(" | warm-up:")
         print(" | ")
         @time cvxreg_fit(algorithm, response, covariates,
-            maxiters = 100,
-            penalty = penalty,
-            accel = accel,
-            history = history)
+            nouter   = 2,
+            ninner   = 10,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
 
         # real timing
         println(" | result:")
         print(" | ")
-        history = initialize_history(maxiters+1)
+        history, logger = initialize_history(maxiters)
         solution, _ = @time cvxreg_fit(algorithm, response, covariates,
-            maxiters = maxiters,
-            penalty = penalty,
-            accel = accel,
-            history = history)
+            nouter   = maxiters,
+            ninner   = 10^5,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
     else
         algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
         println(algstr)
 
         # track loss, penalized objective, gradient, etc.
-        h1 = initialize_history(maxiters+1)
-        h2 = initialize_history(maxiters+1)
+        h1, l1 = initialize_history(maxiters)
+        h2, l2 = initialize_history(maxiters)
         history = (lsqr = h1, cg = h2)
 
         # store solutions
         sol = []
 
-        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+        for (ls, h, l) in zip((Val(:LSQR), Val(:CG)), (h1, h2), (l1, l2))
             lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
             println(" |")
             println(" | linear solver: $(lsstr)")
@@ -81,25 +92,33 @@ function solve(response, covariates, algorithm, maxiters, penalty; mu = 1.0)
             # warm-up
             println(" | warm-up:")
             print(" | ")
-            tmp = initialize_history(maxiters+1)
+            _, _l = initialize_history(maxiters+1)
             @time cvxreg_fit(algorithm, response, covariates,
-                maxiters = 100,
-                penalty = penalty,
-                accel = accel,
-                history = tmp,
-                ls = ls,
-                mu = mu)
+                nouter   = 2,
+                ninner   = 10,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = _l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             # real timing
             println(" | result:")
             print(" | ")
             s, _ = @time cvxreg_fit(algorithm, response, covariates,
-                maxiters = maxiters,
-                penalty = penalty,
-                accel = accel,
-                history = h,
-                ls = ls,
-                mu = mu)
+                nouter   = maxiters,
+                ninner   = 10^5,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             push!(sol, s)
         end
@@ -111,31 +130,15 @@ function solve(response, covariates, algorithm, maxiters, penalty; mu = 1.0)
 end
 ```
 
-### Fusion matrix
-
-```{julia}
-D = CvxRegFM(covariates); S = instantiate_fusion_matrix(D)
-size(D)
-```
-
-```{julia}
-unicodeplots()
-spy(S)
-```
-
-```{julia}
-spy(S'S)
-```
-
 #### Annealing schedules
 
 ```{julia}
-penalty(ρ, n) = min(1e3, 1.1 ^ floor(n/20))
-gr(linewidth=2)
+penalty(ρ, n) = 1.1*ρ
 
-maxiters = 1000
-xs = 1:maxiters
-plot(xs, penalty.(1.0, xs), legend = nothing)
+maxiters = 100
+xs = 0:maxiters
+ys = [1.0]; foreach(i -> push!(ys, penalty(ys[end], i)), xs[2:end])
+plot(xs, ys, yscale=:log10, legend = nothing)
 xlabel!("iteration")
 ylabel!("rho")
 ```
@@ -169,41 +172,12 @@ plot_summary(ADMM_trace.lsqr)
 plot_summary(ADMM_trace.cg)
 ```
 
-### MM Subspace
-
-```{julia}
-MMS3_sol, MMS3_trace = solve(response, covariates, MMSubSpace(3), maxiters, penalty);
-plot_summary(MMS3_trace.lsqr)
-```
-
-```{julia}
-plot_summary(MMS3_trace.cg)
-```
-
-```{julia}
-MMS5_sol, MMS5_trace = solve(response, covariates, MMSubSpace(5), maxiters, penalty);
-plot_summary(MMS5_trace.lsqr)
-```
-
-```{julia}
-plot_summary(MMS5_trace.cg)
-```
-
-```{julia}
-MMS10_sol, MMS10_trace = solve(response, covariates, MMSubSpace(10), maxiters, penalty);
-plot_summary(MMS10_trace.lsqr)
-```
-
-```{julia}
-plot_summary(MMS10_trace.cg)
-```
-
 ### Quality of solutions
 
 ```{julia}
 using Statistics
-algorithm = ["MM", "SD", "ADMM", "MMS(3)", "MMS(5)", "MMS(10)"]
-traces = (MM_trace, SD_trace, ADMM_trace, MMS3_trace, MMS5_trace, MMS10_trace)
+algorithm = ["MM", "SD", "ADMM"]
+traces = (MM_trace, SD_trace, ADMM_trace)
 df = table_summary(traces..., algname = algorithm)
 
 df[!, :MSE] = [
@@ -212,12 +186,6 @@ df[!, :MSE] = [
     mean((SD_sol         .- truth) .^ 2),
     mean((ADMM_sol.lsqr  .- truth) .^ 2),
     mean((ADMM_sol.cg    .- truth) .^ 2),
-    mean((MMS3_sol.lsqr  .- truth) .^ 2),
-    mean((MMS3_sol.cg    .- truth) .^ 2),
-    mean((MMS5_sol.lsqr  .- truth) .^ 2),
-    mean((MMS5_sol.cg    .- truth) .^ 2),
-    mean((MMS10_sol.lsqr .- truth) .^ 2),
-    mean((MMS10_sol.cg   .- truth) .^ 2),
 ]
 df
 ```

@@ -6,8 +6,9 @@ weave_options:
 
 ```{julia}
 using ProximalDistanceAlgorithms
-using Random, LinearAlgebra, MatrixDepot, Plots, DataFrames
-include("plotutils.jl")
+using LinearAlgebra, MatrixDepot, Random, Plots, DataFrames
+include(joinpath(dirname(@__DIR__), "demo", "plotutils.jl"))
+gr(linewidth=3, dpi=120)
 ```
 
 ### Introduction
@@ -29,12 +30,17 @@ F = svd(M)
 F.S
 ```
 
+Target condition number
+```{julia}
+c = 1.0
+```
+
 #### Setup
 
 ```{julia}
-function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
-    # use Nesterov acceleration unless we're running ADMM
-    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+function solve(c, F, algorithm, maxiters, penalty)
+    accel = Val(:nesterov)
+    gtol, dtol, rtol = 1e-2, 1e-2, 1e-6
 
     if !(algorithm isa MMSubSpace)
         if algorithm isa SteepestDescent
@@ -46,61 +52,73 @@ function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
         end
 
         # track loss, penalized objective, gradient, etc.
-        history = initialize_history(maxiters+1)
+        _, _l = initialize_history(maxiters)
 
         # warm-up
         println(" | warm-up:")
         print(" | ")
         @time reduce_cond(algorithm, c, F,
-            maxiters = 100,
-            penalty = penalty,
-            accel = accel,
-            ls = nothing,
-            history = history)
+            nouter   = 2,
+            ninner   = 10,
+            penalty  = penalty,
+            accel    = accel,
+            callback = _l,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
 
         # real timing
         println(" | result:")
         print(" | ")
-        history = initialize_history(maxiters+1)
+        history, logger = initialize_history(maxiters)
         solution = @time reduce_cond(algorithm, c, F,
-            maxiters = maxiters,
-            penalty = penalty,
-            accel = accel,
-            ls = nothing,
-            history = history)
+            nouter   = maxiters,
+            ninner   = 10^5,
+            penalty  = penalty,
+            accel    = accel,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
     else
         # track loss, penalized objective, gradient, etc.
-        h1 = initialize_history(maxiters+1)
-        h2 = initialize_history(maxiters+1)
+        h1, l1 = initialize_history(maxiters)
+        h2, l2 = initialize_history(maxiters)
         history = (lsqr = h1, cg = h2)
 
         sol = []
 
-        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+        for (ls, h, l) in zip((Val(:LSQR), Val(:CG)), (h1, h2), (l1, l2))
             K = ProximalDistanceAlgorithms.subspace_size(algorithm)
             println("MMSubSpace w/ $(K) descent directions")
 
             println(" | warm-up:")
             print(" | ")
-            tmp = initialize_history(maxiters+1)
+            _, _l = initialize_history(maxiters+1)
             @time reduce_cond(algorithm, c, F,
-                maxiters = 100,
-                penalty = penalty,
-                accel = accel,
-                history = tmp,
-                ls = ls,
-                mu = mu)
+                nouter   = 2,
+                ninner   = 10,
+                penalty  = penalty,
+                accel    = accel,
+                callback = _l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             # real timing
             println(" | result:")
             print(" | ")
             s = @time reduce_cond(algorithm, c, F,
-                maxiters = maxiters,
-                penalty = penalty,
-                accel = accel,
-                history = h,
-                ls = ls,
-                mu = mu)
+                nouter   = maxiters,
+                ninner   = 10^5,
+                penalty  = penalty,
+                accel    = accel,
+                callback = l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             push!(sol, s)
         end
@@ -112,32 +130,15 @@ function solve(c, F, algorithm, maxiters, penalty; mu = 1.0)
 end
 ```
 
-### Fusion matrix
-
-```{julia}
-c = 10.0
-D = CondNumFM(c, size(M,1)); S = instantiate_fusion_matrix(D)
-size(D)
-```
-
-```{julia}
-unicodeplots()
-spy(S)
-```
-
-```{julia}
-spy(S'S)
-```
-
 #### Annealing schedules
 
 ```{julia}
-penalty(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
-gr(linewidth=2)
+penalty(ρ, n) = 1.1*ρ
 
-maxiters = 2000
-xs = 1:maxiters
-plot(xs, penalty.(1, xs), legend = nothing)
+maxiters = 100
+xs = 0:maxiters
+ys = [1.0]; foreach(i -> push!(ys, penalty(ys[end], i)), xs[2:end])
+plot(xs, ys, yscale=:log10, legend = nothing)
 xlabel!("iteration")
 ylabel!("rho")
 ```

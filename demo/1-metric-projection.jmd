@@ -1,13 +1,14 @@
 ---
 title: Example 1, Metric Projection
 weave_options:
-    fig_ext: .svg
+    fig_ext: .png
 ---
 
 ```{julia}
 using ProximalDistanceAlgorithms
-using Random, Plots, DataFrames
-include("plotutils.jl")
+using Random, StableRNGs, Plots, DataFrames
+include(joinpath(dirname(@__DIR__), "plotutils.jl"))
+gr(linewidth=3, dpi=120)
 ```
 
 ### Introduction
@@ -19,9 +20,8 @@ include("plotutils.jl")
 ### Example
 
 ```{julia}
-nodes = 64
-Random.seed!(5357)
-_, Y = metric_example(64)
+nodes = 32
+_, Y = metric_example(nodes, rng=StableRNG(5357))
 Y
 ```
 
@@ -42,34 +42,44 @@ y = trivec(Y)
 #### Setup
 
 ```{julia}
-function solve(A, algorithm, maxiters, penalty; mu = 1.0)
-    # use Nesterov acceleration unless we're running ADMM
-    accel = algorithm isa ADMM ? Val(:none) : Val(:nesterov)
+function solve(A, algorithm, maxiters, penalty)
+    accel = Val(:nesterov)
+    gtol, dtol, rtol = 1e-3, 1e-2, 1e-6
 
     if algorithm isa SteepestDescent
         println("Steepest Descent + Nesterov")
 
         # track loss, penalized objective, gradient, etc.
-        history = initialize_history(maxiters+1)
+        history, logger = initialize_history(maxiters)
 
         # warm-up
         println(" | warm-up:")
         print(" | ")
         @time metric_projection(algorithm, A,
-            maxiters = 1,
-            penalty = penalty,
-            accel = accel,
-            history = history)
+            nouter   = 2,
+            ninner   = 10,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
 
         # real timing
         println(" | result:")
         print(" | ")
-        history = initialize_history(maxiters+1)
+        history, logger = initialize_history(maxiters)
         solution = @time metric_projection(algorithm, A,
-            maxiters = maxiters,
-            penalty = penalty,
-            accel = accel,
-            history = history)
+            nouter   = maxiters,
+            ninner   = 10^5,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
     else
         if algorithm isa MM
             algstr = "MM + Nesterov"
@@ -82,14 +92,14 @@ function solve(A, algorithm, maxiters, penalty; mu = 1.0)
         println(algstr)
 
         # track loss, penalized objective, gradient, etc.
-        h1 = initialize_history(maxiters+1)
-        h2 = initialize_history(maxiters+1)
+        h1, l1 = initialize_history(maxiters)
+        h2, l2 = initialize_history(maxiters)
         history = (lsqr = h1, cg = h2)
 
         # store solutions
         sol = []
 
-        for (ls, h) in zip((Val(:LSQR), Val(:CG)), (h1, h2))
+        for (ls, h, l) in zip((Val(:LSQR), Val(:CG)), (h1, h2), (l1, l2))
             lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
             println(" |")
             println(" | linear solver: $(lsstr)")
@@ -97,25 +107,33 @@ function solve(A, algorithm, maxiters, penalty; mu = 1.0)
             # warm-up
             println(" | warm-up:")
             print(" | ")
-            tmp = initialize_history(maxiters+1)
+            _, _l = initialize_history(maxiters+1)
             @time metric_projection(algorithm, A,
-                maxiters = 50,
-                penalty = penalty,
-                accel = accel,
-                history = tmp,
-                ls = ls,
-                mu = mu)
+                nouter   = 2,
+                ninner   = 10,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = _l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             # real timing
             println(" | result:")
             print(" | ")
             s = @time metric_projection(algorithm, A,
-                maxiters = maxiters,
-                penalty = penalty,
-                accel = accel,
-                history = h,
-                ls = ls,
-                mu = mu)
+                nouter   = maxiters,
+                ninner   = 10^5,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
 
             push!(sol, s)
         end
@@ -127,31 +145,15 @@ function solve(A, algorithm, maxiters, penalty; mu = 1.0)
 end
 ```
 
-#### Fusion matrix
-
-```{julia}
-D = MetricFM(nodes); S = instantiate_fusion_matrix(D)
-size(D)
-```
-
-```{julia}
-unicodeplots()
-spy(S)
-```
-
-```{julia}
-spy(S'S)
-```
-
 #### Annealing schedules
 
 ```{julia}
-penalty(ρ, n) = min(1e6, 1.1 ^ floor(n/20))
-gr(linewidth=2)
+penalty(ρ, n) = 1.1*ρ
 
-maxiters = 2000
-xs = 1:maxiters
-plot(xs, penalty.(1, xs), legend = nothing)
+maxiters = 100
+xs = 0:maxiters
+ys = [1.0]; foreach(i -> push!(ys, penalty(ys[end], i)), xs[2:end])
+plot(xs, ys, yscale=:log10, legend = nothing)
 xlabel!("iteration")
 ylabel!("rho")
 ```
@@ -220,32 +222,6 @@ plot_summary(MMS10_trace.cg)
 algorithm = ["MM", "SD", "ADMM", "MMS(3)", "MMS(5)", "MMS(10)"]
 traces = (MM_trace, SD_trace, ADMM_trace, MMS3_trace, MMS5_trace, MMS10_trace)
 table_summary(traces..., algname = algorithm)
-```
-
-#### Step size comparison
-
-```{julia}
-plot(SD_trace.stepsize, yscale = :log10, label = "SD")
-plot!(MMS3_trace.lsqr.stepsize, label="MMS3+LSQR", ls=:dash)
-plot!(MMS3_trace.cg.stepsize, label="MMS3+CG", ls=:dot)
-xlabel!("iteration")
-ylabel!("step size / norm")
-```
-
-```{julia}
-plot(SD_trace.stepsize, yscale = :log10, label = "SD")
-plot!(MMS5_trace.lsqr.stepsize, label="MMS5+LSQR", ls=:dot)
-plot!(MMS5_trace.cg.stepsize, label="MMS5+CG", ls=:dash)
-xlabel!("iteration")
-ylabel!("step size / norm")
-```
-
-```{julia}
-plot(SD_trace.stepsize, yscale = :log10, label = "SD")
-plot!(MMS10_trace.lsqr.stepsize, label="MMS10+LSQR", ls=:dot)
-plot!(MMS10_trace.cg.stepsize, label="MMS10+CG", ls=:dash)
-xlabel!("iteration")
-ylabel!("step size / norm")
 ```
 
 ### Appendix

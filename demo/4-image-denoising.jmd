@@ -1,0 +1,230 @@
+---
+title: Example 4, Image Denoising
+weave_options:
+    fig_ext: .svg
+---
+
+```{julia}
+using ProximalDistanceAlgorithms, Plots
+using Images, TestImages
+using LinearAlgebra, Statistics, Random, StableRNGs, DataFrames
+include(joinpath(dirname(@__DIR__), "plotutils.jl"))
+gr(linewidth=3, dpi=120)
+```
+
+### Introduction
+
+```{julia}
+@doc denoise_image
+```
+
+```{julia}
+@doc denoise_image_path
+```
+
+### Example
+
+```{julia}
+rng = StableRNG(1234)
+cameraman = testimage("cameraman")
+cameraman = cameraman[65:end-64,65:end-64]
+noisy = Gray.(cameraman .+ 0.2 * randn(rng, size(cameraman)))
+[cameraman noisy]
+```
+
+#### Setup
+
+```{julia}
+MSE(A, B) = mean((A .- B) .^ 2)
+
+function solve(img, truth, algorithm, maxiters, penalty, proj)
+    accel = Val(:nesterov)
+    gtol, dtol, rtol = 1e-2, 1e-2, 1e-6
+    stepsize = 5e-2
+    r = -3
+
+    # convert to numerical array
+    W = Float64.(img)
+    m, n = size(W)
+
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
+
+        # track loss, penalized objective, gradient, etc.
+        history, logger = initialize_history(maxiters)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time denoise_image_path(algorithm, W,
+            s_init   = 0.0,
+            stepsize = 0.5,
+            magnitude= r,
+            nouter   = 2,
+            ninner   = 10,
+            penalty  = penalty,
+            proj     = proj,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history, logger = initialize_history(maxiters)
+        path = @time denoise_image_path(algorithm, W,
+            s_init   = 0.0,
+            stepsize = stepsize,
+            magnitude= r,
+            nouter   = maxiters,
+            ninner   = 2*10^3,
+            penalty  = penalty,
+            proj     = proj,
+            accel    = accel,
+            delay    = 0,
+            callback = l,
+            ls       = ls,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
+        mse = [MSE(observed, truth) for observed in path.img]
+        push!(sol, (mse = mse, s = path.s))
+    else
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        h1, l1 = initialize_history(maxiters)
+        h2, l2 = initialize_history(maxiters)
+        history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        for (ls, h, l) in zip((Val(:LSQR), Val(:CG)), (h1, h2), (l1, l2))
+        # for ls in (Val(:LSQR), Val(:CG))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            _, _l = initialize_history(maxiters+1)
+            @time denoise_image_path(algorithm, W,
+                s_init = 0.0,
+                stepsize = 0.5,
+                magnitude= r,
+                nouter   = 2,
+                ninner   = 10,
+                penalty  = penalty,
+                proj     = proj,
+                accel    = accel,
+                delay    = 0,
+                callback = _l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
+            
+            # real timing
+            println(" | result:")
+            print(" | ")
+            path = @time denoise_image_path(algorithm, W,
+                s_init = 0.0,
+                stepsize = stepsize,
+                magnitude= r,
+                nouter   = maxiters,
+                ninner   = 2*10^3,
+                penalty  = penalty,
+                proj     = proj,
+                accel    = accel,
+                delay    = 0,
+                callback = l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
+
+            mse = [MSE(observed, truth) for observed in path.img]
+            push!(sol, (mse = mse, s = path.s))
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
+    end
+
+    return solution, history
+end
+```
+
+#### Annealing schedules
+
+```{julia}
+penalty(ρ, n) = 1.5*ρ
+
+maxiters = 200
+xs = 0:maxiters
+ys = [1.0]; foreach(i -> push!(ys, penalty(ys[end], i)), xs[2:end])
+plot(xs, ys, yscale=:log10, legend = nothing)
+xlabel!("iteration")
+ylabel!("rho")
+```
+
+### MM
+
+```{julia}
+MM_sol, MM_trace = solve(noisy, cameraman, MM(), maxiters, penalty, Val(:l1))
+nothing
+```
+
+### Steepest Descent
+
+```{julia}
+SD_sol, SD_trace = solve(noisy, cameraman, SteepestDescent(), maxiters, penalty, Val(:l1))
+nothing
+```
+
+### ADMM
+
+```{julia}
+ADMM_sol, ADMM_trace = solve(noisy, cameraman, ADMM(), maxiters, penalty, Val(:l1))
+nothing
+```
+
+
+### Quality of solutions
+
+```{julia}
+algorithms = ["MM+LSQR", "MM+CG", "SD", "ADMM+LSQR", "ADMM+CG"]
+
+function imgtvd_summary(sol, noisy)
+    MSE, k = findmin(sol.mse)
+    return sol.nu[k], MSE
+end
+
+MM1 = imgtvd_summary(MM_sol.lsqr, noisy)
+MM2 = imgtvd_summary(MM_sol.cg, noisy)
+SD = imgtvd_summary(SD_sol, noisy)
+ADMM1 = imgtvd_summary(ADMM_sol.lsqr, noisy)
+ADMM2 = imgtvd_summary(ADMM_sol.cg, noisy)
+
+df = DataFrame(algorithms = algorithms)
+
+df[!, :sparsity] = [MM1[1], MM2[1], SD[1], ADMM1[1], ADMM2[1]]
+df[!,:MSE] = [MM1[2], MM2[2], SD[2], ADMM1[2], ADMM2[2]]
+
+df
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```

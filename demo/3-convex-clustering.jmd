@@ -1,0 +1,290 @@
+---
+title: Example 3, Convex Clustering
+weave_options:
+    fig_ext: .svg
+---
+
+
+```{julia}
+using ProximalDistanceAlgorithms
+using Statistics, Random, StableRNGs, Clustering, Plots, DataFrames
+include(joinpath(dirname(@__DIR__), "plotutils.jl"))
+gr(linewidth=3, dpi=120)
+```
+
+### Introduction
+
+```{julia}
+@doc convex_clustering
+```
+
+```{julia}
+@doc convex_clustering_path
+```
+
+### Example
+
+```{julia}
+data, true_classes, nclasses = convex_clustering_data("gaussian300.dat")
+μ, σ = mean(data, dims=2), std(data, dims=2)
+data = (data .- μ) ./ σ
+weights = gaussian_weights(data, phi = 0.5)
+plot(heatmap(data, title="data"), heatmap(weights, title="weights"), size=(800,300))
+```
+
+#### Setup
+```{julia}
+function solve(weights, data, algorithm, maxiters, penalty)
+    accel = Val(:nesterov)
+    gtol, dtol, rtol = 1e-3, 1e-3, 1e-6
+    stepsize = 5e-4
+    r = -2
+
+    if algorithm isa SteepestDescent
+        println("Steepest Descent + Nesterov")
+
+        # track loss, penalized objective, gradient, etc.
+        history, logger = initialize_history(5)
+
+        # warm-up
+        println(" | warm-up:")
+        print(" | ")
+        @time convex_clustering_path(algorithm, weights, data,
+            init_sparsity = 0.0,
+            stepsize = 0.5,
+            magnitude= r,
+            nouter   = 2,
+            ninner   = 10,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
+
+        # real timing
+        println(" | result:")
+        print(" | ")
+        history, logger = initialize_history(5)
+        solution = @time convex_clustering_path(algorithm, weights, data,
+            init_sparsity = 0.0,
+            stepsize = stepsize,
+            magnitude= r,
+            nouter   = maxiters,
+            ninner   = 2*10^3,
+            penalty  = penalty,
+            accel    = accel,
+            delay    = 0,
+            callback = logger,
+            gtol     = gtol,
+            dtol     = dtol,
+            rtol     = rtol,)
+    else
+        algstr = algorithm isa MM ? "MM + Nesterov" : "ADMM"
+        println(algstr)
+
+        # track loss, penalized objective, gradient, etc.
+        h1, l1 = initialize_history(5)
+        h2, l2 = initialize_history(5)
+        history = (lsqr = h1, cg = h2)
+
+        # store solutions
+        sol = []
+
+        for (ls, h, l) in zip((Val(:LSQR), Val(:CG)), (h1, h2), (l1, l2))
+            lsstr = ls isa Val{:LSQR} ? "LSQR"  : "CG"
+            println(" |")
+            println(" | linear solver: $(lsstr)")
+
+            # warm-up
+            println(" | warm-up:")
+            print(" | ")
+            _, _l = initialize_history(5)
+            @time convex_clustering_path(algorithm, weights, data,
+                init_sparsity = 0.0,
+                stepsize = 0.5,
+                magnitude= r,
+                nouter   = 2,
+                ninner   = 10,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = _l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
+
+            # real timing
+            println(" | result:")
+            print(" | ")
+            path = @time convex_clustering_path(algorithm, weights, data,
+                init_sparsity = 0.0,
+                stepsize = stepsize,
+                magnitude= r,
+                nouter   = maxiters,
+                ninner   = 2*10^3,
+                penalty  = penalty,
+                accel    = accel,
+                delay    = 0,
+                callback = l,
+                ls       = ls,
+                gtol     = gtol,
+                dtol     = dtol,
+                rtol     = rtol,)
+
+            push!(sol, (assignment=path.assignment, number_classes=path.number_classes, sparsity=path.sparsity))
+        end
+
+        solution = (lsqr=sol[1], cg=sol[2])
+    end
+
+    return solution, history
+end
+```
+
+#### Annealing schedules
+
+```{julia}
+penalty(ρ, n) = 1.5*ρ
+
+maxiters = 200
+xs = 0:maxiters
+ys = [1.0]; foreach(i -> push!(ys, penalty(ys[end], i)), xs[2:end])
+plot(xs, ys, yscale=:log10, legend = nothing)
+xlabel!("iteration")
+ylabel!("rho")
+```
+
+### MM
+
+```{julia}
+MM_sol, MM_trace = solve(weights, data, MM(), maxiters, penalty);
+```
+
+### Steepest Descent
+
+```{julia}
+SD_sol, SD_trace = solve(weights, data, SteepestDescent(), maxiters, penalty);
+```
+
+### Quality of solutions
+
+```{julia}
+df = DataFrame(algorithm = ["MM+LSQR", "MM+CG", "SD",]) #"ADMM+LSQR", "ADMM+CG"])
+
+function classify_ari(sol, ref)
+    cs = sol.assignment
+    nc = sol.number_classes
+    ARI, index = findmax([Clustering.randindex(c, ref)[1] for c in cs])
+    return ARI, length(unique(cs[index])), nc[index]
+end
+
+function classify_vi(sol, ref)
+    cs = sol.assignment
+    nc = sol.number_classes
+    VI, index = findmin([Clustering.varinfo(c, ref) for c in cs])
+    return VI, length(unique(cs[index])), nc[index]
+end
+
+function classify_mi(sol, ref)
+    cs = sol.assignment
+    nc = sol.number_classes
+    MI, index = findmax([Clustering.mutualinfo(c, ref) for c in cs])
+    return MI, length(unique(cs[index])), nc[index]
+end
+
+# report iteration count
+df[!,:iteration] = [
+    sum(MM_trace.lsqr.iteration),
+    sum(MM_trace.cg.iteration),
+    sum(SD_trace.iteration),
+#    ADMM_trace.lsqr.iteration,
+#    ADMM_trace.cg.iteration,
+]
+
+# report minimal adjusted Rand index
+MM_LSQR_ARI = classify_ari(MM_sol.lsqr, true_classes)
+MM_CG_ARI = classify_ari(MM_sol.cg, true_classes)
+SD_ARI = classify_ari(SD_sol, true_classes)
+# ADMM_LSQR_ARI = classify_ari(ADMM_sol.lsqr, true_classes)
+# ADMM_CG_ARI = classify_ari(ADMM_sol.cg, true_classes)
+
+df[!,:ARI] = [
+    MM_LSQR_ARI[1],
+    MM_CG_ARI[1],
+    SD_ARI[1],
+#    ADMM_LSQR_ARI[1],
+#    ADMM_CG_ARI[1]
+]
+
+# report best clustering by ARI
+df[!,:ARI_clusters] = [
+    MM_LSQR_ARI[2],
+    MM_CG_ARI[2],
+    SD_ARI[2],
+#    ADMM_LSQR_ARI[2],
+#    ADMM_CG_ARI[2]
+]
+
+# report maximum variation of information
+MM_LSQR_VI = classify_vi(MM_sol.lsqr, true_classes)
+MM_CG_VI = classify_vi(MM_sol.cg, true_classes)
+SD_VI = classify_vi(SD_sol, true_classes)
+# ADMM_LSQR_VI = classify_vi(ADMM_sol.lsqr, true_classes)
+# ADMM_CG_VI = classify_vi(ADMM_sol.cg, true_classes)
+
+df[!,:VI] = [
+    MM_LSQR_VI[1],
+    MM_CG_VI[1],
+    SD_VI[1],
+#    ADMM_LSQR_VI[1],
+#    ADMM_CG_VI[1]
+]
+
+# report best clustering by VI
+df[!,:VI_clusters] = [
+    MM_LSQR_VI[2],
+    MM_CG_VI[2],
+    SD_VI[2],
+#    ADMM_LSQR_VI[2],
+#    ADMM_CG_VI[2]
+]
+
+# report maximum mutual information
+MM_LSQR_MI = classify_mi(MM_sol.lsqr, true_classes)
+MM_CG_MI = classify_mi(MM_sol.cg, true_classes)
+SD_MI = classify_mi(SD_sol, true_classes)
+# ADMM_LSQR_MI = classify_mi(ADMM_sol.lsqr, true_classes)
+# ADMM_CG_MI = classify_mi(ADMM_sol.cg, true_classes)
+
+df[!,:MI] = [
+    MM_LSQR_MI[1],
+    MM_CG_MI[1],
+    SD_MI[1],
+#    ADMM_LSQR_MI[1],
+#    ADMM_CG_MI[1]
+]
+
+# report best clustering by VI
+df[!,:MI_clusters] = [
+    MM_LSQR_MI[2],
+    MM_CG_MI[2],
+    SD_MI[2],
+#    ADMM_LSQR_MI[2],
+#    ADMM_CG_MI[2]
+]
+
+display(df)
+```
+
+### Appendix
+
+```{julia}
+using Pkg; Pkg.status()
+```
+
+```{julia}
+using InteractiveUtils; versioninfo()
+```
