@@ -28,12 +28,13 @@ function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegBlockA, θ::AbstractVe
    # apply A block of D = [A B]
    k = 0
    for j in 1:n
-      for i in 1:j-1
-         @inbounds z[k+=1] = θ[j] - θ[i]
+      θⱼ = θ[j]
+      @simd for i in 1:j-1
+         @inbounds z[k+=1] = θⱼ - θ[i]
       end
 
-      for i in j+1:n
-         @inbounds z[k+=1] = θ[j] - θ[i]
+      @simd for i in j+1:n
+         @inbounds z[k+=1] = θⱼ - θ[i]
       end
    end
 
@@ -50,12 +51,12 @@ function LinearAlgebra.mul!(θ::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRe
 
    for j in 1:n
       # subtraction above dense row
-      for i in 1:j-1
+      @simd for i in 1:j-1
          @inbounds θ[i] -= z[(n-1)*(j-1)+i]
       end
 
       # subtraction below dense row
-      for i in j+1:n
+      @simd for i in j+1:n
          @inbounds θ[i] -= z[(n-1)*(j-1)+i-1]
       end
    end
@@ -76,7 +77,7 @@ Base.size(D::CvxRegAGM) = (D.N, D.N)
 function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegAGM, θ::AbstractVector)
    N = D.N
    c = sum(θ)
-   @inbounds for i in 1:N
+   @inbounds @simd for i in 1:N
       z[i] = 2*(N*θ[i] - c)
    end
 
@@ -156,7 +157,7 @@ function LinearAlgebra.mul!(ξ::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRe
       for i in 1:j-1
          xi = view(X, 1:d, i)
          @inbounds zi = z[offset+i]
-         for k in 1:d
+         @simd for k in 1:d
             @inbounds ξ[block+k] += zi * (xi[k] - xj[k])
          end
       end
@@ -164,7 +165,7 @@ function LinearAlgebra.mul!(ξ::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRe
       for i in j+1:n
          xi = view(X, 1:d, i)
          @inbounds zi = z[offset+i-1]
-         for k in 1:d
+         @simd for k in 1:d
             @inbounds ξ[block+k] += zi * (xi[k] - xj[k])
          end
       end
@@ -224,3 +225,56 @@ function LinearAlgebra.mul!(x::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxReg
 end
 
 LinearMaps._unsafe_mul!(y::AbstractVecOrMat, Dt::TransposeMap{<:Any,<:CvxRegFM}, x::AbstractVector) = mul!(y, Dt, x)
+
+struct CvxRegFGM{T,matA,matB} <: FusionGramMatrix{T}
+   A::matA
+   B::matB
+   d::Int
+   n::Int
+   M::Int
+   N::Int
+   tmp::Vector{T}
+
+   function CvxRegFGM{T}(A::matA, B::matB, d, n, M, N) where {T,matA,matB}
+      new{T,matA,matB}(A, B, d, n, M, N, zeros(T, size(B, 1)))
+   end
+end
+
+# constructors
+
+function CvxRegFGM(X)
+   d, n = size(X)
+   M = n*(n-1)
+   N = n*(1+d)
+   A = CvxRegBlockA(n)
+   B = CvxRegBlockB(X)
+
+   T = promote_type(Int, eltype(X))
+   matA = typeof(A)
+   matB = typeof(B)
+
+   return CvxRegFGM{T,matA,matB}(A, B, d, n, M, N)
+end
+
+# implementation
+Base.size(D::CvxRegFGM) = (D.N, D.N)
+
+function LinearAlgebra.mul!(z::AbstractVecOrMat, D::CvxRegFGM, x::AbstractVector)
+   d, n = D.d, D.n
+   A, B, tmp = D.A, D.B, D.tmp
+   θ, ξ = view(x, 1:n), view(x, n+1:n*(1+d))
+   z₁, z₂ = view(z, 1:n), view(z, n+1:n*(1+d))
+
+   # AᵀA*θ + AᵀB*ξ
+   mul!(tmp, B, ξ)
+   mul!(z₁, A', tmp)
+   mul!(z₁, A'A, θ, true, true)
+
+   # BᵀA*θ + BᵀB*ξ
+   mul!(tmp, A, θ, true, true)
+   mul!(z₂, B', tmp)
+
+   return z
+end
+
+Base.:(*)(Dt::TransposeMap{T,CvxRegFM{T,matA,matB}}, D::CvxRegFM{T,matA,matB}) where {T,matA,matB} = CvxRegFGM{T}(D.A, D.B, D.d, D.n, D.M, D.N)
