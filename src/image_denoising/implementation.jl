@@ -1,12 +1,7 @@
 @doc raw"""
     denoise_image(algorithm::AlgorithmOption, image;)
 
-Remove noise from the input `image` by minimizing its total variation.
-
-A sparsity parameter `nu` enforces derivatives `image[i+1,j] - image[i,j]` and
-`image[i,j+1] - image[i,j]` to be zero. The choice `nu = 0` coerces zero
-variation whereas `nu = (n-1)*p + n*(p-1)` preserves the original image.
-Setting `rev=false` reverses this relationship.
+Remove noise from the input `image` by minimizing its total variation (TV).
 
 The function [`denoise_image_path`](@ref) provides a solution path.
 
@@ -14,20 +9,15 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 
 # Keyword Arguments
 
-- `nu::Integer=0`: A sparsity parameter that controls clusterings.
-- `rev::Bool=true`: A flag that changes the interpretation of `nu` from constraint violations (`rev=true`) to constraints satisfied (`rev=false`).
-This indirectly affects the performance of the algorithm and should only be used when crossing the threshold `nu = [(n-1)*p + n*(p-1)] ÷ 2`.
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `s::Real=0.5`: A parameter controlling the TV of the input image.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
+- `proj=Val(:l1)`: Choice of projection, where `Val(:l1)` imposes soft-thresholding (L1) on derivatives and `Val(:l0)` imposes hard-thresholding (L0).
+
+In the L0 method, `s` is interpreted as sparsity in derivatives with `k = (1-s)*k_max` denoting the number of admissible nonzero derivatives.
+
+In the L1 method, `s` is interpreted as a reduction in TV. That is, `(1-s) * TV(image)` is the target total variation of the output image. The choice `s=0.1` therefore means the `TV(image)` is reduced by 10%.
 """
-function denoise_image(algorithm::AlgorithmOption, image; nu::Integer=0, tv::Real=1.0, rev::Bool=true, ls=Val(:LSQR), proj=Val(:l0), kwargs...)
+function denoise_image(algorithm::AlgorithmOption, image; s::Real=0.5, ls=Val(:LSQR), proj=Val(:l1), kwargs...)
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -63,6 +53,11 @@ function denoise_image(algorithm::AlgorithmOption, image; nu::Integer=0, tv::Rea
         derivatives = (∇f = ∇f, ∇²f = ∇²f, ∇q = ∇q, ∇h = ∇h)
     end
 
+    # allocate buffers for mat-vec multiplication, projections, and so on
+    z = similar(Vector{eltype(x)}, M)
+    Pz = similar(z)
+    v = similar(z)
+
     # generate operators
     D = ImgTvdFM(n, p)
     a = copy(x)
@@ -70,19 +65,17 @@ function denoise_image(algorithm::AlgorithmOption, image; nu::Integer=0, tv::Rea
     projection_cache = zeros(M-1)
 
     if proj isa Val{:l0}
-        P = L0Projection(nu, projection_idx, projection_cache)
+        k = round(Int, (1-s)*(M-1))
+        P = L0Projection(k, projection_idx, projection_cache)
     elseif proj isa Val{:l1}
-        P = L1Projection(tv, projection_cache)
+        mul!(z, D, x)
+        tv = norm(z, 1)
+        P = L1Projection((1-s)*tv, projection_cache)
     else
         error("unsupported projection choice, $(proj)")
     end
 
     operators = (D = D, P = P, a = a)
-
-    # allocate buffers for mat-vec multiplication, projections, and so on
-    z = similar(Vector{eltype(x)}, M)
-    Pz = similar(z)
-    v = similar(z)
 
     # select linear solver, if needed
     if needs_linsolver(algorithm)
@@ -119,19 +112,11 @@ function denoise_image(algorithm::AlgorithmOption, image; nu::Integer=0, tv::Rea
 
     if algorithm isa ADMM
         mul!(y, D, x)
-        y_prev = similar(y)
-        r = similar(y)
-        s = similar(x)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = similar(y), r = similar(y), s = similar(x), tmpx = similar(x))
     elseif algorithm isa MMSubSpace
-        tmpGx1 = zeros(N)
-        tmpGx2 = zeros(N)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = similar(x), tmpGx1 = zeros(N), tmpGx2 = zeros(N))
     else
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = similar(x))
     end
 
     # create views, if needed
@@ -155,29 +140,25 @@ end
 
 Remove noise from the input `image` by minimizing its total variation.
 
-This function returns images obtained with 5% sparsity up to 95% sparsity, in
-increments of 10%. Results are stored in a  `NamedTuple` with fields `img` and
-`ν_path`.
-
 See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`](@ref), [`initialize_history`](@ref)
 
 # Keyword Arguments
 
-- `rho::Real=1.0`: An initial value for the penalty coefficient. This should match with the choice of annealing schedule, `penalty`.
-- `mu::Real=1.0`: An initial value for the step size in `ADMM()`.
+- `s_init=0.5`: Initial value for `s` parameter.
+- `s_max=1.0`: Maximum value for the `s` parameter.
+- `stepsize`: Minimum increase in `s`.
+- `magnitude`: Threshold (on log10 scale) used to determine whether a derivative is "close enough".
+- `callback`: Callback function that can be used to handle results after a step in the solution path.
 - `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
-- `maxiters::Integer=100`: The maximum number of iterations.
-- `penalty::Function=__default_schedule__`: A two-argument function `penalty(rho, iter)` that computes the penalty coefficient at iteration `iter+1`. The default setting does nothing.
-- `history=nothing`: An object that logs convergence history.
-- `rtol::Real=1e-6`: A convergence parameter measuring the relative change in the loss model, $\frac{1}{2} \|(x-y)\|^{2}$.
-- `atol::Real=1e-4`: A convergence parameter measuring the magnitude of the squared distance penalty $\frac{\rho}{2} \mathrm{dist}(Dx,C)^{2}$.
-- `accel=Val(:none)`: Choice of an acceleration algorithm. Options are `Val(:none)` and `Val(:nesterov)`.
+- `proj=Val(:l1)`: Choice of projection, one of `Val(:l1)` for standard TV denoising and `Val(:l0)` for a hard thresholding variant.
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
+    s_init::Real=0.5,
+    s_max::Real=1.0,
     stepsize::Real=0.1,
-    start::Real=Inf,
-    history::histT=nothing,
-    ls::LS=Val(:LSQR), proj=Val(:l0), kwargs...) where {histT, LS}
+    magnitude::Real=-2,
+    callback::cbT=DEFAULT_CALLBACK,
+    ls::LS=Val(:LSQR), proj=Val(:l1), kwargs...) where {cbT, LS}
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -265,19 +246,11 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
 
     if algorithm isa ADMM
         mul!(y, D, x)
-        y_prev = similar(y)
-        r = similar(y)
-        s = similar(x)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = y_prev, r = r, s = s, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, y_prev = similar(y), r = similar(y), s = similar(x), tmpx = similar(x))
     elseif algorithm isa MMSubSpace
-        tmpGx1 = zeros(N)
-        tmpGx2 = zeros(N)
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = tmpx, tmpGx1 = tmpGx1, tmpGx2 = tmpGx2)
+        buffers = (z = z, Pz = Pz, v = v, b = b, β = β, tmpx = similar(x), tmpGx1 = zeros(N), tmpGx2 = zeros(N))
     else
-        tmpx = similar(x)
-        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = tmpx)
+        buffers = (z = z, Pz = Pz, v = v, b = b, tmpx = similar(x))
     end
 
     # create views, if needed
@@ -291,69 +264,78 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     X_path = typeof(X)[]
     s_path = Float64[]
 
-    # check initial total variation and initialize solution path heuristic
-    mul!(z, D, x)
+    # create a closure to count constraints
+    count_constraints = function()
+        mul!(z, D, x) # compute differences
+        number_coalesced = 0
+        for j in 1:M-1
+            number_coalesced += log10(abs(z[j])) ≤ magnitude
+        end
+        number_coalesced
+    end
+
+    # initialize solution path heuristic
+    nconstraint = count_constraints()
     tv_init = norm(z, 1)
-    nconstraint = 0
-    for j in 1:M-1
-        # derivatives within 10^-3 are set to 0
-        nconstraint += (log10(abs(z[j])) ≤ -3)
-    end
-
-    rmax = 1.0
-    rstep = stepsize
-    if 0 < start ≤ rmax
-        r = start
+    if 0 ≤ s_init ≤ s_max
+        s = s_init
     else
-        r = 1 - nconstraint / (M-1)
+        s = nconstraint / (M-1)
     end
 
-    prog = ProgressThresh(zero(r), "Searching solution path...")
-    while r ≥ 0
-        if proj isa Val{:l0} # update sparsity level / model size
-            nu = round(Int, r*(M-1))
-            P = L0Projection(nu, projection_idx, projection_buffer)
-        elseif proj isa Val{:l1} # update radius
-            tv = r * tv_init
+    # flag for projection type
+    is_L0_method = proj isa Val{:l0}
+    is_L1_method = proj isa Val{:l1}
+
+    prog = ProgressUnknown("Searching denoising path...")
+    while s_init ≤ s ≤ s_max
+        if is_L0_method # update sparsity level / model size / target TV
+            k = round(Int, (1-s)*(M-1))
+            P = L0Projection(k, projection_idx, projection_buffer)
+        elseif is_L1_method # update radius
+            tv = (1-s)*tv_init
             P = L1Projection(tv, projection_buffer)
         else
             error("unsupported projection choice, $(proj)")
         end
-
         operators = (D = D, P = P, a = a)
         prob = ProxDistProblem(variables, old_variables, derivatives, operators, buffers, views, linsolver)
         prob_tuple = (objective, algmap, prob)
-        _, iter, _ = optimize!(algorithm, prob_tuple; kwargs...)
 
-        # # update history
-        # if !(history === nothing)
-        #     f_loss, h_dist, h_ngrad = objective(algorithm, prob, 1.0)
-        #     data = package_data(f_loss, h_dist, h_ngrad, stepsize, 1.0)
-        #     update_history!(history, data, iter-1)
-        # end
+        result = optimize!(algorithm, prob_tuple; kwargs...)
+
+        # update history
+        callback(Val(:inner), algorithm, result.iters, result, prob, 0.0, 0.0)
 
         # record current solution
         push!(X_path, copy(X))      # record solution
-        push!(s_path, 100 * (1-r))  # record % sparsity
+        push!(s_path, 100*s)        # record % sparsity / reduction factor
 
         # count satisfied constraints
-        nconstraint = 0
-        for j in 1:M-1
-            # derivatives within 10^-3 are set to 0
-            nconstraint += (log10(abs(z[j])) ≤ -3)
-        end
+        nconstraint = count_constraints()
+        tv_current = norm(z, 1)
+        showvalues = [
+            ("Projection", is_L1_method ? "L1" : "L0"),
+            ("s", 100*s),
+            ("initial TV", tv_init),
+            ("current TV", tv_current),
+            ("distance", sqrt(result.distance)),
+            ("gradient", sqrt(result.gradient)),
+        ]
 
         # decrease r with a heuristic that guarantees a decrease
-        rnew = 1 - nconstraint / (M-1)
-        if rnew < r - rstep
-            r = rnew
+        s_proposal = nconstraint / (M-1)
+        if s_proposal > s + stepsize
+            s = s_proposal
         else
-            r = r - rstep
+            s = s + stepsize
         end
-        ProgressMeter.update!(prog, r)
-    end
 
-     solution_path = (img = X_path, sparsity = s_path)
+        ProgressMeter.next!(prog, showvalues=showvalues)
+    end
+    ProgressMeter.finish!(prog)
+
+     solution_path = (img = X_path, s = s_path)
 
     return solution_path
 end
@@ -373,19 +355,13 @@ function imgtvd_objective(::AlgorithmOption, prob, ρ)
 
     # evaluate gradient of penalty
     mul!(z, D, x)
-
-    # finish evaluating penalty gradient
-    M = length(z)
-    zview = @view z[1:M-1]
-    Pview = @view Pz[1:M-1]
+    zview = @view z[1:end-1]
+    Pview = @view Pz[1:end-1]
     copyto!(Pview, zview)
     P(Pview)        # project z onto ball, storing it in Pz
     Pz[end] = z[end]
     @. v = z - Pz   # compute vector pointing to constraint set
-
-    # handle component coming from extra row in fusion matrix
-    v[end] = 0
-
+    v[end] = 0      # handle component coming from extra row in fusion matrix
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
@@ -403,9 +379,24 @@ end
 
 function imgtvd_iter(::SteepestDescent, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇h = prob.derivatives
-    @unpack D = prob.operators
-    @unpack z = prob.buffers
+    @unpack ∇f, ∇q, ∇h = prob.derivatives
+    @unpack D, P, a = prob.operators
+    @unpack z, Pz, v = prob.buffers
+
+    # evaulate gradient of loss
+    @. ∇f = x - a
+
+    # evaluate gradient of penalty
+    mul!(z, D, x)
+    zview = @view z[1:end-1]
+    Pview = @view Pz[1:end-1]
+    copyto!(Pview, zview)
+    P(Pview)        # project z onto ball, storing it in Pz
+    Pz[end] = z[end]
+    @. v = z - Pz   # compute vector pointing to constraint set
+    v[end] = 0      # handle component coming from extra row in fusion matrix
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
 
     # evaluate step size, γ
     mul!(z, D, ∇h)
@@ -422,9 +413,17 @@ end
 function imgtvd_iter(::MM, prob, ρ, μ)
     @unpack x = prob.variables
     @unpack ∇²f = prob.derivatives
-    @unpack D, a = prob.operators
-    @unpack b, Pz, tmpx = prob.buffers
+    @unpack D, P, a = prob.operators
+    @unpack b, z, Pz, tmpx = prob.buffers
     linsolver = prob.linsolver
+
+    # projection
+    mul!(z, D, x)
+    zview = @view z[1:end-1]
+    Pview = @view Pz[1:end-1]
+    copyto!(Pview, zview)
+    P(Pview)        # project z onto ball, storing it in Pz
+    Pz[end] = z[end]
 
     if linsolver isa LSQRWrapper
         # build LHS of A*x = b
@@ -523,11 +522,26 @@ end
 
 function imgtvd_iter(::MMSubSpace, prob, ρ, μ)
     @unpack x = prob.variables
-    @unpack ∇²f, ∇h, ∇f, G = prob.derivatives
+    @unpack ∇²f, ∇h, ∇f, ∇q, G = prob.derivatives
     @unpack D = prob.operators
-    @unpack β, b, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
+    @unpack β, b, z, Pz, v, tmpx, tmpGx1, tmpGx2 = prob.buffers
     linsolver = prob.linsolver
 
+    # evaulate gradient of loss
+    @. ∇f = x - a
+
+    # evaluate gradient of penalty
+    mul!(z, D, x)
+    zview = @view z[1:end-1]
+    Pview = @view Pz[1:end-1]
+    copyto!(Pview, zview)
+    P(Pview)        # project z onto ball, storing it in Pz
+    Pz[end] = z[end]
+    @. v = z - Pz   # compute vector pointing to constraint set
+    v[end] = 0      # handle component coming from extra row in fusion matrix
+    mul!(∇q, D', v)
+    @. ∇h = ∇f + ρ * ∇q
+    
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
     if linsolver isa LSQRWrapper
         # build LHS, A = [A₁, A₂] * G
