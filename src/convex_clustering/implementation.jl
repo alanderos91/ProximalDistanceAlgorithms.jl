@@ -285,7 +285,6 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     end
 
     prog = ProgressUnknown("Searching clustering path...")
-    ProgressMeter.next!(prog)
     while init_sparsity ≤ s ≤ max_sparsity
         k = round(Int, (1-s)*m)
         P = ColumnL0Projection(k, projection_idx, projection_buffer, projection_scores)
@@ -321,7 +320,6 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
         else
             s = s + stepsize
         end
-        s = s + stepsize
         
         ProgressMeter.next!(prog, showvalues=showvalues)
     end
@@ -436,7 +434,7 @@ function cvxclst_iter(::MM, prob, ρ, μ)
 
         # build RHS of A*x = b; b = a + ρ*D'P(D*x)
         mul!(b, D', Pz)
-        axpby!(1, a, ρ, b)
+        axpby!(true, a, ρ, b)
     end
 
     # solve the linear system
