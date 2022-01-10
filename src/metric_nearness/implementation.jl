@@ -17,7 +17,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 
 # Keyword Arguments
 
-- `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 
 ### Examples
 
@@ -54,7 +54,7 @@ julia> metric_projection(SteepestDescent(), X, penalty=f, nouter=100, ninner=10^
  6.333  1.333  0.0
 ```
 """
-function metric_projection(algorithm::AlgorithmOption, A, W=I; ls=Val(:LSQR), kwargs...)
+function metric_projection(algorithm::AlgorithmOption, A, W=I; ls=Val(:LSMR), kwargs...)
     #
     # extract problem dimensions
     n = size(A, 1)      # number of nodes
@@ -120,6 +120,12 @@ function metric_projection(algorithm::AlgorithmOption, A, W=I; ls=Val(:LSQR), kw
             A = MMSOp1(A₁, A₂, G, x, x, 1.0)
             b = similar(typeof(x), N+M)
             linsolver = LSQRWrapper(A, β, b)
+        elseif ls isa Val{:LSMR}
+            A₁ = LinearMap(I, N)
+            A₂ = D
+            A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+            b = similar(typeof(x), N+M)
+            linsolver = LSMRWrapper(A, β, b)
         else
             b = similar(typeof(x), K)
             linsolver = CGWrapper(G, β, b)
@@ -298,7 +304,7 @@ function metric_iter(::MMSubSpace, prob, ρ, μ)
     @. ∇h = ∇f + ρ * ∇q
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS, A = [A₁, A₂] * G
         # A₁ = W^1/2 in general
         # A₂ = √ρ*D

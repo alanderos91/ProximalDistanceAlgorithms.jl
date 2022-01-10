@@ -277,6 +277,68 @@ df[!, :mse] .= df.mse * 1e3
 
 print_latex_table(df, metric_columns=[:time, :loss, :distance, :mse], left_columns=input_columns)
 
+# Bonus: CG and LSQR comparisons with MM
+
+df1 = glob_benchmark_data("cvxreg-d=20*MM*benchmark.dat")
+df1 = combine(groupby(df1, grouping_columns), [
+        :time => mean => :time_avg,
+        :time => std => :time_std,
+        :outer => first => :outer,
+        :inner => first => :inner,
+    ])
+
+# Preprocess convergence data.
+df2 = glob_convergence_data("cvxreg-d=20*MM*convergence.dat")
+
+# Sort rows by problem size and algorithms.
+df = leftjoin(df1, df2, on=grouping_columns)
+sort!(df, [input_columns; order(:algorithm, by=algorithm_ordering)])
+
+# Select algorithms that should appear in table.
+filter!(row -> !contains(row.algorithm, "MMSubSpace"), df)
+filter!(row -> !contains(row.algorithm, "SteepestDescent"), df)
+filter!(row -> !contains(row.algorithm, "ADMM"), df)
+
+df[!, :algorithm] .= replace(x -> contains(x, "MM-LSQR") ? "LSQR" : x, df.algorithm)
+df[!, :algorithm] .= replace(x -> contains(x, "MM-CG") ? "CG" : x, df.algorithm)
+
+# Scale select columns for readability.
+df[!, :loss] .= df.loss * 1e6
+df[!, :distance] .= df.distance * 1e6
+
+print_latex_table(df, metric_columns=[:time, :loss, :distance, :iterations], left_columns=input_columns)
+
+# Bonus: CG and LSQR comparisons with ADMM
+
+df1 = glob_benchmark_data("cvxreg-d=20*ADMM*benchmark.dat")
+df1 = combine(groupby(df1, grouping_columns), [
+        :time => mean => :time_avg,
+        :time => std => :time_std,
+        :outer => first => :outer,
+        :inner => first => :inner,
+    ])
+
+# Preprocess convergence data.
+df2 = glob_convergence_data("cvxreg-d=20*ADMM*convergence.dat")
+
+# Sort rows by problem size and algorithms.
+df = leftjoin(df1, df2, on=grouping_columns)
+sort!(df, [input_columns; order(:algorithm, by=algorithm_ordering)])
+
+# Select algorithms that should appear in table.
+filter!(row -> !contains(row.algorithm, "MMSubSpace"), df)
+filter!(row -> !contains(row.algorithm, "SteepestDescent"), df)
+# filter!(row -> !contains(row.algorithm, "MM"), df)
+
+df[!, :algorithm] .= replace(x -> contains(x, "ADMM-LSQR") ? "LSQR" : x, df.algorithm)
+df[!, :algorithm] .= replace(x -> contains(x, "ADMM-CG") ? "CG" : x, df.algorithm)
+
+# Scale select columns for readability.
+df[!, :loss] .= df.loss * 1e6
+df[!, :distance] .= df.distance * 1e6
+
+print_latex_table(df, metric_columns=[:time, :loss, :distance, :iterations], left_columns=input_columns)
+
 ##############################
 # Example: Convex Clustering #
 ##############################
@@ -314,11 +376,50 @@ df[!, :algorithm] .= replace(x -> contains(x, "SteepestDescent") ? "SD" : x, df.
 df[!, :algorithm] .= replace(x -> contains(x, "-LSQR") ? first(split(x, '-')) : x, df.algorithm)
 
 # Scale select columns for readability.
-# df[!, :loss] .= df.loss * 1e3
 df[!, :distance] .= df.distance * 1e5
-# df[!, :mse] .= df.mse * 1e3
 
 print_latex_table(df, metric_columns=[:time, :loss, :distance, :ARI, :NMI], left_columns=input_columns)
+
+##############################
+# Example: Image Denoising   #
+##############################
+
+# Set target columns.
+input_columns = [:image, :width, :height]
+grouping_columns = [input_columns; :algorithm]
+
+# Preprocess benchmark data.
+df1 = glob_benchmark_data("imgtvd*benchmark.dat")
+df1 = combine(groupby(df1, grouping_columns), [
+        :time => mean => :time_avg,
+        :time => std => :time_std,
+        :memory => mean => :memory_avg,
+        :memory => std => :memory_std,
+        :outer => first => :outer,
+        :inner => first => :inner,
+        :s => first => :s,
+        :MSE => first => :MSE,
+        :PSNR => first => :PSNR,
+    ])
+
+# Preprocess convergence data.
+df2 = glob_convergence_data("imgtvd*convergence.dat")
+
+# Sort rows by problem size and algorithms.
+df = leftjoin(df1, df2, on=grouping_columns)
+sort!(df, [input_columns; order(:algorithm, by=algorithm_ordering)])
+
+# Select algorithms that should appear in table.
+filter!(row -> !contains(row.algorithm, "MMSubSpace"), df)
+filter!(row -> !contains(row.algorithm, "-CG"), df)
+df[!, :algorithm] .= replace(x -> contains(x, "SteepestDescent") ? "SD" : x, df.algorithm)
+df[!, :algorithm] .= replace(x -> contains(x, "-LSQR") ? first(split(x, '-')) : x, df.algorithm)
+
+# Scale select columns for readability.
+df[!, :distance] .= df.distance * 1e3
+df[!, :MSE] .= df.MSE * 1e5
+
+print_latex_table(df, metric_columns=[:time, :loss, :distance, :MSE, :PSNR], left_columns=input_columns)
 
 ##############################
 # Example: Condition Number  #

@@ -10,14 +10,14 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 # Keyword Arguments
 
 - `s::Real=0.5`: A parameter controlling the TV of the input image.
-- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 - `proj=Val(:l1)`: Choice of projection, where `Val(:l1)` imposes soft-thresholding (L1) on derivatives and `Val(:l0)` imposes hard-thresholding (L0).
 
 In the L0 method, `s` is interpreted as sparsity in derivatives with `k = (1-s)*k_max` denoting the number of admissible nonzero derivatives.
 
 In the L1 method, `s` is interpreted as a reduction in TV. That is, `(1-s) * TV(image)` is the target total variation of the output image. The choice `s=0.1` therefore means the `TV(image)` is reduced by 10%.
 """
-function denoise_image(algorithm::AlgorithmOption, image; s::Real=0.5, ls=Val(:LSQR), proj=Val(:l1), kwargs...)
+function denoise_image(algorithm::AlgorithmOption, image; s::Real=0.5, ls=Val(:LSMR), proj=Val(:l1), kwargs...)
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -89,6 +89,12 @@ function denoise_image(algorithm::AlgorithmOption, image; s::Real=0.5, ls=Val(:L
                 A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, β, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, β, b)
             else
                 b = similar(typeof(x), K)
                 linsolver = CGWrapper(G, β, b)
@@ -100,6 +106,12 @@ function denoise_image(algorithm::AlgorithmOption, image; s::Real=0.5, ls=Val(:L
                 A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, x, b)
             else
                 b = similar(x)
                 linsolver = CGWrapper(D, x, b)
@@ -149,7 +161,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `stepsize`: Minimum increase in `s`.
 - `magnitude`: Threshold (on log10 scale) used to determine whether a derivative is "close enough".
 - `callback`: Callback function that can be used to handle results after a step in the solution path.
-- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 - `proj=Val(:l1)`: Choice of projection, one of `Val(:l1)` for standard TV denoising and `Val(:l0)` for a hard thresholding variant.
 """
 function denoise_image_path(algorithm::AlgorithmOption, image;
@@ -158,7 +170,7 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
     stepsize::Real=0.1,
     magnitude::Real=-2,
     callback::cbT=DEFAULT_CALLBACK,
-    ls::LS=Val(:LSQR), proj=Val(:l1), kwargs...) where {cbT, LS}
+    ls::LS=Val(:LSMR), proj=Val(:l1), kwargs...) where {cbT, LS}
     #
     # extract problem information
     # n, p = size(image)      # n pixels × p pixels
@@ -223,6 +235,12 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
                 A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, β, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, β, b)
             else
                 b = similar(typeof(x), K)
                 linsolver = CGWrapper(G, β, b)
@@ -234,6 +252,12 @@ function denoise_image_path(algorithm::AlgorithmOption, image;
                 A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, x, b)
             else
                 b = similar(x)
                 linsolver = CGWrapper(D, x, b)
@@ -425,7 +449,7 @@ function imgtvd_iter(::MM, prob, ρ, μ)
     P(Pview)        # project z onto ball, storing it in Pz
     Pz[end] = z[end]
 
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -463,7 +487,7 @@ function imgtvd_iter(::ADMM, prob, ρ, μ)
 
     # x block update
     @. v = y - λ
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -543,7 +567,7 @@ function imgtvd_iter(::MMSubSpace, prob, ρ, μ)
     @. ∇h = ∇f + ρ * ∇q
     
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS, A = [A₁, A₂] * G
         A₁ = LinearMap(I, size(D, 2))
         A₂ = D

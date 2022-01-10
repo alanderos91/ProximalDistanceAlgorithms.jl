@@ -92,10 +92,10 @@ for example in examples
             options = (; common_options...)
             benchmark(basename, algorithm, f, nreplicates, options, cb1, (r,sol)->cb2(basename,r,sol))
         else
-            # method w/ LSQR; fusion matrix is extremely ill-conditioned
-            basename = fileprefix * "-$(example)" * "-$(typeof(algorithm))" * "-LSQR"
-            options_with_LSQR = (; common_options..., ls=Val(:LSQR))
-            benchmark(basename, algorithm, f, nreplicates, options_with_LSQR, cb1, (r,sol)->cb2(basename,r,sol))            
+            # method w/ LSMR; fusion matrix is extremely ill-conditioned
+            basename = fileprefix * "-$(example)" * "-$(typeof(algorithm))" * "-LSMR"
+            options_with_LSMR = (; common_options..., ls=Val(:LSMR))
+            benchmark(basename, algorithm, f, nreplicates, options_with_LSMR, cb1, (r,sol)->cb2(basename,r,sol))            
         end
     end
 end

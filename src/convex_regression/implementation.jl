@@ -20,9 +20,9 @@ See also [`MM`](@ref), [`SteepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 
 # Keyword Arguments
 
-- `ls=Val(:LSQR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 """
-function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val(:LSQR), kwargs...) where LS
+function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val(:LSMR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(covariates) # features × samples
@@ -90,6 +90,11 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val
                 A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, β, b)
+            elseif ls isa Val{:LSMR}
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, β, b)
             else
                 b = similar(typeof(x), K)
                 linsolver = CGWrapper(G, β, b)
@@ -100,6 +105,11 @@ function cvxreg_fit(algorithm::AlgorithmOption, response, covariates; ls::LS=Val
                 A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
                 linsolver = LSQRWrapper(A, x, b)
+            elseif ls isa Val{:LSMR}
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A₁,1)+M) # b has two blocks
+                linsolver = LSMRWrapper(A, x, b)
             else
                 b = similar(x)  # b has one block
                 linsolver = CGWrapper(D, x, b)
@@ -223,7 +233,7 @@ function cvxreg_iter(::MM, prob, ρ, μ)
     mul!(z, D, x)
     @. Pz = P(z)
 
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -263,7 +273,7 @@ function cvxreg_iter(::ADMM, prob, ρ, μ)
 
     # x block update
     @. v = y - λ
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -323,7 +333,7 @@ function cvxreg_iter(::MMSubSpace, prob, ρ, μ)
     @. ∇h = ∇f + ρ * ∇q
 
     # solve linear system Gt*At*A*G * β = Gt*At*b for stepsize
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS, A = [A₁, A₂] * G
         A₂ = D
         A = MMSOp1(A₁, A₂, G, tmpGx1, tmpGx2, √ρ)

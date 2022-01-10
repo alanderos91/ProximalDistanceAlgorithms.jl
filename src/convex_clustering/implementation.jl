@@ -13,9 +13,9 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 # Keyword Arguments
 
 - `sparsity::Real=0.5`: A parameter controlling the number of clusters with `s=0` assigning each sample its own cluster and `s=1` coalescing to a single cluster.
-- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 """
-function convex_clustering(algorithm::AlgorithmOption, weights, data; sparsity::Real=0.5, ls::LS=Val(:LSQR), kwargs...) where LS
+function convex_clustering(algorithm::AlgorithmOption, weights, data; sparsity::Real=0.5, ls::LS=Val(:LSMR), kwargs...) where LS
     #
     # extract problem information
     d, n = size(data)
@@ -75,6 +75,12 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data; sparsity::
                 A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, β, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, β, b)
             else
                 b = similar(typeof(x), K)
                 linsolver = CGWrapper(G, β, b)
@@ -86,6 +92,12 @@ function convex_clustering(algorithm::AlgorithmOption, weights, data; sparsity::
                 A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, x, b)
             else
                 b = similar(x)
                 linsolver = CGWrapper(D, x, b)
@@ -153,7 +165,7 @@ See also: [`MM`](@ref), [`StepestDescent`](@ref), [`ADMM`](@ref), [`MMSubSpace`]
 - `start::Real=0.5`: Starting sparsity value where `1-start` is the proportion of significant differences.
 - `stepsize::Real=0.05`: A value between `0` and `1` that discretizes the search space. If no additional points are found to coalesce, then decrease `nu` by `stepsize*nu_max`.
 - `radius::Real=2`: A value determining how close centroid assignments must in order to be considered clustered.
-- `ls=Val(:LSQR)`: Choice of linear solver for `MM`, `ADMM`, and `MMSubSpace` methods. Choose one of `Val(:LSQR)` or `Val(:CG)` for LSQR or conjugate gradients, respectively.
+- `ls=Val(:LSMR)`: Choice of linear solver in `MM`, `ADMM`, and `MMSubSpace`. Choose one of `Val(:LSMR)`, `Val(:LSQR)`, `Val(:CG)` for LSMR, LSQR, or conjugate gradients, respectively.
 """
 function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     init_sparsity::Real=0.5,
@@ -161,7 +173,7 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
     stepsize::Real=0.05,
     magnitude::Real=-2,
     callback::cbT=DEFAULT_CALLBACK,
-    ls::LS=Val(:LSQR), kwargs...) where {cbT, LS}
+    ls::LS=Val(:LSMR), kwargs...) where {cbT, LS}
     #
     # extract problem information
     d, n = size(data)
@@ -219,6 +231,12 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
                 A = MMSOp1(A₁, A₂, G, x, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, β, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = MMSOp1(A₁, A₂, G, x, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, β, b)
             else
                 b = similar(typeof(x), K)
                 linsolver = CGWrapper(G, β, b)
@@ -230,6 +248,12 @@ function convex_clustering_path(algorithm::AlgorithmOption, weights, data;
                 A = QuadLHS(A₁, A₂, x, 1.0)
                 b = similar(typeof(x), size(A, 1))
                 linsolver = LSQRWrapper(A, x, b)
+            elseif ls isa Val{:LSMR}
+                A₁ = LinearMap(I, N)
+                A₂ = D
+                A = QuadLHS(A₁, A₂, x, 1.0)
+                b = similar(typeof(x), size(A, 1))
+                linsolver = LSMRWrapper(A, x, b)
             else
                 b = similar(x)
                 linsolver = CGWrapper(D, x, b)
@@ -414,7 +438,7 @@ function cvxclst_iter(::MM, prob, ρ, μ)
     P(Pz_mat)
     rdiv!(Pz_mat, W) # map back to original scale
 
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -452,7 +476,7 @@ function cvxclst_iter(::ADMM, prob, ρ, μ)
 
     # x block update
     @. v = y - λ
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?
@@ -521,7 +545,7 @@ function cvxclst_iter(::MMSubSpace, prob, ρ, μ)
     mul!(∇q, D', v)
     @. ∇h = ∇f + ρ * ∇q
 
-    if linsolver isa LSQRWrapper
+    if linsolver isa LSQRWrapper || linsolver isa LSMRWrapper
         # build LHS of A*x = b
         # forms a BlockMap so non-allocating
         # however, A*x and A'b have small allocations due to views?

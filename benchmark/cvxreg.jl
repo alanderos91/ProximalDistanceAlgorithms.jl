@@ -69,6 +69,11 @@ for n in number_samples, d in number_features
             options = (; common_options...)
             benchmark(basename, algorithm, f, nreplicates, options, cb1, cb2)
         else
+            # method w/ LSMR
+            basename = fileprefix * "-d=$(d)-n=$(n)" * "-$(typeof(algorithm))" * "-LSMR"
+            options_with_LSMR = (; common_options..., ls=Val(:LSMR))
+            benchmark(basename, algorithm, f, nreplicates, options_with_LSMR, cb1, cb2)
+
             # method w/ LSQR
             basename = fileprefix * "-d=$(d)-n=$(n)" * "-$(typeof(algorithm))" * "-LSQR"
             options_with_LSQR = (; common_options..., ls=Val(:LSQR))

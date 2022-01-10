@@ -68,6 +68,11 @@ for p in matrix_sizes, α in factors
 
     for algorithm in algorithms
         if algorithm isa MMSubSpace
+            # MMSubSpace w/ LSMR
+            basename = fileprefix * "-p=$(p)-a=$(α)" * "-$(typeof(algorithm))" * "-LSMR"
+            options_with_LSMR = (; common_options..., ls=Val(:LSMR))
+            benchmark(basename, algorithm, f, nreplicates, options_with_LSMR, cb1, cb2)
+
             # MMSubSpace w/ LSQR
             basename = fileprefix * "-p=$(p)-a=$(α)" * "-$(typeof(algorithm))" * "-LSQR"
             options_with_LSQR = (; common_options..., ls=Val(:LSQR))

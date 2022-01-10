@@ -130,10 +130,10 @@ run = function(projection)
                 options = (; common_options..., proj=projection)
                 benchmark(basename, algorithm, f, nreplicates, options, cb1, (r,sol)->cb2(basename,r,sol))
             else
-                # method w/ LSQR; fusion matrix is extremely ill-conditioned
-                basename = fileprefix * "-$(projstr)" * "-$(example)" * "-$(typeof(algorithm))" * "-LSQR"
-                options_with_LSQR = (; common_options..., proj=projection, ls=Val(:LSQR))
-                benchmark(basename, algorithm, f, nreplicates, options_with_LSQR, cb1, (r,sol)->cb2(basename,r,sol))            
+                # method w/ LSMR; fusion matrix is extremely ill-conditioned
+                basename = fileprefix * "-$(projstr)" * "-$(example)" * "-$(typeof(algorithm))" * "-LSMR"
+                options_with_LSMR = (; common_options..., proj=projection, ls=Val(:LSMR))
+                benchmark(basename, algorithm, f, nreplicates, options_with_LSMR, cb1, (r,sol)->cb2(basename,r,sol))            
             end
         end
     end

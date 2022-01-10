@@ -40,6 +40,11 @@ for N in problem_sizes
 
     for algorithm in algorithms
         if algorithm isa MMSubSpace
+            # MMSubSpace w/ LSMR
+            basename = fileprefix * "-$(N)" * "-$(typeof(algorithm))" * "-LSMR"
+            options_with_LSMR = (; common_options..., ls=Val(:LSMR))
+            benchmark(basename, algorithm, f, nreplicates, options_with_LSMR, cb)
+
             # MMSubSpace w/ LSQR
             basename = fileprefix * "-$(N)" * "-$(typeof(algorithm))" * "-LSQR"
             options_with_LSQR = (; common_options..., ls=Val(:LSQR))
