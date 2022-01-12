@@ -44,7 +44,22 @@ const DEFAULT_ANNEALING = geometric_schedule
 # report 'objective' as 0.5 * (loss + rho * distance)
 # report 'gradient' as norm(gradient)
 
-function initialize_history(hint::Integer, sample_rate::Integer=1)
+"""
+```
+initialize_history([hint=100, sample_rate=1])
+```
+
+Create a tuple `(history, logger)` used to record and access convergence history.
+
+The `history` object is a `NamedTuple` of several arrays which can be initialzed to a particular size based on a `hint`. The `logger` is a function that should be passed to a solver call with the `callback` keyword; e.g. `callback=logger`.
+
+!!! note
+
+The `sample_rate` option controls how often *inner* iterations are recorded. *Outer* iterations are always recorded by logging the current value of `ρ`.
+
+See also: [`initialize_printing_logger`](@ref)
+"""
+function initialize_history(hint::Integer=1000, sample_rate::Integer=1)
     history = (
         sample_rate = sample_rate,
         loss      = sizehint!(Float64[], hint),
@@ -85,7 +100,20 @@ end
 
 ##### printing convergence history #####
 
-function initialize_printing_logger(or::Int, ir::Int)
+"""
+```
+initialize_history([or=1, ir=1])
+```
+
+Create a `logger` object used to print convergence history.
+
+!!! note
+
+The `or` and `ir` options control how often information from outer and inner iterations, respectively, is printed to `stdout`. For example, using `or=2` and `ir=100` means information is printed every 2 outer iterations and every 100 inner iterations.
+
+See also: [`initialize_history`](@ref)
+"""
+function initialize_printing_logger(or::Int=1, ir::Int=1)
     logger = function(kind, algorithm, iter, result, problem, ρ, μ)
         print_convergence_history(or, ir, kind, algorithm, iter, result, problem, ρ, μ)
     end
@@ -131,10 +159,6 @@ LinearAlgebra.issymmetric(D::FusionMatrix) = false
 LinearAlgebra.ishermitian(D::FusionMatrix) = false
 LinearAlgebra.isposdef(D::FusionMatrix)    = false
 
-# internal API
-
-instantiate_fusion_matrix(D::FusionMatrix) = error("not implemented for $(typeof(D))")
-
 abstract type FusionGramMatrix{T} <: LinearMap{T} end
 
 # LinearAlgebra traits
@@ -142,7 +166,7 @@ LinearAlgebra.issymmetric(DtD::FusionGramMatrix) = true
 LinearAlgebra.ishermitian(DtD::FusionGramMatrix) = true
 LinearAlgebra.isposdef(DtD::FusionGramMatrix)    = false
 
-##### trivec
+##### trivec #####
 
 trivec_index(n, i, j) = (i-j) + n*(j-1) - (j*(j-1))>>1
 
